@@ -1,0 +1,96 @@
+// Anthropic 流式适配器
+// 参考源码: claude-code-main/src/services/api/claude.ts
+
+import type { Message as SDKMessage, RawMessageStreamEvent } from '@anthropic-ai/sdk/resources/messages'
+import { config } from '../config'
+import type { Message, StreamEvent } from '../types/message'
+import { toAPIMessage } from '../types/message'
+import type { ToolSchema } from '../tools/Tool'
+import { normalizeMessagesForAPI } from '../utils/messages'
+import { getClient } from './client'
+
+export interface StreamOptions {
+  system?: string
+  enablePromptCaching?: boolean
+  tools?: ToolSchema[]
+}
+
+export async function* streamMessageAnthropic(
+  messages: Message[],
+  options: StreamOptions = {},
+): AsyncGenerator<StreamEvent> {
+  const client = getClient()
+  // normalizeMessagesForAPI 负责合并连续 user 消息、过滤空白 assistant 等
+  // toAPIMessage 做最终类型转换（TextBlock → ContentBlockParam）
+  const apiMessages = normalizeMessagesForAPI(messages).map(toAPIMessage)
+
+  // ephemeral 缓存 5 分钟，命中后省约 90% input token 费用
+  const system = options.system
+    ? options.enablePromptCaching
+      ? [{ type: 'text' as const, text: options.system, cache_control: { type: 'ephemeral' as const } }]
+      : options.system
+    : undefined
+
+  const stream = client.messages.stream({
+    model: config.anthropic.model,
+    max_tokens: config.anthropic.maxTokens,
+    system: system as string | undefined,
+    messages: apiMessages,
+    ...(options.tools?.length
+      ? {
+          tools: options.tools as Parameters<typeof client.messages.stream>[0]['tools'],
+          tool_choice: { type: 'auto' as const },
+        }
+      : {}),
+  })
+
+  let currentToolId = ''
+  let currentToolName = ''
+  let inputJsonBuffer = ''
+
+  for await (const event of stream as AsyncIterable<RawMessageStreamEvent>) {
+    switch (event.type) {
+      case 'content_block_start': {
+        if (event.content_block.type === 'tool_use') {
+          currentToolId = event.content_block.id
+          currentToolName = event.content_block.name
+          inputJsonBuffer = ''
+        }
+        break
+      }
+
+      case 'content_block_delta': {
+        if (event.delta.type === 'text_delta') {
+          yield { type: 'text', text: event.delta.text }
+        } else if (event.delta.type === 'input_json_delta') {
+          inputJsonBuffer += event.delta.partial_json
+        }
+        break
+      }
+
+      case 'content_block_stop': {
+        if (currentToolId) {
+          let input: Record<string, unknown> = {}
+          try { input = JSON.parse(inputJsonBuffer) } catch { /* partial */ }
+          yield { type: 'tool_use', id: currentToolId, name: currentToolName, input }
+          currentToolId = ''
+          currentToolName = ''
+          inputJsonBuffer = ''
+        }
+        break
+      }
+
+      case 'message_stop': {
+        const finalMsg: SDKMessage = await stream.finalMessage()
+        yield {
+          type: 'message_stop',
+          usage: { input_tokens: finalMsg.usage.input_tokens, output_tokens: finalMsg.usage.output_tokens },
+        }
+        return
+      }
+
+      default:
+        break
+    }
+  }
+}

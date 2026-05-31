@@ -1,0 +1,33 @@
+#!/usr/bin/env bun
+// REPL 入口 — 启动 React Ink 交互式 UI，支持多轮持续对话
+// 用法: bun run repl
+//      bun run src/repl.tsx
+
+import { render } from 'ink'
+import React from 'react'
+import { App } from './ui/App'
+import { assertConfig, config } from './config'
+import { listTools } from './tools/registry'
+
+assertConfig()
+
+const provider = config.provider
+const model =
+  provider === 'ollama'
+    ? config.ollama.model
+    : provider === 'openai'
+      ? config.openai.model
+      : config.anthropic.model
+
+process.stderr.write(`[provider] ${provider} / ${model}\n`)
+process.stderr.write(`[tools] ${listTools().map((t) => t.name).join(', ')}\n`)
+
+// render() 接管终端（raw mode），返回 waitUntilExit() Promise
+const { waitUntilExit } = render(<App />)
+
+waitUntilExit()
+  .then(() => process.exit(0))
+  .catch((err: unknown) => {
+    process.stderr.write(`Fatal error: ${err instanceof Error ? err.message : String(err)}\n`)
+    process.exit(1)
+  })

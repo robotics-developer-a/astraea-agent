@@ -1,0 +1,117 @@
+// ~/.astraea/settings.json — 行为配置（非 secrets）
+// 与 config.ts 的分工：
+//   config.ts / .env  → API keys、model 选择等 secrets
+//   settings.ts / settings.json → vigil 规则、权限白名单等行为配置
+
+import { join } from 'path'
+import { homedir } from 'os'
+
+export const globalSettingsPath = join(homedir(), '.astraea', 'settings.json')
+
+// ─── Schema ──────────────────────────────────────────────────────────────────
+
+// ── WeChat 聊天整理配置 ────────────────────────────────────────────────────────
+
+/** 读取范围：三选一 */
+export type WechatScope =
+  | { type: 'all';      limit: number }     // 所有联系人（上限 50，默认 20）
+  | { type: 'top';      k: number }         // 最近 K 个联系人
+  | { type: 'contacts'; names: string[] }   // 指定联系人列表
+
+/**
+ * 整理方式（可多选）
+ *   timeline  - 按时间线排列，以日期分段
+ *   contacts  - 按联系人/群聊分组
+ *   topics    - 按主题分组（LLM 自动归类）
+ *   tasks     - 仅提取待办事项（需要用户行动的）
+ *   decisions - 仅提取决策记录（谁决定了什么）
+ *   promises  - 承诺追踪（谁承诺了什么，是否已兑现）
+ */
+export type WechatOrganizeMode =
+  | 'timeline'
+  | 'contacts'
+  | 'topics'
+  | 'tasks'
+  | 'decisions'
+  | 'promises'
+
+export interface WechatSettings {
+  /** 读取范围（必填） */
+  scope: WechatScope
+  /** 往前读取天数，1-30，超出自动截断为 30（默认 30） */
+  days: number
+  /** 摘要文件保存目录（必填），支持 ~ 展开 */
+  outputDir: string
+  /** 整理方式，至少一项（默认 ['timeline', 'tasks']） */
+  organize: WechatOrganizeMode[]
+}
+
+export interface AstraeaSettings {
+  wechat?: Partial<WechatSettings>
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 验证 wechat 配置，返回错误信息或 null */
+export function validateWechatSettings(s: Partial<WechatSettings> | undefined): string | null {
+  if (!s) {
+    return [
+      '微信整理功能尚未配置，请在 ~/.astraea/settings.json 中添加：',
+      '',
+      '  "wechat": {',
+      '    "scope": { "type": "contacts", "names": ["妈妈", "李嘉俊"] },',
+      '    "days": 30,',
+      '    "outputDir": "~/Documents/wechat-summary",',
+      '    "organize": ["timeline", "tasks"]',
+      '  }',
+      '',
+      'scope 三选一：',
+      '  { "type": "contacts", "names": [...] }  指定联系人',
+      '  { "type": "top", "k": 5 }               最近 K 个联系人',
+      '  { "type": "all", "limit": 20 }           所有联系人（上限 50）',
+    ].join('\n')
+  }
+  if (!s.scope) return '缺少 wechat.scope，请配置读取范围'
+  if (!s.outputDir?.trim()) return '缺少 wechat.outputDir，请配置摘要文件保存目录'
+  if (!s.organize?.length) return '缺少 wechat.organize，请至少填写一种整理方式'
+
+  const { scope } = s
+  if (scope.type === 'contacts' && !scope.names?.length)
+    return 'wechat.scope.names 不能为空，请填写联系人名字列表'
+  if (scope.type === 'top' && (scope.k < 1 || !Number.isFinite(scope.k)))
+    return 'wechat.scope.k 必须 ≥ 1'
+  if (scope.type === 'all' && (s.scope as { limit: number }).limit > 50)
+    return 'wechat.scope.limit 最大为 50'
+
+  return null
+}
+
+/** 返回规范化后的 WechatSettings（caps days to 30，填默认值） */
+export function resolveWechatSettings(s: Partial<WechatSettings>): WechatSettings {
+  const { homedir } = require('node:os')
+  return {
+    scope: s.scope!,
+    days: Math.min(Math.max(1, s.days ?? 30), 30),
+    outputDir: (s.outputDir ?? '~/Documents/wechat-summary').replace(/^~/, homedir()),
+    organize: s.organize?.length ? s.organize : ['timeline', 'tasks'],
+  }
+}
+
+// ─── Loader ──────────────────────────────────────────────────────────────────
+
+let _cache: AstraeaSettings | null = null
+
+export function getSettings(): AstraeaSettings {
+  if (_cache !== null) return _cache
+  try {
+    const raw = require('fs').readFileSync(globalSettingsPath, 'utf-8')
+    _cache = JSON.parse(raw) as AstraeaSettings
+  } catch {
+    _cache = {}
+  }
+  return _cache
+}
+
+export function resetSettingsCache(): void {
+  _cache = null
+}
