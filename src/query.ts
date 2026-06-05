@@ -42,6 +42,17 @@ import {
 } from './state/goalState'
 import { evaluateGoal, serializeTranscript } from './services/goal-evaluator'
 
+import { config } from './config'
+import { activeThresholds } from './services/compact/window'
+import { compactConversation, estimateTokens, isOverflowError } from './services/compact/compact'
+import {
+  getInputTokens,
+  recordInputTokens,
+  recordCompactionResult,
+  recordCompactionFailure,
+  isCompactionTripped,
+} from './state/contextTokens'
+
 // ─────────────────────────── 事件类型 ───────────────────────────────────────
 
 // QueryEvent 是 StreamEvent 的超集：增加了 turn_start、tool_result、budget_stop
@@ -56,6 +67,12 @@ export type QueryEvent =
   | { type: 'goal_evaluated'; met: boolean; reason: string; condition: string; turns: number }
   // /goal 达到安全上限被强制停止
   | { type: 'goal_exhausted'; reason: string; condition: string; maxTurns: number }
+  // ── 上下文压缩（autocompact）事件 ──
+  | { type: 'compact_start'; trigger: 'auto' | 'manual'; preTokens: number }
+  | { type: 'compact_done'; trigger: 'auto' | 'manual'; willRetrigger: boolean }
+  | { type: 'compact_failed'; reason: string }
+  | { type: 'compact_tripped' }    // 熔断跳闸：停止自动压缩，提示用户手动处理
+  | { type: 'compact_blocked'; usedTokens: number }  // autocompact 关闭 + 撞 0.98 硬阻塞
   | { type: 'done'; messages: (UserMessage | AssistantMessage)[] }
 
 // ─────────────────────────── 参数类型 ───────────────────────────────────────
@@ -69,6 +86,9 @@ export interface QueryOptions {
   agentId?: string             // 用于调试追踪哪个 agent 触发了停止
   abortSignal?: AbortSignal    // ESC 取消信号
   isInteractive?: boolean      // 是否有交互式用户在场（默认 true）。false → 工具遇 ask fail-closed deny
+  // 仅主对话开启：发请求前 autocompact 检查 + token 计数 + 反应式溢出兜底（设计文档 §3/§6/§8）。
+  // App 的辅助 query 调用（welcome/mode 等）不开启，避免污染主对话的 token 单例。
+  autocompact?: boolean
 }
 
 // ─────────────────────────── 主函数 ─────────────────────────────────────────
@@ -106,6 +126,13 @@ export async function* query(
 
   const system = appendSystemContext(options.system ?? '', sysCtx)
 
+  // 压缩用：系统 prompt + 工具定义的固定开销（每轮都在、压缩腾不掉）。chars/4 估算。
+  // 仅当调用方显式 opt-in（主对话）时启用压缩相关逻辑，避免辅助 query 污染 token 单例。
+  const compactionEnabled = options.autocompact === true
+  const fixedOverheadTokens = Math.ceil(
+    (system.length + JSON.stringify(toolSchemas).length) / 4,
+  )
+
   // State: 每轮追加 assistantMessage + toolResultMessage
   // Prepend <system-reminder> with claudeMd + date before the user's first message.
   let messages: (UserMessage | AssistantMessage)[] = prependUserContext(
@@ -122,8 +149,52 @@ export async function* query(
   let counselConsulted = false
   let counselStartConfirmed = false
 
+  // 反应式溢出兜底：每个 query() 调用最多触发一次，防止重试死循环。
+  let reactiveCompacted = false
+
   while (true) {
     yield { type: 'turn_start', turn: turnCount }
+
+    // ── 0. Autocompact 检查（发请求前；仅主对话）────────────────────────────
+    if (compactionEnabled) {
+      const used = getInputTokens()
+      if (used !== null) {
+        const th = activeThresholds()
+        if (config.autocompact) {
+          if (used >= th.autocompact && !isCompactionTripped()) {
+            yield { type: 'compact_start', trigger: 'auto', preTokens: used }
+            try {
+              const res = await compactConversation(messages, {
+                trigger: 'auto',
+                fixedOverheadTokens,
+                signal: options.abortSignal,
+              })
+              if (res.compacted) {
+                messages = res.messages
+                recordInputTokens(estimateTokens(messages) + fixedOverheadTokens)
+                recordCompactionResult(res.willRetrigger ?? false)
+                yield { type: 'compact_done', trigger: 'auto', willRetrigger: res.willRetrigger ?? false }
+                if (isCompactionTripped()) yield { type: 'compact_tripped' }
+              }
+            } catch (err: unknown) {
+              if (err instanceof Error && err.name === 'AbortError') {
+                yield { type: 'done', messages }
+                return
+              }
+              recordCompactionFailure()
+              yield { type: 'compact_failed', reason: String(err) }
+              if (isCompactionTripped()) yield { type: 'compact_tripped' }
+              // 压缩失败：继续发请求，可能溢出 → 反应式兜底
+            }
+          }
+        } else if (used >= th.blocking) {
+          // autocompact 关闭：撞 0.98 硬阻塞 → 拦住请求，要用户手动 /compact
+          yield { type: 'compact_blocked', usedTokens: used }
+          yield { type: 'done', messages }
+          return
+        }
+      }
+    }
 
     // ── 1. 调用模型，收集流式事件 ──────────────────────────────────────────
     const contentBlocks: (TextBlock | ToolUseBlock)[] = []
@@ -168,6 +239,8 @@ export async function* query(
         } else if (event.type === 'message_stop') {
           turnOutputTokens = event.usage.output_tokens
           stopReason = event.stopReason
+          // 触发用聚合 input_tokens（仅主对话）：记最近一次响应的真值，供下轮阈值检查。
+          if (compactionEnabled) recordInputTokens(event.usage.input_tokens)
         }
       }
     } catch (err: unknown) {
@@ -176,6 +249,34 @@ export async function* query(
         const partial: AssistantMessage = { role: 'assistant', content: contentBlocks }
         yield { type: 'done', messages: contentBlocks.length > 0 ? [...messages, partial] : messages }
         return
+      }
+      // 反应式溢出兜底：请求因上下文超窗口被拒 → 强制压缩一次 → 重试本轮（设计文档 §8）。
+      // 溢出在请求阶段发生，contentBlocks 此时为空，丢弃重试安全。每个 query() 调用至多一次。
+      if (compactionEnabled && isOverflowError(err) && !reactiveCompacted && !isCompactionTripped()) {
+        reactiveCompacted = true
+        yield { type: 'compact_start', trigger: 'auto', preTokens: getInputTokens() ?? estimateTokens(messages) }
+        try {
+          const res = await compactConversation(messages, {
+            trigger: 'auto',
+            fixedOverheadTokens,
+            signal: options.abortSignal,
+          })
+          if (res.compacted) {
+            messages = res.messages
+            recordInputTokens(estimateTokens(messages) + fixedOverheadTokens)
+            recordCompactionResult(res.willRetrigger ?? false)
+            yield { type: 'compact_done', trigger: 'auto', willRetrigger: res.willRetrigger ?? false }
+          }
+          continue // 重试本轮（turnCount 不变）
+        } catch (e2: unknown) {
+          if (e2 instanceof Error && e2.name === 'AbortError') {
+            yield { type: 'done', messages }
+            return
+          }
+          recordCompactionFailure()
+          yield { type: 'compact_failed', reason: String(e2) }
+          // 落到下面常规错误处理
+        }
       }
       // API 调用出错：如果已经收到了带 tool_use 的 assistant 消息，
       // 需要补齐 tool_result，否则下次 API 调用会因不配对而报 400

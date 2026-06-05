@@ -46,9 +46,13 @@ describe('fileWriteBehavior matrix', () => {
     expect(fileWriteBehavior('cruise')).toBe('allow')
     expect(fileWriteBehavior('forge')).toBe('allow')
   })
-  test('default & counsel ask before writing', () => {
+  test('default asks before writing', () => {
     expect(fileWriteBehavior('default')).toBe('ask')
-    expect(fileWriteBehavior('counsel')).toBe('ask')
+  })
+  test('counsel allows file writes once its two framework gates have passed', () => {
+    // counsel 的方向确认 + "现在开始执行" 双闸在 query.ts 完成；走到 fileWriteGate
+    // 即已获批，不应再弹每文件写确认框（避免三重确认导致的 Edit 卡死/循环）。
+    expect(fileWriteBehavior('counsel')).toBe('allow')
   })
   test('orbit denies file writes', () => {
     expect(fileWriteBehavior('orbit')).toBe('deny')

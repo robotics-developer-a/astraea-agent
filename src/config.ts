@@ -54,17 +54,37 @@ function maxTokensFrom(envKey: string, fallback: number): number {
   return Number.isFinite(raw) && raw > 0 ? raw : fallback
 }
 
+// 上下文窗口（total context window）— 与 maxTokens 对称的 per-provider 配置。
+// 各 provider/model 真实窗口差异极大（本地 8K ~ Anthropic 1M），不能写死一个常量，
+// 必须按 provider 给默认值并支持 <PROVIDER>_CONTEXT_WINDOW 覆盖。详见上下文设计文档 §1。
+function contextWindowFrom(envKey: string, fallback: number): number {
+  const raw = Number(process.env[envKey])
+  return Number.isFinite(raw) && raw > 0 ? raw : fallback
+}
+
+// autocompact 总开关：默认开；ASTRAEA_AUTOCOMPACT 设为 0/false/off/no → 关闭。
+// 关闭时不自动压缩，改走 0.98 硬阻塞，强制用户手动 /compact（设计文档 §4/§9）。
+function autocompactEnabledFrom(): boolean {
+  const raw = process.env.ASTRAEA_AUTOCOMPACT?.trim().toLowerCase()
+  return !(raw === '0' || raw === 'false' || raw === 'off' || raw === 'no')
+}
+
 // 提前解析，供 maxTokens 的模型相关默认值复用（gpt-5.x vs gpt-4o 输出预算不同）
 const openaiModel = process.env.OPENAI_MODEL ?? 'gpt-4o'
 
 export const config = {
   provider: detectProvider() as Provider,
 
+  // autocompact 总开关（设计文档 §9）。关闭时走 0.98 硬阻塞。
+  autocompact: autocompactEnabledFrom(),
+
   anthropic: {
     apiKey: process.env.ANTHROPIC_API_KEY ?? '',
     model: process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6',
     // Sonnet 4.x 支持 64k 输出；32k 与 Claude Code 对齐，留足大文件余量。
     maxTokens: maxTokensFrom('ANTHROPIC_MAX_TOKENS', 32000),
+    // 默认 200K（人人可用的安全窗口）；需要 1M 的人用 env 开。Sonnet 4.6/Opus 真实窗口是 1M。
+    contextWindow: contextWindowFrom('ANTHROPIC_CONTEXT_WINDOW', 200_000),
   },
 
   // DeepSeek — OpenAI-compatible API
@@ -74,6 +94,7 @@ export const config = {
     baseUrl: 'https://api.deepseek.com',
     // deepseek-chat 输出硬上限即 8192。
     maxTokens: maxTokensFrom('DEEPSEEK_MAX_TOKENS', 8192),
+    contextWindow: contextWindowFrom('DEEPSEEK_CONTEXT_WINDOW', 128_000),
   },
 
   // Ollama（本地）
@@ -82,6 +103,8 @@ export const config = {
     model: process.env.OLLAMA_MODEL ?? 'qwen2.5:7b',
     // 本地模型受显存/上下文限制，保守默认，按需用 OLLAMA_MAX_TOKENS 调高。
     maxTokens: maxTokensFrom('OLLAMA_MAX_TOKENS', 8192),
+    // 本地窗口由 num_ctx 决定，保守默认 32K，须按实际模型用 OLLAMA_CONTEXT_WINDOW 调。
+    contextWindow: contextWindowFrom('OLLAMA_CONTEXT_WINDOW', 32_000),
   },
 
   // OpenAI（云端）
@@ -91,9 +114,29 @@ export const config = {
     baseUrl: process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
     // gpt-5.x 支持 128K 输出；给它 32k 单次产物余量（足够大型自包含 HTML），gpt-4o 维持 16384 硬上限。
     maxTokens: maxTokensFrom('OPENAI_MAX_TOKENS', /^gpt-5/i.test(openaiModel) ? 32000 : 16384),
+    contextWindow: contextWindowFrom('OPENAI_CONTEXT_WINDOW', 128_000),
     // gpt-5.x 推理强度：none|low|medium|high|xhigh，默认 medium。仅对 reasoning 模型生效。
     reasoningEffort: process.env.OPENAI_REASONING_EFFORT?.trim() || undefined,
   },
+}
+
+// 当前激活 provider 的窗口与输出上限 —— 阈值每次现算时调用（设计文档 §6：阈值现算随 provider）。
+export function activeContextWindow(): number {
+  switch (config.provider) {
+    case 'deepseek': return config.deepseek.contextWindow
+    case 'ollama':   return config.ollama.contextWindow
+    case 'openai':   return config.openai.contextWindow
+    default:         return config.anthropic.contextWindow
+  }
+}
+
+export function activeMaxTokens(): number {
+  switch (config.provider) {
+    case 'deepseek': return config.deepseek.maxTokens
+    case 'ollama':   return config.ollama.maxTokens
+    case 'openai':   return config.openai.maxTokens
+    default:         return config.anthropic.maxTokens
+  }
 }
 
 export function assertConfig(): void {

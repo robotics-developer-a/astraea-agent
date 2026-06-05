@@ -14,6 +14,8 @@ export interface StreamOptions {
   enablePromptCaching?: boolean
   tools?: ToolSchema[]
   abortSignal?: AbortSignal
+  // 单次输出上限覆盖（压缩摘要用更小的上限）。缺省回退到各 provider 配置的 maxTokens。
+  maxTokens?: number
 }
 
 export async function* streamMessageAnthropic(
@@ -34,7 +36,7 @@ export async function* streamMessageAnthropic(
 
   const stream = client.messages.stream({
     model: config.anthropic.model,
-    max_tokens: config.anthropic.maxTokens,
+    max_tokens: options.maxTokens ?? config.anthropic.maxTokens,
     system: system as string | undefined,
     messages: apiMessages,
     ...(options.tools?.length

@@ -100,8 +100,8 @@ export async function* streamMessageOpenAI(
   // 推理模型用 max_completion_tokens，其余用 max_tokens（见 isReasoningModel 注释）
   const reasoning = isReasoningModel(config.openai.model)
   const tokenLimit = reasoning
-    ? { max_completion_tokens: config.openai.maxTokens }
-    : { max_tokens: config.openai.maxTokens }
+    ? { max_completion_tokens: options.maxTokens ?? config.openai.maxTokens }
+    : { max_tokens: options.maxTokens ?? config.openai.maxTokens }
 
   // reasoning_effort（none|low|medium|high|xhigh）仅 gpt-5.x / o 系列接受，且需用户显式配置
   const reasoningParam = reasoning && config.openai.reasoningEffort

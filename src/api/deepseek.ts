@@ -73,7 +73,7 @@ export async function* streamMessageDeepSeek(
 
   const stream = await client.chat.completions.create({
     model: config.deepseek.model,
-    max_tokens: config.deepseek.maxTokens,
+    max_tokens: options.maxTokens ?? config.deepseek.maxTokens,
     messages: chatMessages,
     stream: true,
     stream_options: { include_usage: true },

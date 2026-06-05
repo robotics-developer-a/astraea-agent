@@ -103,7 +103,7 @@ export async function* streamMessageOllama(
 
   const stream = await client.chat.completions.create({
     model: config.ollama.model,
-    max_tokens: config.ollama.maxTokens,
+    max_tokens: options.maxTokens ?? config.ollama.maxTokens,
     messages: chatMessages,
     stream: true,
     ...(openaiTools?.length ? { tools: openaiTools, tool_choice: 'auto' } : {}),

@@ -1,20 +1,29 @@
-// 终端确认对话框 — 在 Ink raw mode 环境下安全弹出
+// 终端确认对话框
 //
-// Ink 的 render() 会启用 raw mode（逐字符读取）。
-// 确认对话框需要行模式（readline），因此：
-//   1. 临时禁用 raw mode
-//   2. 用 readline 读一行用户输入
-//   3. 还原 raw mode
-//
-// 这在 isStreaming=true 时是安全的，因为 TextInput focus={false}，
-// Ink 不会并发消费 stdin。
+// 首选：Ink 方向键选择器（通过 confirmBridge → App.tsx 的 ConfirmSelector）。
+//       用户只需 ↑↓ 移动 + Enter 确认，体验与 /mode 选择器一致，无需输入 y/n。
+// 回退：当没有 Ink UI 订阅者时（纯 CLI / 测试），退回 readline 行输入。
+//       readline 需要行模式，因此临时禁用 raw mode、读一行、再还原。
 
 import { createInterface } from 'readline'
+import {
+  hasConfirmUI,
+  requestConfirm,
+  type ConfirmResult,
+} from './confirmBridge.js'
 
-export interface ConfirmResult {
-  proceed: boolean
-  /** 用户选了"永远允许/拒绝"时非 null，调用方负责持久化 */
-  remember: 'always-allow' | 'always-deny' | null
+export type { ConfirmResult }
+
+export async function confirmWithUser(
+  command: string,
+  description?: string,
+): Promise<ConfirmResult> {
+  // 首选方向键选择器（有 Ink UI 时）
+  if (hasConfirmUI()) {
+    return requestConfirm({ command, description })
+  }
+  // 回退：readline 行输入（无 UI 场景）
+  return readlineConfirm(command, description)
 }
 
 const RESET  = '\x1b[0m'
@@ -22,7 +31,7 @@ const YELLOW = '\x1b[33m'
 const GRAY   = '\x1b[90m'
 const BOLD   = '\x1b[1m'
 
-export async function confirmWithUser(
+async function readlineConfirm(
   command: string,
   description?: string,
 ): Promise<ConfirmResult> {

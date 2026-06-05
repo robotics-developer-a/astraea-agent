@@ -82,6 +82,7 @@ export function WelcomePanel({ version, cwd, model, tools }: Props): React.React
           <AstraeaSprite />
           <Box marginTop={1} flexDirection="column" alignItems="center">
             <Text color={SILVER} bold>Astraea</Text>
+            <Text color={INDIGO} dimColor>{'· ✦ · ✧ · ✦ ·'}</Text>
             <Text color={DIM}>{'星之女神'}</Text>
           </Box>
         </Box>
@@ -105,15 +106,15 @@ export function WelcomePanel({ version, cwd, model, tools }: Props): React.React
           <Box flexDirection="column" justifyContent="center" paddingLeft={1} gap={0}>
             <Box flexDirection="column" marginBottom={1}>
               <Box>
-                <Text color={INDIGO}>{'▎ '}</Text>
+                <Text color={SILVER}>{'✦ '}</Text>
+                <Text color={SILVER} italic>{'You speak, I understand · You imagine, I assist · You build, I\'m here.'}</Text>
+              </Box>
+              <Box>
+                <Text color={INDIGO} dimColor>{'✧ '}</Text>
                 <Text color={DIM} italic>{'Order is not constraint — it\'s the foundation of freedom.'}</Text>
               </Box>
               <Box>
-                <Text color={INDIGO}>{'▎ '}</Text>
-                <Text color={SILVER}>{'You speak, I understand · You imagine, I assist · You build, I\'m here.'}</Text>
-              </Box>
-              <Box>
-                <Text color={INDIGO}>{'▎ '}</Text>
+                <Text color={INDIGO} dimColor>{'⋆ '}</Text>
                 <Text color={DIM}>{'Building a better life, together.'}</Text>
               </Box>
             </Box>

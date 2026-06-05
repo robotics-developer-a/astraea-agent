@@ -2,13 +2,14 @@
 // 参考: claude-code-main/src/screens/REPL.tsx + components/App.tsx
 
 import React, { useState, useCallback, useRef, useMemo, useEffect } from 'react'
-import { Box, Text, Static, useApp, useInput } from 'ink'
+import { Box, Text, Static, useApp, useInput, usePaste } from 'ink'
 import TextInput from 'ink-text-input'
 import { query } from '../query'
 import { listTools } from '../tools/registry'
 import { createUserMessage } from '../types/message'
 import type { UserMessage, AssistantMessage } from '../types/message'
 import { WelcomePanel } from './WelcomePanel'
+import { ThinkingIndicator } from './ThinkingIndicator'
 import { LoginWizard, formatLoginSuccess } from './LoginWizard'
 import type { LoginResult } from './LoginWizard'
 import { config, updateProviderConfig, saveConfigToEnv } from '../config'
@@ -24,6 +25,16 @@ import { clearTodos, getAllNamespaces } from '../services/todo-state'
 import { renderMarkdown } from '../utils/markdown'
 import { getMode, setMode } from '../state/sessionMode'
 import type { SessionMode } from '../state/sessionMode'
+import { compactConversation, estimateTokens } from '../services/compact/compact'
+import { activeThresholds, percentLeft } from '../services/compact/window'
+import {
+  resetContextTokens,
+  markTokensUnknown,
+  recordInputTokens,
+  recordCompactionResult,
+  recordCompactionFailure,
+  getInputTokens,
+} from '../state/contextTokens'
 import {
   setGoal,
   clearGoal,
@@ -33,8 +44,10 @@ import {
   GOAL_MAX_CONDITION_LENGTH,
 } from '../state/goalState'
 import { ModeSelector, MODE_OPTIONS } from './ModeSelector'
+import { ConfirmSelector, CONFIRM_CHOICES } from './ConfirmSelector'
+import { onConfirmRequest, resolveConfirm, type ConfirmRequest } from '../tools/BashTool/permissions/confirmBridge'
 import { VigilPanel, VIGIL_ACTIONS } from './VigilPanel'
-import { SlashHint, SLASH_COMMANDS } from './SlashHint'
+import { SlashHint, SLASH_COMMANDS, matchSlashCommands } from './SlashHint'
 import { ModeSwitchBanner, ModeInputFrame } from './ModeBanner'
 import { TodoPanel } from './TodoPanel'
 import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
@@ -129,6 +142,11 @@ export function App() {
   const [liveOutput, setLiveOutput] = useState<string>('')
   const [inputValue, setInputValue] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
+  const [isCompacting, setIsCompacting] = useState(false)  // 压缩进行中 → 显示 spinner
+  // 粘贴折叠（像 Claude Code）：大段粘贴在输入框里只显示占位符 [Pasted text #N …]，
+  // 真实内容存在 ref map 里，提交时展开喂给模型。
+  const pasteStoreRef = useRef<Map<string, string>>(new Map())
+  const pasteCounterRef = useRef(0)
   const [showLogin, setShowLogin] = useState(false)
   // AskUserQuestion: pending question from the model
   const [pendingQuestion, setPendingQuestion] = useState<PendingQuestion | null>(null)
@@ -139,7 +157,16 @@ export function App() {
   const [modeSelectorIndex, setModeSelectorIndex] = useState(0)
   const [pendingVigilPanel, setPendingVigilPanel] = useState(false)
   const [vigilPanelIndex, setVigilPanelIndex] = useState(0)
+  // Slash 命令选择器：高亮项索引。slashIndexRef 供 handleSubmit 同步读取（避免入 deps）。
+  const [slashIndex, setSlashIndex] = useState(0)
+  const slashIndexRef = useRef(0)
+  // 权限确认方向键选择器（由 confirmBridge 驱动，工具执行中弹出）
+  const [pendingConfirm, setPendingConfirm] = useState<ConfirmRequest | null>(null)
+  const [confirmIndex, setConfirmIndex] = useState(0)
   const [questionOptionIndex, setQuestionOptionIndex] = useState(-1)
+  // "Chat about this" — when a question has options, the user can pick the extra
+  // entry to instead type their own thoughts. true = free-text input is revealed.
+  const [questionFreeText, setQuestionFreeText] = useState(false)
   const [vigilInlineValues, setVigilInlineValues] = useState<Record<string, string>>({})
   // 递增计数器，用于在目标状态变化 / 计时器 tick 时刷新 ◎ /goal active 横幅
   const [goalTick, setGoalTick] = useState(0)
@@ -174,6 +201,9 @@ export function App() {
   // Load real system prompt on mount and rebuild whenever session mode changes
   // Also start UDS server for cross-process IPC (only on mount)
   useEffect(() => { startUDSServer() }, [])
+
+  // 输入变化时把 slash 选择器高亮重置到第 0 项（导航只改 slashIndex，不会触发此处）。
+  useEffect(() => { setSlashIndex(0); slashIndexRef.current = 0 }, [inputValue])
 
   useEffect(() => {
     return () => { if (escPendingTimerRef.current) clearTimeout(escPendingTimerRef.current) }
@@ -264,9 +294,19 @@ export function App() {
     return unsubscribe
   }, [])
 
+  // Subscribe to permission-confirm bridge → 渲染方向键确认选择器
+  useEffect(() => {
+    const unsubscribe = onConfirmRequest(req => {
+      setPendingConfirm(req)
+      setConfirmIndex(0)
+    })
+    return unsubscribe
+  }, [])
+
   // Default cursor to first option whenever a new question arrives
   useEffect(() => {
     setQuestionOptionIndex(pendingQuestion?.options?.length ? 0 : -1)
+    setQuestionFreeText(false)
   }, [pendingQuestion])
 
   // ── runConversation：统一的流式查询执行器 ──────────────────────────────────
@@ -315,6 +355,7 @@ export function App() {
           maxTurns: 20,
           enablePromptCaching: true,
           abortSignal: controller.signal,
+          autocompact: true,  // 仅主对话开启压缩 + token 计数（设计文档 §3/§6）
         })) {
           switch (event.type) {
             case 'text':
@@ -406,6 +447,53 @@ export function App() {
               break
             }
 
+            // ── 上下文压缩事件 ──────────────────────────────────────────────
+            case 'compact_start': {
+              flushAssistant()
+              setActiveTool(null)
+              setIsCompacting(true)  // 转 spinner，不落永久行
+              break
+            }
+
+            case 'compact_done': {
+              setIsCompacting(false)
+              setHistory(prev => [...prev, {
+                id: String(entryIdRef.current++),
+                role: 'assistant',
+                text: `─────────  ✦ context compacted${event.willRetrigger ? ' (still large — may compact again)' : ''}  ─────────`,
+              }])
+              break
+            }
+
+            case 'compact_failed': {
+              setIsCompacting(false)
+              setHistory(prev => [...prev, {
+                id: String(entryIdRef.current++),
+                role: 'assistant',
+                text: `⚠ compaction failed: ${event.reason}`,
+              }])
+              break
+            }
+
+            case 'compact_tripped': {
+              setHistory(prev => [...prev, {
+                id: String(entryIdRef.current++),
+                role: 'assistant',
+                text: '⚠ context can no longer be auto-compacted (circuit breaker). Trim manually with /compact, /clear, or start a new session.',
+              }])
+              break
+            }
+
+            case 'compact_blocked': {
+              flushAssistant()
+              setHistory(prev => [...prev, {
+                id: String(entryIdRef.current++),
+                role: 'assistant',
+                text: `⚠ context full (~${Math.round(event.usedTokens / 1000)}K) and autocompact is off — run /compact to continue.`,
+              }])
+              break
+            }
+
             case 'done': {
               conversationRef.current = event.messages
               // ESC 中止：UI 已在 ESC 处理器里更新（显示了 [cancelled]），这里只清理流式状态
@@ -465,6 +553,7 @@ export function App() {
         }
       } finally {
         abortControllerRef.current = null
+        setIsCompacting(false)  // 安全复位（覆盖压缩中途 abort 等边界）
       }
     },
     [systemPrompt],
@@ -485,6 +574,7 @@ export function App() {
             ? pendingQuestion.options[questionOptionIndex]!
             : trimmed
         setQuestionOptionIndex(-1)
+        setQuestionFreeText(false)
         const entryId = String(entryIdRef.current++)
         setHistory(prev => [...prev, { id: entryId, role: 'user', text: responseText }])
         answer(responseText)
@@ -516,6 +606,26 @@ export function App() {
         return
       }
       if (!systemPrompt) return  // still loading
+
+      // ── Slash 命令选择器：Enter 落在高亮命令上 ────────────────────────────────
+      // 列表打开（/ 开头、无空格、有匹配）时，按高亮项的 enterAction 派发：
+      //   complete → 补全 "/goal " 等待输参；execute/panel → 用全名重入正常路由。
+      if (trimmed.startsWith('/') && !trimmed.includes(' ')) {
+        const matches = SLASH_COMMANDS.filter(c => c.name.startsWith(trimmed))
+        if (matches.length > 0) {
+          const cmd = matches[Math.min(slashIndexRef.current, matches.length - 1)]!
+          if (cmd.enterAction === 'complete') {
+            setInputValue(cmd.name + ' ')
+            return
+          }
+          if (cmd.name !== trimmed) {
+            // 用户在前缀上回车（如 /cl）→ 用解析出的全名重入，命中下方精确路由
+            void handleSubmit(cmd.name)
+            return
+          }
+          // cmd.name === trimmed 的 execute/panel：继续走下方既有精确路由
+        }
+      }
 
       if (trimmed === '/login') {
         setInputValue('')
@@ -575,6 +685,7 @@ export function App() {
 
         // ③ 全局单例 —— goal、todos、所有在跑/已结束的调度任务
         clearGoal()                                   // 清除任何激活的目标
+        resetContextTokens()                          // 清空上下文 token 计数 + 压缩熔断状态
         for (const ns of getAllNamespaces()) clearTodos(ns)  // 清空所有命名空间的 todo
         const aborted = clearAllTasks()               // 协作式中止子 Agent 并丢弃任务字典
         setGoalTick(t => t + 1)
@@ -602,6 +713,61 @@ export function App() {
             : (clearLine ?? '◌  tabula rasa.'),
         })
         setHistory(fresh)
+        return
+      }
+
+      // ── /compact — 手动压缩当前会话（设计文档 §9）────────────────────────────
+      if (trimmed === '/compact' || trimmed.startsWith('/compact ')) {
+        setInputValue('')
+        historyIndexRef.current = -1
+        const custom = trimmed.slice('/compact'.length).trim() || undefined
+        if (conversationRef.current.length < 4) {
+          setHistory(prev => [...prev, {
+            id: String(entryIdRef.current++),
+            role: 'assistant',
+            text: '◌ /compact — conversation too small to compact.',
+          }])
+          return
+        }
+        setHistory(prev => [...prev, {
+          id: String(entryIdRef.current++),
+          role: 'assistant',
+          text: '◌ /compact — compacting context…',
+        }])
+        const overhead = Math.ceil(
+          ((systemPrompt ?? '').length +
+            JSON.stringify(listTools().map(t => ({ name: t.name, description: t.description, input_schema: t.inputSchema }))).length) / 4,
+        )
+        try {
+          const res = await compactConversation(conversationRef.current, {
+            trigger: 'manual',
+            customInstructions: custom,
+            fixedOverheadTokens: overhead,
+          })
+          if (res.compacted) {
+            conversationRef.current = res.messages
+            recordInputTokens(estimateTokens(res.messages) + overhead)
+            recordCompactionResult(res.willRetrigger ?? false)
+            setHistory(prev => [...prev, {
+              id: String(entryIdRef.current++),
+              role: 'assistant',
+              text: `✦ context compacted${res.willRetrigger ? ' (still large)' : ''}.`,
+            }])
+          } else {
+            setHistory(prev => [...prev, {
+              id: String(entryIdRef.current++),
+              role: 'assistant',
+              text: '◌ /compact — nothing to compact.',
+            }])
+          }
+        } catch (err: unknown) {
+          recordCompactionFailure()
+          setHistory(prev => [...prev, {
+            id: String(entryIdRef.current++),
+            role: 'assistant',
+            text: `⚠ /compact failed: ${String(err)}`,
+          }])
+        }
         return
       }
 
@@ -827,7 +993,8 @@ export function App() {
         return
       }
 
-      await runConversation(trimmed)
+      // 展开粘贴占位符 → 真实内容喂给模型；history 仍显示占位符（trimmed）
+      await runConversation(expandPastes(trimmed), trimmed)
     },
     [isStreaming, systemPrompt, pendingQuestion, pendingModeSelect, pendingVigilPanel, questionOptionIndex, runConversation],
   )
@@ -837,6 +1004,7 @@ export function App() {
     if (!result) return
     updateProviderConfig(result.provider, result.model, result.apiKey)
     resetAllApiClients()
+    markTokensUnknown()  // 换模型 → 旧分词器的 token 数作废，等新 usage 刷新（设计文档 §6）
     setConfigVersion(v => v + 1)  // 让 modelId 重算 → 触发 system prompt 按新模型重建
     await saveConfigToEnv()
     const successText = formatLoginSuccess(result)
@@ -912,8 +1080,67 @@ export function App() {
     })()
   }, [systemPrompt])
 
+  // ── 粘贴折叠：大段粘贴 → 占位符；小段 → 直接插入 ──────────────────────────
+  // ink v7 的 usePaste 在 bracketed-paste 模式下把整段粘贴作为单个字符串送来，
+  // 且不会转发给 TextInput（useInput），因此输入框不会被刷屏。
+  usePaste(
+    (text) => {
+      if (!text) return
+      const lineCount = text.split('\n').length
+      const isLarge = lineCount > 1 || text.length > 200
+      if (!isLarge) {
+        // 小段单行粘贴：直接插入，行为符合直觉
+        setInputValue((prev) => prev + text)
+        return
+      }
+      const id = ++pasteCounterRef.current
+      const summary = lineCount > 1 ? `+${lineCount} lines` : `+${text.length} chars`
+      const token = `[Pasted text #${id} ${summary}]`
+      pasteStoreRef.current.set(token, text)
+      historyIndexRef.current = -1
+      setInputValue((prev) => prev + token)
+    },
+    { isActive: !pendingModeSelect && !pendingVigilPanel && !pendingConfirm && !(pendingQuestion?.options?.length && !questionFreeText) },
+  )
+
+  // 提交时把占位符展开回真实内容（喂给模型）；消费后从 store 删除。
+  const expandPastes = useCallback((text: string): string => {
+    let out = text
+    for (const [token, content] of pasteStoreRef.current) {
+      if (out.includes(token)) {
+        out = out.split(token).join(content)
+        pasteStoreRef.current.delete(token)
+      }
+    }
+    return out
+  }, [])
+
   useInput((_, key) => {
     if (showLogin) return
+
+    // ── 权限确认选择器键盘控制（最高优先，工具执行中也响应）──────────────────
+    if (pendingConfirm) {
+      if (key.escape) {
+        setPendingConfirm(null)
+        resolveConfirm({ proceed: false, remember: null }) // Esc = 取消
+        return
+      }
+      if (key.upArrow) {
+        setConfirmIndex(i => (i - 1 + CONFIRM_CHOICES.length) % CONFIRM_CHOICES.length)
+        return
+      }
+      if (key.downArrow) {
+        setConfirmIndex(i => (i + 1) % CONFIRM_CHOICES.length)
+        return
+      }
+      if (key.return) {
+        const choice = CONFIRM_CHOICES[confirmIndex]
+        setPendingConfirm(null)
+        resolveConfirm(choice ? choice.result : { proceed: false, remember: null })
+        return
+      }
+      return // 吞掉其它按键，确认期间不打字
+    }
 
     // ── VigilPanel 键盘控制 ───────────────────────────────────────────────────
     if (pendingVigilPanel) {
@@ -983,15 +1210,26 @@ export function App() {
       return
     }
 
-    // Tab — 接受 slash 命令补全
-    if (key.tab && !isStreaming && !pendingQuestion) {
-      const match = SLASH_COMMANDS.find(
-        c => c.name.startsWith(inputValue) && c.name !== inputValue && inputValue.startsWith('/'),
-      )
-      if (match) {
-        setInputValue(match.name)
+    // ── Slash 命令选择器：列表打开时 ↑/↓ 导航、Tab 补全 ───────────────────────
+    // 列表「打开」⟺ 输入以 / 开头、无空格、有匹配，且非流式/非问答态。
+    // Enter 不在此拦截：交给 TextInput.onSubmit → handleSubmit 按 enterAction 派发，
+    // 避免 useInput 与 TextInput 同时响应回车导致双触发。
+    const slashMatches = matchSlashCommands(inputValue)
+    if (slashMatches.length > 0 && !isStreaming && !pendingQuestion) {
+      const len = slashMatches.length
+      if (key.upArrow) {
+        setSlashIndex(i => { const n = (i - 1 + len) % len; slashIndexRef.current = n; return n })
+        return
       }
-      return
+      if (key.downArrow) {
+        setSlashIndex(i => { const n = (i + 1) % len; slashIndexRef.current = n; return n })
+        return
+      }
+      if (key.tab) {
+        const cmd = slashMatches[Math.min(slashIndexRef.current, len - 1)]!
+        setInputValue(cmd.name)  // 只补全高亮项，永不执行
+        return
+      }
     }
 
     if (key.escape) {
@@ -1009,10 +1247,19 @@ export function App() {
         return
       }
 
+      // Priority 1.5: Esc from "chat about this" free-text → back to the option list
+      if (pendingQuestion?.options?.length && questionFreeText) {
+        setQuestionFreeText(false)
+        setQuestionOptionIndex(0)
+        setInputValue('')
+        return
+      }
+
       // Priority 2: Dismiss pending question
       if (pendingQuestion) {
         setPendingQuestion(null)
         setInputValue('')
+        setQuestionFreeText(false)
         answer('')
         return
       }
@@ -1051,11 +1298,20 @@ export function App() {
     }
     if (isStreaming && !pendingQuestion) return
 
-    // AskUserQuestion option navigation and confirmation
-    if (pendingQuestion?.options?.length) {
+    // AskUserQuestion option navigation and confirmation.
+    // A synthetic "Chat about this…" entry sits one past the real options
+    // (index === options.length); selecting it reveals the free-text input.
+    if (pendingQuestion?.options?.length && !questionFreeText) {
+      const chatIdx = pendingQuestion.options.length
       if (key.upArrow) { setQuestionOptionIndex(i => Math.max(0, i - 1)); return }
-      if (key.downArrow) { setQuestionOptionIndex(i => Math.min(pendingQuestion.options!.length - 1, i + 1)); return }
+      if (key.downArrow) { setQuestionOptionIndex(i => Math.min(chatIdx, i + 1)); return }
       if (key.return && questionOptionIndex >= 0) {
+        if (questionOptionIndex === chatIdx) {
+          // Switch to free-text: reveal the input box, keep the question open.
+          setQuestionFreeText(true)
+          setQuestionOptionIndex(-1)
+          return
+        }
         const selected = pendingQuestion.options[questionOptionIndex]!
         setInputValue('')
         setQuestionOptionIndex(0)
@@ -1100,7 +1356,7 @@ export function App() {
           : config.anthropic.model
 
   // 执行中输入框保持可用（不锁定）：用户可随时 /mode 切换。仅在模式/面板覆盖层时让出焦点。
-  const inputFocused = !pendingModeSelect && !pendingVigilPanel
+  const inputFocused = !pendingModeSelect && !pendingVigilPanel && !pendingConfirm
   const inputPlaceholder = pendingQuestion
     ? 'Type your answer… (Esc to skip)'
     : isStreaming
@@ -1173,7 +1429,7 @@ export function App() {
           {streamingText ? (
             <Text>{renderMarkdown(streamingText)}</Text>
           ) : (
-            <Text color="gray" dimColor>✦ Thinking...</Text>
+            <ThinkingIndicator />
           )}
           {activeTool && (
             <Box flexDirection="column">
@@ -1215,6 +1471,32 @@ export function App() {
         )
       })()}
 
+      {/* ◌ 压缩进行中 spinner（设计文档 §9）*/}
+      {isCompacting && (
+        <Box marginBottom={1}>
+          <Text color={INDIGO}>◌ compacting context…</Text>
+        </Box>
+      )}
+
+      {/* ✦ 上下文用量指示器 —— 接近自动压缩时常驻提示（设计文档 §9）*/}
+      {(() => {
+        void goalTick // 借用每秒 tick 触发刷新
+        const used = getInputTokens()
+        if (used === null) return null
+        const th = activeThresholds()
+        if (used < th.warning) return null
+        const pctOfEff = Math.min(100, Math.round((used / th.effectiveWindow) * 100))
+        const left = percentLeft(used, th.autocompact)
+        const atCompact = used >= th.autocompact
+        return (
+          <Box marginBottom={1}>
+            <Text color={atCompact ? 'red' : 'yellow'}>
+              {atCompact ? '⚠' : '◔'} context {pctOfEff}% · ~{left}% to autocompact
+            </Text>
+          </Box>
+        )
+      })()}
+
       {/* AskUserQuestion prompt */}
       {pendingQuestion && (
         <Box flexDirection="column" marginBottom={1} borderStyle="round" borderColor={INDIGO} paddingX={1}>
@@ -1223,20 +1505,42 @@ export function App() {
           {pendingQuestion.options && pendingQuestion.options.length > 0 && (
             <Box flexDirection="column" marginTop={1}>
               {pendingQuestion.options.map((opt, i) => {
-                const isSelected = i === questionOptionIndex
+                const isSelected = !questionFreeText && i === questionOptionIndex
                 return (
                   <Text key={i} color={isSelected ? 'white' : 'gray'} bold={isSelected}>
                     {isSelected ? ' ❯ ' : '   '}{opt}
                   </Text>
                 )
               })}
-              <Text color="gray" dimColor>↑↓ select · Enter confirm</Text>
+              {/* "Chat about this" — extra entry that opens a free-text reply */}
+              {(() => {
+                const chatIdx = pendingQuestion.options.length
+                const isSelected = !questionFreeText && questionOptionIndex === chatIdx
+                const active = isSelected || questionFreeText
+                return (
+                  <Text color={isSelected ? 'white' : questionFreeText ? INDIGO : 'gray'} bold={active} dimColor={!active}>
+                    {active ? ' ❯ ' : '   '}✎ Chat about this…
+                  </Text>
+                )
+              })()}
+              <Text color="gray" dimColor>
+                {questionFreeText ? 'type your thoughts · Enter send · Esc back' : '↑↓ select · Enter confirm'}
+              </Text>
             </Box>
           )}
         </Box>
       )}
 
       {showLogin && <LoginWizard onDone={handleLoginDone} />}
+
+      {/* ConfirmSelector — 权限确认方向键选择器，覆盖输入框 */}
+      {pendingConfirm && (
+        <ConfirmSelector
+          command={pendingConfirm.command}
+          description={pendingConfirm.description}
+          selectedIndex={confirmIndex}
+        />
+      )}
 
       {/* ModeSelector — 方向键导航，覆盖输入框 */}
       {pendingModeSelect && (
@@ -1258,11 +1562,13 @@ export function App() {
 
       <TodoPanel />
 
-      {!showLogin && !pendingModeSelect && !pendingVigilPanel && (
+      {!showLogin && !pendingModeSelect && !pendingVigilPanel && !pendingConfirm && (
         <ModeInputFrame mode={sessionMode}>
           {/* When a question with options is pending, hide the text input entirely —
-              user navigates with ↑↓ + Enter just like the /mode selector */}
-          {pendingQuestion?.options?.length ? (
+              user navigates with ↑↓ + Enter just like the /mode selector.
+              Unless they picked "Chat about this" (questionFreeText) — then the
+              text box is revealed so they can type their own reply. */}
+          {pendingQuestion?.options?.length && !questionFreeText ? (
             <Box>
               <Text bold color="yellow">↑↓ select · Enter confirm · Esc cancel</Text>
             </Box>
@@ -1273,7 +1579,7 @@ export function App() {
                   <Text color="gray" dimColor>Esc again to clear</Text>
                 </Box>
               )}
-              <SlashHint input={inputValue} />
+              <SlashHint input={inputValue} selectedIndex={slashIndex} />
               <Box>
                 <Text bold color={inputFocused && !isStreaming ? INDIGO : pendingQuestion ? 'yellow' : 'gray'}>
                   {pendingQuestion ? '? ' : isStreaming ? '  ' : '✦ '}

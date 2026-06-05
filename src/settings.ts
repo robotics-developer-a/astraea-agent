@@ -46,8 +46,22 @@ export interface WechatSettings {
   organize: WechatOrganizeMode[]
 }
 
+// ── 压缩 hooks（设计文档 §5.1/§5.3）────────────────────────────────────────────
+// 用户配的 shell 命令，在压缩前/后由 harness 执行。非致命：超时/报错不阻断压缩。
+export interface CompactHooks {
+  /** 压缩前执行；stdin 收 {trigger, customInstructions}；stdout 合并进摘要指令。 */
+  preCompact?: string
+  /** 压缩后执行；stdin 收 {trigger, summary}；纯副作用，stdout 忽略。 */
+  postCompact?: string
+  /** hook 执行超时（毫秒），默认 10_000。 */
+  timeoutMs?: number
+}
+
 export interface AstraeaSettings {
   wechat?: Partial<WechatSettings>
+  hooks?: CompactHooks
+  /** transcript 保留天数（设计文档 §10）：>0 保留天数；0 关闭持久化；<0 永久保留。默认 30。 */
+  cleanupPeriodDays?: number
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
