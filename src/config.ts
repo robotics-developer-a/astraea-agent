@@ -1,13 +1,15 @@
 // 全局配置 — 从环境变量读取，不硬编码敏感值
 //
 // 加载优先级（低 → 高，高优先级覆盖低优先级）：
-//   1. ~/.astraea/.env      — 用户个人全局 secrets（API key 放这里，一次配置所有项目生效）
-//   2. <project>/.env       — 项目级覆盖（开发调试用，勿提交 key）
-//   3. shell 环境变量        — 最高优先级
+//   1. ~/.astraea/.env           — 用户个人全局 secrets（API key 放这里，一次配置所有项目生效）
+//   2. <project>/.env            — 项目级覆盖（开发调试用，勿提交 key）
+//   3. ~/.astraea/settings.json 的 env 块 — 行为开关（如 PHOENIX_ENABLED）
+//   4. shell 环境变量             — 最高优先级
 import { readFileSync } from 'fs'
 import { join, dirname } from 'path'
 import { homedir } from 'os'
 import { fileURLToPath } from 'url'
+import { getSettings } from './settings'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 export const envPath = join(__dirname, '..', '.env')
@@ -31,11 +33,23 @@ function loadEnvFile(path: string): void {
   }
 }
 
-// 加载顺序：项目 .env 先于全局 .env。
-// loadEnvFile 用 !(key in process.env) 跳过已存在的值，所以：
-//   shell 环境变量（已在 process.env）> 项目 .env > ~/.astraea/.env
-loadEnvFile(envPath)       // 先加载项目级，让项目值先占位
-loadEnvFile(globalEnvPath) // 再加载全局，只填入项目和 shell 都没有的 key
+// 把 ~/.astraea/settings.json 的 env 块灌进 process.env（沿用"不覆盖已存在值"规则）。
+// 在 .env 之前应用 → 仅 shell 已设的值能压过它；之后 .env 只填它没设的 key。
+// 即优先级：shell > settings.json > 项目 .env > 全局 .env。
+function applySettingsEnv(): void {
+  const env = getSettings().env
+  if (!env) return
+  for (const [key, val] of Object.entries(env)) {
+    if (typeof val === 'string' && !(key in process.env)) process.env[key] = val
+  }
+}
+
+// 加载顺序：settings.json 先于 .env；项目 .env 先于全局 .env。
+// loadEnvFile / applySettingsEnv 都用 !(key in process.env) 跳过已存在的值，所以：
+//   shell 环境变量 > settings.json > 项目 .env > ~/.astraea/.env
+applySettingsEnv()         // 先吃 settings.json 的 env，让它占位（shell 已占的除外）
+loadEnvFile(envPath)       // 再加载项目级，只填它没设的 key
+loadEnvFile(globalEnvPath) // 最后全局，只填仍缺的 key
 
 export type Provider = 'anthropic' | 'deepseek' | 'ollama' | 'openai'
 

@@ -62,6 +62,11 @@ export interface AstraeaSettings {
   hooks?: CompactHooks
   /** transcript 保留天数（设计文档 §10）：>0 保留天数；0 关闭持久化；<0 永久保留。默认 30。 */
   cleanupPeriodDays?: number
+  /**
+   * 环境变量注入：启动时由 config.ts 灌进 process.env（如 PHOENIX_ENABLED）。
+   * 优先级：shell > settings.json > 项目 .env > 全局 .env（不覆盖 shell 已设的值）。
+   */
+  env?: Record<string, string>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
