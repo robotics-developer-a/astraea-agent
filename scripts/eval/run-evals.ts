@@ -25,7 +25,7 @@ import {
   createCorrectnessEvaluator,
   createConcisenessEvaluator,
   createRefusalEvaluator,
-} from '@arizeai/phoenix-evals/llm'
+} from '@arizeai/phoenix-evals/llm/index'
 
 // ── 裁判模型：可用 EVAL_MODEL 覆盖 ──────────────────────────────────────────────
 const model = openai(process.env.EVAL_MODEL ?? 'gpt-4o-mini')
