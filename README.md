@@ -1,8 +1,9 @@
 <div align="center">
 <img src="./assets/banner.svg" alt="Astraea" width="700"/>
+
 ### An agent of order and precision
 
-![image-20260615002022731](/Users/ronghuizhong/Library/Application Support/typora-user-images/image-20260615002022731.png)
+![screenshot](./assets/screenshot.png)
 
 **Astraea** is a terminal-native AI coding agent that resolves disorder — it doesn't just write code, it imposes structure on any problem that arrives with ambiguity, inefficiency, or unchecked complexity.
 
@@ -22,7 +23,9 @@ Built from the ground up on [**Bun**](https://bun.com), with a React Ink TUI, mu
 
 ## 1 · Introduction
 
-Astraea is an interactive agent for software engineering and any task with high logical density — system design, contract analysis, decision decomposition, process planning. It operates through structured reasoning and verified facts: it reaches for a tool before it speculates, and follows a defined path before it improvises.
+In Greek mythology, **Astraea** was the goddess of justice and innocence — the last immortal to walk among humans during the Golden Age. When the world fell into chaos, she did not abandon it out of despair; she stayed until the very end, imposing order on disorder. She ascended not because she gave up, but because she had done everything that could be done.
+
+**Astraea** the agent inherits that mission. It is a general-purpose AI agent for any task with high logical density — software engineering, system design, contract analysis, decision decomposition, research, process planning, or any domain where clear reasoning and verified facts outperform intuition. It operates through structured reasoning: it reaches for a tool before it speculates, and follows a defined path before it improvises.
 
 It runs in your terminal as either a **persistent REPL** (multi-turn, React Ink UI) or a **single-shot CLI** (great for pipes and scripts), and can run **headless** as a scheduled daemon.
 
