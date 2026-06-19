@@ -1,7 +1,7 @@
 <div align="center">
 <img src="./assets/banner.svg" alt="Astraea" width="700"/>
 
-### An agent of order and precision
+### An Agent of Order and Precision
 
 ![screenshot](./assets/screenshot.png)
 
