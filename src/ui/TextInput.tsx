@@ -8,9 +8,10 @@
 // 修复：用 lastEmittedRef 记住组件自己上一次 onChange 吐出的值。渲染时若传入的 value
 // 与之不同，说明这次变化来自外部 → 把光标推到新末尾。组件自身的按键编辑因为先经过
 // onChange、父组件再回传同样的值，lastEmittedRef 已对齐，不会误触发，光标保持原位。
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Text, useInput, usePaste } from 'ink'
 import chalk from 'chalk'
+import { readClipboard } from '../utils/clipboard'
 
 export interface TextInputProps {
   value: string
@@ -77,21 +78,24 @@ export default function TextInput({
     )
   }, [originalValue, focus, showCursor])
 
+  // 把一段文本插到当前光标处（粘贴用）。基于 ref（最新值）计算，避免过期闭包。
+  const insertText = useCallback((text: string) => {
+    if (!text) return
+    const base = valueRef.current
+    const at = offsetRef.current
+    const next = base.slice(0, at) + text + base.slice(at)
+    const nextOffset = at + text.length
+    valueRef.current = next
+    offsetRef.current = nextOffset
+    lastEmittedRef.current = next
+    setState({ cursorOffset: nextOffset, cursorWidth: 0 })
+    onChange(next)
+  }, [onChange])
+
   // 自己监听整段粘贴：插到当前光标处。只在显式开启且获得焦点时激活，
   // 这样同一时刻全局只有一个 paste 监听者，不会和 App 顶层的 usePaste 抢。
   usePaste(
-    (text) => {
-      if (!text) return
-      const base = valueRef.current
-      const at = offsetRef.current
-      const next = base.slice(0, at) + text + base.slice(at)
-      const nextOffset = at + text.length
-      valueRef.current = next
-      offsetRef.current = nextOffset
-      lastEmittedRef.current = next
-      setState({ cursorOffset: nextOffset, cursorWidth: 0 })
-      onChange(next)
-    },
+    insertText,
     { isActive: enablePaste && focus },
   )
 
@@ -129,6 +133,18 @@ export default function TextInput({
         key.tab ||
         (key.shift && key.tab)
       ) {
+        return
+      }
+
+      // Ctrl+V：务必拦截，否则会把字面 'v' 插进去。开启 enablePaste 的字段（如 /login）
+      // 自己读剪贴板插入；其余场景（主输入框）交给上层 App 处理，这里只吞掉。
+      if (key.ctrl && (input === 'v' || input === 'V')) {
+        if (enablePaste) {
+          void (async () => {
+            const text = await readClipboard()
+            if (text) insertText(text)
+          })()
+        }
         return
       }
 

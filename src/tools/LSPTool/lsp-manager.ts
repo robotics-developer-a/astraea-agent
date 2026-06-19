@@ -15,7 +15,10 @@
 import { resolve, extname } from 'node:path'
 import { existsSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
+import { homedir, platform } from 'node:os'
 import { LspClient } from './lsp-client'
+
+const IS_WIN = platform() === 'win32'
 
 export type InitStatus = 'pending' | 'ready' | 'failed'
 
@@ -63,19 +66,30 @@ const SERVER_CONFIGS: Array<{
 
 // INTENT: 探测语言服务器是否可执行（在 PATH 或项目 node_modules/.bin 中）
 function findExecutable(command: string, projectRoot: string): string | null {
+  // Windows 上可执行文件带后缀（.cmd 是 npm 包装脚本，.exe 是原生），逐个探测。
+  const localNames = IS_WIN ? [`${command}.cmd`, `${command}.exe`, command] : [command]
+
   // 1. 项目本地 node_modules/.bin（Bun/npm 安装的）
-  const localBin = resolve(projectRoot, 'node_modules', '.bin', command)
-  if (existsSync(localBin)) return localBin
+  for (const name of localNames) {
+    const localBin = resolve(projectRoot, 'node_modules', '.bin', name)
+    if (existsSync(localBin)) return localBin
+  }
 
-  // 2. Bun 全局 bin
-  const bunBin = `${process.env.HOME}/.bun/bin/${command}`
-  if (existsSync(bunBin)) return bunBin
+  // 2. Bun 全局 bin（用 homedir() 而非 $HOME——Windows 上没有 HOME，家目录是 USERPROFILE）
+  const home = homedir()
+  for (const name of localNames) {
+    const bunBin = resolve(home, '.bun', 'bin', name)
+    if (existsSync(bunBin)) return bunBin
+  }
 
-  // 3. 系统 PATH
+  // 3. 系统 PATH：Windows 用 `where`，Unix 用 `which`（`which` 在 Windows 不存在）
   try {
     const { spawnSync } = require('node:child_process') as typeof import('node:child_process')
-    const result = spawnSync('which', [command], { encoding: 'utf8' })
-    if (result.status === 0 && result.stdout.trim()) return result.stdout.trim()
+    const result = spawnSync(IS_WIN ? 'where' : 'which', [command], { encoding: 'utf8' })
+    if (result.status === 0 && result.stdout.trim()) {
+      // `where` 可能多行命中，取第一行
+      return result.stdout.trim().split(/\r?\n/)[0]!.trim()
+    }
   } catch { /* ignore */ }
 
   return null

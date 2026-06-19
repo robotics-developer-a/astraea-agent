@@ -7,31 +7,6 @@ const INDIGO = '#6A5ACD'
 const SILVER = '#C8D8FF'
 const DIM = '#7A8AAA'
 
-// CJK chars are double-width; count actual terminal columns for a string
-function visWidth(s: string): number {
-  let w = 0
-  for (const ch of s) {
-    const cp = ch.codePointAt(0) ?? 0
-    // CJK Unified Ideographs, CJK Compatibility Ideographs, Fullwidth forms, etc.
-    w += cp >= 0x1100 && (
-      cp <= 0x115F || cp === 0x2329 || cp === 0x232A ||
-      (cp >= 0x2E80 && cp <= 0x303E) ||
-      (cp >= 0x3040 && cp <= 0xA4CF) ||
-      (cp >= 0xAC00 && cp <= 0xD7A3) ||
-      (cp >= 0xF900 && cp <= 0xFAFF) ||
-      (cp >= 0xFE10 && cp <= 0xFE19) ||
-      (cp >= 0xFE30 && cp <= 0xFE6F) ||
-      (cp >= 0xFF00 && cp <= 0xFF60) ||
-      (cp >= 0xFFE0 && cp <= 0xFFE6) ||
-      (cp >= 0x1F300 && cp <= 0x1F64F) ||
-      (cp >= 0x1F900 && cp <= 0x1F9FF) ||
-      (cp >= 0x20000 && cp <= 0x2FFFD) ||
-      (cp >= 0x30000 && cp <= 0x3FFFD)
-    ) ? 2 : 1
-  }
-  return w
-}
-
 interface Props {
   version: string
   cwd: string
@@ -52,12 +27,6 @@ export function WelcomePanel({ version, cwd, model, tools }: Props): React.React
   const toolLine = tools.slice(0, 3).join(', ') + (tools.length > 3 ? ' …' : '')
   const truncCwd = cwd.length > 38 ? '…' + cwd.slice(cwd.length - 37) : cwd
 
-  // Title border — '╭' at col 0, '╮' at col panelW-1, total = panelW chars
-  const tag = ` Astraea v${version} `
-  const dashes = '─'.repeat(Math.max(0, panelW - 3 - visWidth(tag)))
-  const topBorder = `╭─${tag}${dashes}╮`
-  const botBorder = `╰${'─'.repeat(Math.max(0, panelW - 2))}╯`
-
   // Left panel is 24 terminal cols wide (sprite is ~9 wide, subtitle is "星之女神 · AI" = 14 wide)
   const LEFT_W = 24
 
@@ -69,13 +38,16 @@ export function WelcomePanel({ version, cwd, model, tools }: Props): React.React
           <AstraeaWordmark />
         </Box>
       )}
-      <Text color={INDIGO}>{topBorder}</Text>
 
+      {/* 整圈边框统一交给 Ink 绘制（borderStyle=round → ╭╮╰╯）。
+          以前上下边框是手绘 Text、左右边框由 Ink Box 画，两者用不同的宽度度量
+          （我们的 String.length vs Ink 的 string-width）。在 Windows 终端上，
+          sprite/标语里的歧义宽字符（✦ ★ ⊙ ✧ ⋆ · — …）两套度量不一致，导致顶/底
+          边角与侧边 │ 落在不同列、顶边被画短、卡片错位。让 Ink 独占整圈边框后，
+          四角与四边由同一套度量定位，必定闭合对齐。 */}
       <Box
-        borderStyle="single"
+        borderStyle="round"
         borderColor={INDIGO}
-        borderTop={false}
-        borderBottom={false}
         flexDirection={twoCol ? 'row' : 'column'}
         paddingX={1}
         paddingY={1}
@@ -92,7 +64,7 @@ export function WelcomePanel({ version, cwd, model, tools }: Props): React.React
         >
           <AstraeaSprite />
           <Box marginTop={1} flexDirection="column" alignItems="center">
-            <Text color={SILVER} bold>Astraea</Text>
+            <Text color={SILVER} bold>Astraea <Text color={DIM} dimColor>{`v${version}`}</Text></Text>
             <Text color={INDIGO} dimColor>{'· ✦ · ✧ · ✦ ·'}</Text>
             <Text color={DIM}>{'星之女神'}</Text>
           </Box>
@@ -147,8 +119,6 @@ export function WelcomePanel({ version, cwd, model, tools }: Props): React.React
           </Box>
         )}
       </Box>
-
-      <Text color={INDIGO}>{botBorder}</Text>
     </Box>
   )
 }

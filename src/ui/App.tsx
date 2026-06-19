@@ -27,6 +27,7 @@ import { getState, clearAllTasks } from '../services/agent-state'
 import type { AgentTaskState } from '../services/agent-state'
 import { clearTodos, getAllNamespaces } from '../services/todo-state'
 import { renderMarkdown } from '../utils/markdown'
+import { readClipboard } from '../utils/clipboard'
 import { getMode, setMode } from '../state/sessionMode'
 import type { SessionMode } from '../state/sessionMode'
 import { compactConversation, estimateTokens } from '../services/compact/compact'
@@ -1448,25 +1449,37 @@ export function App() {
   // ── 粘贴折叠：大段粘贴 → 占位符；小段 → 直接插入 ──────────────────────────
   // ink v7 的 usePaste 在 bracketed-paste 模式下把整段粘贴作为单个字符串送来，
   // 且不会转发给 TextInput（useInput），因此输入框不会被刷屏。
+  const ingestPaste = useCallback((text: string) => {
+    if (!text) return
+    const lineCount = text.split('\n').length
+    const isLarge = lineCount > 1 || text.length > 200
+    if (!isLarge) {
+      // 小段单行粘贴：直接插入，行为符合直觉
+      setInputValue((prev) => prev + text)
+      return
+    }
+    const id = ++pasteCounterRef.current
+    const summary = lineCount > 1 ? `+${lineCount} lines` : `+${text.length} chars`
+    const token = `[Pasted text #${id} ${summary}]`
+    pasteStoreRef.current.set(token, text)
+    historyIndexRef.current = -1
+    setInputValue((prev) => prev + token)
+  }, [])
+
   usePaste(
-    (text) => {
-      if (!text) return
-      const lineCount = text.split('\n').length
-      const isLarge = lineCount > 1 || text.length > 200
-      if (!isLarge) {
-        // 小段单行粘贴：直接插入，行为符合直觉
-        setInputValue((prev) => prev + text)
-        return
-      }
-      const id = ++pasteCounterRef.current
-      const summary = lineCount > 1 ? `+${lineCount} lines` : `+${text.length} chars`
-      const token = `[Pasted text #${id} ${summary}]`
-      pasteStoreRef.current.set(token, text)
-      historyIndexRef.current = -1
-      setInputValue((prev) => prev + token)
-    },
+    ingestPaste,
     { isActive: !showLogin && !pendingModeSelect && !pendingVigilPanel && !pendingConfirm && !pendingResumePicker && !(pendingQuestion?.options?.length && !questionFreeText) },
   )
+
+  // Ctrl+V 兜底：部分 Windows 终端（conhost / PowerShell 控制台）按 Ctrl+V 不会触发
+  // 终端粘贴，而是把原始字节 \x16 发过来——bracketed-paste 收不到，普通文本也不到。
+  // 这里直接拦截 Ctrl+V、主动读系统剪贴板，把内容按同样的折叠逻辑插进输入框。
+  const pasteFromClipboard = useCallback(() => {
+    void (async () => {
+      const text = await readClipboard()
+      if (text) ingestPaste(text)
+    })()
+  }, [ingestPaste])
 
   // 提交时把占位符展开回真实内容（喂给模型）；消费后从 store 删除。
   const expandPastes = useCallback((text: string): string => {
@@ -1480,7 +1493,7 @@ export function App() {
     return out
   }, [])
 
-  useInput((_, key) => {
+  useInput((input, key) => {
     if (showLogin) return
 
     // ── 权限确认选择器键盘控制（最高优先，工具执行中也响应）──────────────────
@@ -1588,6 +1601,13 @@ export function App() {
         }
         return
       }
+      return
+    }
+
+    // ── Ctrl+V 兜底：主动读系统剪贴板（Windows conhost 不触发终端粘贴时的退路）──
+    // 到这里说明各类覆盖层（确认/恢复/Vigil/模式）都没拦截，是普通输入态。
+    if (key.ctrl && (input === 'v' || input === 'V')) {
+      pasteFromClipboard()
       return
     }
 

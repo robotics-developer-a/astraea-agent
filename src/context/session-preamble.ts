@@ -7,6 +7,8 @@
 // inject many times per turn" — achieved via Promise-level memoization.
 // All context is scoped to cwd to prevent cross-project contamination.
 
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { memoize } from '../utils/memoize'
 import type { AssistantMessage, UserMessage } from '../types/message'
 
@@ -70,11 +72,12 @@ export const getUserContext = memoize(async (cwd: string): Promise<UserContext> 
 // 顺序：项目级 AGENTS.md（进 git）→ 个人级 AGENTS.local.md（不进 git）→ 全局 ~/.astraea/AGENTS.md。
 // /remember 把 auto-memory 提升到前两层后，必须由这里读出才生效（连带前置 #1）。
 async function loadAgentsMd(cwd: string): Promise<string> {
-  const home = process.env.HOME ?? ''
+  // 用 homedir() 而非 $HOME——Windows 上没有 HOME 环境变量，否则全局 AGENTS.md 永远读不到。
+  const home = homedir()
   const paths = [
-    `${cwd}/AGENTS.md`,
-    `${cwd}/AGENTS.local.md`,
-    home ? `${home}/.astraea/AGENTS.md` : '',
+    join(cwd, 'AGENTS.md'),
+    join(cwd, 'AGENTS.local.md'),
+    home ? join(home, '.astraea', 'AGENTS.md') : '',
   ].filter(Boolean)
   const parts: string[] = []
   for (const p of paths) {
