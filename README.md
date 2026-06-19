@@ -118,10 +118,20 @@ cp .env.example .env
 
 ```bash
 # .env  — pick one provider
-ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxx     # default
+
+# Anthropic (default — omit PROVIDER or set PROVIDER=anthropic)
+ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxx
+
+# DeepSeek
+PROVIDER=deepseek
+DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxx
+
+# OpenAI
 # PROVIDER=openai
 # OPENAI_API_KEY=sk-xxxxxxxxxxxxx
-# PROVIDER=ollama                          # fully local, no key needed
+
+# Ollama (fully local, no key needed)
+# PROVIDER=ollama
 # OLLAMA_MODEL=qwen2.5:7b
 ```
 
