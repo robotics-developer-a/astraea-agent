@@ -48,13 +48,17 @@ It runs in your terminal as either a **persistent REPL** (multi-turn, React Ink 
 
 ## 2 · Quick Install
 
-Astraea runs on [Bun](https://bun.com) (v1.3+). If you don't have it:
+Astraea runs on [Bun](https://bun.com) (v1.3+). Choose your platform below.
+
+### macOS / Linux
+
+Install Bun:
 
 ```bash
 curl -fsSL https://bun.sh/install | bash
 ```
 
-Then clone and install dependencies:
+Clone and install dependencies:
 
 ```bash
 git clone https://github.com/anxelswanz/astraea-agent.git astraea
@@ -72,7 +76,41 @@ bun link
 
 Now you can launch Astraea from anywhere by typing `astraea`. (Prefer not to link? You can always run it in-place with `bun run repl` — see [Getting Started](#3--getting-started).)
 
-Configure your provider. Copy the example env and add a key:
+### Windows
+
+Requires **Windows 10 (1809+)** or **Windows 11**. Open **PowerShell** and install Bun:
+
+```powershell
+powershell -c "irm bun.sh/install.ps1|iex"
+```
+
+Alternatively, install via [Scoop](https://scoop.sh):
+
+```powershell
+scoop install bun
+```
+
+Clone and install dependencies:
+
+```powershell
+git clone https://github.com/anxelswanz/astraea-agent.git astraea
+cd astraea
+bun install
+```
+
+Register the global `astraea` command:
+
+```powershell
+bun link
+```
+
+Now you can launch Astraea from any directory by typing `astraea` in PowerShell. (Prefer not to link? Run in-place with `bun run repl`.)
+
+> For a detailed Windows guide, see [WINDOWS.md](./WINDOWS.md).
+
+### Configure provider
+
+After installation, configure your provider. Copy the example env and add a key:
 
 ```bash
 cp .env.example .env

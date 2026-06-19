@@ -1,0 +1,6 @@
+{"id": "v-math", "query": "17 乘以 23 等于多少？直接告诉我数字结果。", "check": {"type": "output_contains", "any": ["391"]}}
+{"id": "v-sum", "query": "写一个 sum.ts，计算并打印 1 到 100 的整数之和，然后运行它。", "check": {"type": "file_runs", "file": "sum.ts", "contains": "5050"}}
+{"id": "v-test", "query": "创建 math.ts 导出 add(a,b)=a+b；再创建 math.test.ts 用 bun:test 断言 add(2,3)===5；然后跑 bun test。", "check": {"type": "shell", "cmd": "bun test", "expectExit": 0}}
+{"id": "v-pkg", "query": "在当前目录创建一个 package.json，name 设为 demo，并加一个 scripts.hi，内容是 echo hello-verify。", "check": {"type": "shell", "cmd": "bun run hi", "outputContains": "hello-verify"}}
+{"id": "v-branch", "query": "创建一个 hello.ts，打印出当前 git 分支名，然后运行它把分支名显示出来。", "setup": ["git init -q", "git checkout -q -b verify-branch", "git commit -q --allow-empty -m init"], "check": {"type": "file_runs", "file": "hello.ts", "contains": "verify-branch"}}
+{"id": "v-git", "query": "创建一个 README.md，里面写上项目名 demo-project，然后用 git 把它提交一次（初始 commit）。", "setup": ["git init -q", "git config user.email t@example.com", "git config user.name tester"], "check": {"type": "shell", "cmd": "test -f README.md && git rev-parse HEAD", "expectExit": 0}}

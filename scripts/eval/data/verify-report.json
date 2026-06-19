@@ -1,0 +1,37 @@
+{
+  "ranAt": "2026-06-16T18:53:04.658Z",
+  "passed": 6,
+  "total": 6,
+  "results": [
+    {
+      "id": "v-math",
+      "pass": true,
+      "detail": "命中: 391"
+    },
+    {
+      "id": "v-sum",
+      "pass": true,
+      "detail": "输出含\"5050\""
+    },
+    {
+      "id": "v-test",
+      "pass": true,
+      "detail": "`bun test` 退出码 0"
+    },
+    {
+      "id": "v-pkg",
+      "pass": true,
+      "detail": "`bun run hi` 退出码 0，含\"hello-verify\"=true"
+    },
+    {
+      "id": "v-branch",
+      "pass": true,
+      "detail": "输出含\"verify-branch\""
+    },
+    {
+      "id": "v-git",
+      "pass": true,
+      "detail": "`test -f README.md && git rev-parse HEAD` 退出码 0"
+    }
+  ]
+}

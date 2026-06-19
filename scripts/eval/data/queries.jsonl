@@ -1,0 +1,27 @@
+{"id": "code-01", "category": "coding", "query": "读一下 package.json，告诉我哪些依赖可能过时了，并给出更新它们的确切 bun 命令。"}
+{"id": "code-02", "category": "coding", "query": "Find the function that drives the ReAct loop in this project and explain how a single turn flows, citing file:line."}
+{"id": "code-03", "category": "coding", "query": "Write a Bun script that scans all .ts files under src/ and prints the 10 largest by line count."}
+{"id": "code-04", "category": "debug", "query": "Run the test suite, find the first failing test, and fix it. Show me what you changed."}
+{"id": "code-05", "category": "coding", "query": "给解析 CLI 参数的那个函数加上输入校验，并把 diff 给我看。"}
+{"id": "code-06", "category": "refactor", "query": "Find the longest function in src/ and refactor it to be more readable — show before/after."}
+{"id": "file-01", "category": "file-ops", "query": "Find all TODO and FIXME comments in this repo and list them grouped by file."}
+{"id": "file-02", "category": "file-ops", "query": "Grep for everywhere process.env is read under src/ and tell me exactly which env vars this project uses."}
+{"id": "file-03", "category": "file-ops", "query": "Create a .gitignore appropriate for a Bun + TypeScript project, and explain each section briefly."}
+{"id": "howto-01", "category": "howto", "query": "How do I add a new MCP server to this agent? Give me the exact config and where to put it."}
+{"id": "howto-02", "category": "howto", "query": "Set up a minimal Bun HTTP server with a /health route and a websocket echo endpoint."}
+{"id": "howto-03", "category": "howto", "query": "用 bun 只跑某一个测试文件并 watch，命令是什么？"}
+{"id": "web-01", "category": "web", "query": "What's the latest stable version of the 'ai' (Vercel AI SDK) npm package, and what notably changed in its most recent major version?"}
+{"id": "web-02", "category": "web", "query": "帮我查 2026年7月10日 阿姆斯特丹 早上8点左右 到伦敦 的航班，给出航班号、起飞时间和大致价格。"}
+{"id": "web-03", "category": "web", "query": "Find the official way to get structured JSON outputs from DeepSeek via the Vercel AI SDK, with a code snippet."}
+{"id": "plan-01", "category": "planning", "query": "Design a simple in-memory rate limiter (10 requests/min per user). Give the implementation and how to wire it into a Bun.serve app."}
+{"id": "plan-02", "category": "planning", "query": "列出给一个 Bun web 应用加 OAuth 登录的具体步骤，包括推荐用哪些库。"}
+{"id": "explain-01", "category": "explain", "query": "Explain the difference between `bun run` and `bunx`, with concrete examples."}
+{"id": "explain-02", "category": "explain", "query": "解释一下这个项目的上下文压缩（context compaction）是怎么触发的，引用相关文件。"}
+{"id": "explain-03", "category": "explain", "query": "什么是 LLM-as-a-judge？尽量用我这个项目里已有的例子来说明。"}
+{"id": "general-01", "category": "general", "query": "Summarize this project's README into 5 bullet points a brand-new contributor must know."}
+{"id": "general-02", "category": "general", "query": "帮我写一封英文邮件，礼貌地请求把一个项目会议从周二改到周四下午。"}
+{"id": "multi-01", "category": "multi-step", "query": "Create a new file hello.ts that prints the current git branch name, then run it and show the output."}
+{"id": "multi-02", "category": "multi-step", "query": "找出所有超过 80 行的函数，挑其中一个，给出拆分它的具体方案（含代码）。"}
+{"id": "vague-01", "category": "vague", "query": "我的代码跑不起来，帮帮我。"}
+{"id": "vague-02", "category": "vague", "query": "How do I make this project better?"}
+{"id": "vague-03", "category": "vague", "query": "这个代码库写得好不好？"}
