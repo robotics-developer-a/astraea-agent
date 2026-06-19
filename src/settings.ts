@@ -62,6 +62,8 @@ export interface AstraeaSettings {
   hooks?: CompactHooks
   /** transcript 保留天数（设计文档 §10）：>0 保留天数；0 关闭持久化；<0 永久保留。默认 30。 */
   cleanupPeriodDays?: number
+  /** 界面与回复语言（/language 显式选择时写入）。en|de|fr|es|zh|ko；未设置则启动按系统 locale 探测。 */
+  language?: string
   /**
    * 环境变量注入：启动时由 config.ts 灌进 process.env（如 PHOENIX_ENABLED）。
    * 优先级：shell > settings.json > 项目 .env > 全局 .env（不覆盖 shell 已设的值）。
@@ -133,4 +135,18 @@ export function getSettings(): AstraeaSettings {
 
 export function resetSettingsCache(): void {
   _cache = null
+}
+
+// 合并写入 ~/.astraea/settings.json：读现有 → patch → 写回，并刷新内存缓存。
+// 仅在用户显式选择时调用（如 /language）。pretty-print 与 permissions writer 对齐。
+export async function updateSettings(patch: Partial<AstraeaSettings>): Promise<void> {
+  let existing: AstraeaSettings = {}
+  try {
+    existing = JSON.parse(require('fs').readFileSync(globalSettingsPath, 'utf-8')) as AstraeaSettings
+  } catch {
+    // 文件不存在 / 解析失败 → 从空开始（Bun.write 自动建 ~/.astraea 目录）
+  }
+  const merged = { ...existing, ...patch }
+  await Bun.write(globalSettingsPath, JSON.stringify(merged, null, 2) + '\n')
+  _cache = merged
 }

@@ -2,11 +2,14 @@
 // 参考文档: Astraea Development/v1.0/工具系统/网络执行层/WebSearchTool 升级方案.md
 //
 // 适配器选择（ASTRAEA_SEARCH_ADAPTER 环境变量）：
-//   未设置 / "auto" → 自动探测可用 Key（Brave → Tavily → Exa）
+//   未设置 / "auto" → 自动探测可用 Key（博查 → 智谱 → Brave → Tavily → Exa）
+//   "bocha"         → 博查 Bocha（国内直连，需要 BOCHA_API_KEY）
+//   "zhipu"         → 智谱 BigModel（国内直连，需要 ZHIPU_API_KEY）
 //   "brave"         → Brave Search（需要 BRAVE_SEARCH_API_KEY）
 //   "tavily"        → Tavily（需要 TAVILY_API_KEY）
 //   "exa"           → Exa 语义搜索（需要 EXA_API_KEY）
 //   "duckduckgo"    → DuckDuckGo Instant Answer（仅适合百科/定义类查询）
+// 配置方式：交互式 /internet 向导，或手动 export <KEY>。
 import { buildTool } from '../Tool.js'
 import type { Tool, ToolCallResult, ToolContext } from '../Tool.js'
 import type { WebSearchAdapter, SearchResult } from './adapters/types.js'
@@ -14,27 +17,39 @@ import { DuckDuckGoAdapter } from './adapters/DuckDuckGoAdapter.js'
 import { BraveAdapter } from './adapters/BraveAdapter.js'
 import { TavilyAdapter } from './adapters/TavilyAdapter.js'
 import { ExaAdapter } from './adapters/ExaAdapter.js'
+import { BochaAdapter } from './adapters/BochaAdapter.js'
+import { ZhipuAdapter } from './adapters/ZhipuAdapter.js'
 
 // ─── 自动探测链配置 ──────────────────────────────────────────────────────────
-
+// 国内 provider 排在最前：国内用户配了博查/智谱即开箱可用，无需代理。
 const AUTO_CHAIN: Array<{ key: string; envVar: string; factory: () => WebSearchAdapter }> = [
+  { key: 'bocha',  envVar: 'BOCHA_API_KEY',        factory: () => new BochaAdapter() },
+  { key: 'zhipu',  envVar: 'ZHIPU_API_KEY',         factory: () => new ZhipuAdapter() },
   { key: 'brave',  envVar: 'BRAVE_SEARCH_API_KEY', factory: () => new BraveAdapter() },
   { key: 'tavily', envVar: 'TAVILY_API_KEY',        factory: () => new TavilyAdapter() },
   { key: 'exa',    envVar: 'EXA_API_KEY',           factory: () => new ExaAdapter() },
 ]
 
 const NO_KEY_MESSAGE = [
-  'WebSearch 需要搜索 API Key。请配置以下任意一个（均有免费额度）：',
+  'WebSearch 需要搜索 API Key。运行 /internet 一键配置，或选以下任意一个：',
   '',
-  '  Brave Search（2,000次/月）：',
-  '    https://brave.com/search/api/',
-  '    export BRAVE_SEARCH_API_KEY=your_key',
+  '  【国内直连·推荐】博查 Bocha（专为 AI 设计，按量付费）：',
+  '    https://open.bochaai.com',
+  '    export BOCHA_API_KEY=your_key',
   '',
-  '  Tavily（1,000次/月，专为 AI Agent 设计）：',
+  '  【国内直连】智谱 BigModel（可复用已有智谱 Key）：',
+  '    https://open.bigmodel.cn',
+  '    export ZHIPU_API_KEY=your_key',
+  '',
+  '  Tavily（1,000次/月，专为 AI Agent 设计，需代理）：',
   '    https://tavily.com',
   '    export TAVILY_API_KEY=your_key',
   '',
-  '  Exa（1,000次/月，语义搜索）：',
+  '  Brave Search（2,000次/月，需代理）：',
+  '    https://brave.com/search/api/',
+  '    export BRAVE_SEARCH_API_KEY=your_key',
+  '',
+  '  Exa（1,000次/月，语义搜索，需代理）：',
   '    https://exa.ai',
   '    export EXA_API_KEY=your_key',
 ].join('\n')
@@ -68,13 +83,15 @@ export function createAdapter(override?: WebSearchAdapter): WebSearchAdapter {
     adapter = found ? found.factory() : new NoApiKeyAdapter()
   } else {
     switch (setting) {
+      case 'bocha':      adapter = new BochaAdapter();      break
+      case 'zhipu':      adapter = new ZhipuAdapter();      break
       case 'brave':      adapter = new BraveAdapter();      break
       case 'tavily':     adapter = new TavilyAdapter();     break
       case 'exa':        adapter = new ExaAdapter();        break
       case 'duckduckgo': adapter = new DuckDuckGoAdapter(); break
       default:
         throw new Error(
-          `未知适配器 "${setting}"。有效值：auto | brave | tavily | exa | duckduckgo`
+          `未知适配器 "${setting}"。有效值：auto | bocha | zhipu | brave | tavily | exa | duckduckgo`
         )
     }
   }

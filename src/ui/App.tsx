@@ -3,6 +3,7 @@
 
 import React, { useState, useCallback, useRef, useMemo, useEffect } from 'react'
 import { Box, Text, Static, useApp, useInput, usePaste, useStdout } from 'ink'
+import pkg from '../../package.json' with { type: 'json' }
 import TextInput from './TextInput'
 import { query } from '../query'
 import { listTools, getInteractiveTools, findTool } from '../tools/registry'
@@ -16,7 +17,13 @@ import { AstraeaIntro } from './AstraeaIntro'
 import { StreamStatus } from './ThinkingIndicator'
 import { LoginWizard, formatLoginSuccess } from './LoginWizard'
 import type { LoginResult } from './LoginWizard'
-import { config, updateProviderConfig, saveConfigToEnv, hasValidConfig } from '../config'
+import { InternetWizard, formatInternetSuccess } from './InternetWizard'
+import type { InternetResult } from './InternetWizard'
+import { LanguageWizard, formatLanguageSuccess } from './LanguageWizard'
+import { config, updateProviderConfig, saveConfigToEnv, saveSearchProviderKey, hasValidConfig } from '../config'
+import { resetAdapter as resetSearchAdapter } from '../tools/WebSearchTool/index'
+import { setLocale, replyLanguageName, LOCALES, t } from '../i18n'
+import type { Locale } from '../i18n'
 import { resetAllApiClients } from '../api/stream'
 import { getSystemPrompt } from '../context/systemPrompt/builder'
 import { onQuestion, answer } from '../tools/AskUserQuestionTool/bridge'
@@ -73,14 +80,14 @@ import { TodoPanel } from './TodoPanel'
 import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
-import { getSettings, validateWechatSettings, resolveWechatSettings, resetSettingsCache } from '../settings'
+import { getSettings, validateWechatSettings, resolveWechatSettings, resetSettingsCache, updateSettings } from '../settings'
 import { abortWechatRead, WechatReadTool } from '../tools/WechatReadTool'
 
 const VIGIL_RESULT_DIR = join(homedir(), '.astraea', 'task-results')
 
 const INDIGO = '#6A5ACD'
 const DEEP = '#1A0F40'   // dark navy-purple —— 用户消息底色（与 AstraeaSprite 同款品牌色）
-const VERSION = '0.1.0'
+const VERSION = pkg.version   // 单一来源：版本号只在 package.json 维护，UI 自动跟随
 
 const IS_WIN = platform() === 'win32'
 
@@ -298,6 +305,12 @@ export function App() {
   // 没配置 API Key（首次启动、没有 .env）时自动弹出 /login 向导，
   // 而不是让 repl 启动时崩掉——保证用户能进界面、直接配置。
   const [showLogin, setShowLogin] = useState(() => !hasValidConfig())
+  // /internet 向导：配置联网搜索 provider + API Key
+  const [showInternet, setShowInternet] = useState(false)
+  // /language 向导：选择界面与回复语言
+  const [showLanguage, setShowLanguage] = useState(false)
+  // 首次启动（无有效模型配置 → 自动弹 /login）标记：/login 完成后再自动弹 /language。
+  const firstRunRef = useRef(!hasValidConfig())
   // AskUserQuestion: pending question from the model
   const [pendingQuestion, setPendingQuestion] = useState<PendingQuestion | null>(null)
   // System prompt loaded asynchronously on mount
@@ -474,7 +487,7 @@ export function App() {
     // 交互对话不暴露微信工具（仅 /wechat、/vigil wechat 可触发），故系统提示里也不列出。
     const tools = getInteractiveTools()
     const enabledTools = new Set(tools.map(t => t.name))
-    getSystemPrompt({ modelId, enabledTools, mode: sessionMode }).then(prompt => {
+    getSystemPrompt({ modelId, enabledTools, mode: sessionMode, language: replyLanguageName() }).then(prompt => {
       setSystemPrompt(prompt)
       setSessionSystemPrompt(prompt)
     }).catch(() => {
@@ -482,7 +495,9 @@ export function App() {
       setSystemPrompt(fallback)
       setSessionSystemPrompt(fallback)
     })
-  }, [modelId, sessionMode])
+    // configVersion 在 /language 切换后 bump → 重建系统提示，注入新的回复语言。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modelId, sessionMode, configVersion])
 
   // Poll running agents for spinner display.
   // ⚠️ 只在「运行中 agent 集合真正变化」时才 setState。否则每 500ms 都用一个全新数组
@@ -793,7 +808,7 @@ export function App() {
               setHistory(prev => [...prev, {
                 id: String(entryIdRef.current++),
                 role: 'assistant',
-                text: `⚠ 已达单轮上限 ${event.maxTurns} 轮，任务可能未完成。直接回车或补一句"继续"即可接着跑。`,
+                text: t('turnLimit', { n: event.maxTurns }),
               }])
               break
             }
@@ -950,6 +965,25 @@ export function App() {
         setInputValue('')
         historyIndexRef.current = -1
         setShowLogin(true)
+        return
+      }
+
+      // /internet（及别名 /search）— 配置联网搜索 provider + Key
+      if (trimmed === '/internet' || trimmed === '/search') {
+        setInputValue('')
+        historyIndexRef.current = -1
+        setShowInternet(true)
+        return
+      }
+
+      // /language — 选择界面与回复语言。带参（/language en）直接切，无参弹向导。
+      if (trimmed === '/language' || trimmed.startsWith('/language ')) {
+        setInputValue('')
+        historyIndexRef.current = -1
+        const arg = trimmed.slice('/language'.length).trim().toLowerCase()
+        const target = LOCALES.find(l => l.id === arg)
+        if (target) void handleLanguageDone(target.id)
+        else setShowLanguage(true)
         return
       }
 
@@ -1408,6 +1442,37 @@ export function App() {
       ...prev,
       { id: String(entryIdRef.current++), role: 'assistant', text: successText },
     ])
+    // 首次启动：/login 配完模型后，紧接着弹 /language 让用户选语言（两步开机流程）。
+    if (firstRunRef.current) {
+      firstRunRef.current = false
+      setShowLanguage(true)
+    }
+  }, [])
+
+  const handleLanguageDone = useCallback(async (locale: Locale | null) => {
+    setShowLanguage(false)
+    if (!locale) return
+    setLocale(locale)                          // 先切模块单例，下面的重渲/重建即读新语言
+    await updateSettings({ language: locale }) // 显式选择 → 持久化到 settings.json
+    setConfigVersion(v => v + 1)               // 触发系统提示重建，注入新的回复语言
+    const successText = formatLanguageSuccess(locale)
+    setHistory(prev => [
+      ...prev,
+      { id: String(entryIdRef.current++), role: 'assistant', text: successText },
+    ])
+    wipeStatic()                               // 重挂载 Static → welcome + 历史按新语言重绘
+  }, [wipeStatic])
+
+  const handleInternetDone = useCallback(async (result: InternetResult | null) => {
+    setShowInternet(false)
+    if (!result) return
+    await saveSearchProviderKey(result.provider, result.apiKey)
+    resetSearchAdapter()  // 让 WebSearchTool 丢弃单例缓存，下次按新 Key 重建适配器
+    const successText = formatInternetSuccess(result)
+    setHistory(prev => [
+      ...prev,
+      { id: String(entryIdRef.current++), role: 'assistant', text: successText },
+    ])
   }, [])
 
   const handleVigilInlineAction = useCallback((actionKey: string, text: string) => {
@@ -1498,7 +1563,7 @@ export function App() {
 
   usePaste(
     ingestPaste,
-    { isActive: !showLogin && !pendingModeSelect && !pendingVigilPanel && !pendingConfirm && !pendingResumePicker && !(pendingQuestion?.options?.length && !questionFreeText) },
+    { isActive: !showLogin && !showInternet && !showLanguage && !pendingModeSelect && !pendingVigilPanel && !pendingConfirm && !pendingResumePicker && !(pendingQuestion?.options?.length && !questionFreeText) },
   )
 
   // Ctrl+V 兜底：部分 Windows 终端（conhost / PowerShell 控制台）按 Ctrl+V 不会触发
@@ -1524,7 +1589,7 @@ export function App() {
   }, [])
 
   useInput((input, key) => {
-    if (showLogin) return
+    if (showLogin || showInternet || showLanguage) return
 
     // ── 权限确认选择器键盘控制（最高优先，工具执行中也响应）──────────────────
     if (pendingConfirm) {
@@ -1980,6 +2045,8 @@ export function App() {
       )}
 
       {showLogin && <LoginWizard onDone={handleLoginDone} />}
+      {showInternet && <InternetWizard onDone={handleInternetDone} />}
+      {showLanguage && <LanguageWizard onDone={handleLanguageDone} />}
 
       {/* ConfirmSelector — 权限确认方向键选择器，覆盖输入框 */}
       {pendingConfirm && (
@@ -2029,7 +2096,7 @@ export function App() {
 
       <TodoPanel />
 
-      {!showLogin && !pendingModeSelect && !pendingVigilPanel && !pendingConfirm && !pendingResumePicker && (
+      {!showLogin && !showInternet && !showLanguage && !pendingModeSelect && !pendingVigilPanel && !pendingConfirm && !pendingResumePicker && (
         <ModeInputFrame mode={sessionMode}>
           {/* When a question with options is pending, hide the text input entirely —
               user navigates with ↑↓ + Enter just like the /mode selector.

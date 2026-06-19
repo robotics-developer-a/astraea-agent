@@ -212,6 +212,78 @@ export function updateProviderConfig(provider: Provider, model: string, apiKey: 
   }
 }
 
+// ─── 搜索 provider 配置（/internet 向导用）──────────────────────────────────
+// 与 LLM provider 解耦：搜索 Key 走独立的 ASTRAEA_SEARCH_ADAPTER + <PROVIDER>_API_KEY，
+// 不进 saveConfigToEnv（那个只管 LLM provider，且会整文件覆写项目 .env）。
+// label 用品牌名（各语言通用）；hint 为 i18n key（运行时按当前语言 t() 解析），不存翻译文本。
+export interface SearchProviderMeta {
+  id: string
+  label: string
+  hintKey: string
+  envVar: string
+  signupUrl: string
+  domestic: boolean   // 国内是否可直连（无需代理）
+}
+
+export const SEARCH_PROVIDERS: SearchProviderMeta[] = [
+  { id: 'bocha',  label: 'Bocha',         hintKey: 'provHintBocha',  envVar: 'BOCHA_API_KEY',        signupUrl: 'https://open.bochaai.com',       domestic: true },
+  { id: 'zhipu',  label: 'Zhipu BigModel', hintKey: 'provHintZhipu', envVar: 'ZHIPU_API_KEY',        signupUrl: 'https://open.bigmodel.cn',       domestic: true },
+  { id: 'tavily', label: 'Tavily',        hintKey: 'provHintTavily', envVar: 'TAVILY_API_KEY',       signupUrl: 'https://app.tavily.com/sign-up', domestic: false },
+  { id: 'brave',  label: 'Brave Search',  hintKey: 'provHintBrave',  envVar: 'BRAVE_SEARCH_API_KEY', signupUrl: 'https://brave.com/search/api/',  domestic: false },
+  { id: 'exa',    label: 'Exa',           hintKey: 'provHintExa',    envVar: 'EXA_API_KEY',          signupUrl: 'https://dashboard.exa.ai',       domestic: false },
+]
+
+export function searchProviderMeta(id: string): SearchProviderMeta | undefined {
+  return SEARCH_PROVIDERS.find(p => p.id === id)
+}
+
+// 当前激活的搜索 provider（已配 Key 的那个）；用于 /internet 向导展示状态。
+export function activeSearchProvider(): SearchProviderMeta | undefined {
+  const setting = process.env.ASTRAEA_SEARCH_ADAPTER?.trim()
+  if (setting && setting !== 'auto') return searchProviderMeta(setting)
+  // auto：返回第一个配了 Key 的（与 WebSearchTool 的探测链同序）
+  return SEARCH_PROVIDERS.find(p => process.env[p.envVar])
+}
+
+// 把 updates 合并进 env 文件：已存在的 key 原地改值，新 key 追加到末尾，注释/空行保留。
+async function mergeEnvFile(path: string, updates: Record<string, string>): Promise<void> {
+  let lines: string[] = []
+  try {
+    lines = (await Bun.file(path).text()).split('\n')
+  } catch {
+    // 文件不存在 → 从空开始（Bun.write 会自动建 ~/.astraea 目录）
+  }
+  const remaining = { ...updates }
+  const out = lines.map(line => {
+    const t = line.trim()
+    if (!t || t.startsWith('#')) return line
+    const eq = t.indexOf('=')
+    if (eq === -1) return line
+    const key = t.slice(0, eq).trim()
+    if (key in remaining) {
+      const v = remaining[key]!
+      delete remaining[key]
+      return `${key}=${v}`
+    }
+    return line
+  })
+  for (const [k, v] of Object.entries(remaining)) out.push(`${k}=${v}`)
+  await Bun.write(path, out.join('\n'))
+}
+
+// 保存搜索 provider 的 Key 到 ~/.astraea/.env（全局 secrets，一次配置所有项目生效），
+// 并设为当前激活适配器；同时即时写入 process.env，本次会话无需重启即可生效。
+export async function saveSearchProviderKey(providerId: string, apiKey: string): Promise<void> {
+  const meta = searchProviderMeta(providerId)
+  if (!meta) throw new Error(`未知搜索 provider：${providerId}`)
+  process.env[meta.envVar] = apiKey
+  process.env.ASTRAEA_SEARCH_ADAPTER = providerId
+  await mergeEnvFile(globalEnvPath, {
+    [meta.envVar]: apiKey,
+    ASTRAEA_SEARCH_ADAPTER: providerId,
+  })
+}
+
 export async function saveConfigToEnv(): Promise<void> {
   const content = [
     '# ─── Provider 选择 ───────────────────────────────────────',

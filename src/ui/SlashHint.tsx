@@ -6,7 +6,7 @@
 //   · 滑动窗口·选中居中：startIndex = clamp(sel - ⌊N/2⌋, 0, len-N)
 //
 // enterAction 决定 Enter 时的行为（由 App.tsx 派发）：
-//   execute — 零参命令，立即执行（/clear /help /model /wechat /login）
+//   execute — 零参命令，立即执行（/clear /help /model /login）
 //   complete — 带参命令，补全 "/goal " 并加空格等用户输参
 //   panel   — 交互式命令，打开方向键面板（/mode /vigil）
 
@@ -33,12 +33,8 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     options: ['<condition>', 'clear'],
     enterAction: 'complete',
   },
-  {
-    name: '/wechat',
-    summary: 'summarize WeChat chats now',
-    options: [],
-    enterAction: 'execute',
-  },
+  // /wechat —— 功能保留（App.tsx 直接路由 trimmed === '/wechat' 仍可执行），
+  // 但暂不在 slash 提示里暴露，故不列入 SLASH_COMMANDS。
   {
     name: '/vigil',
     summary: 'scheduled tasks',
@@ -49,6 +45,18 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     name: '/login',
     summary: 'set API key and provider',
     options: [],
+    enterAction: 'execute',
+  },
+  {
+    name: '/internet',
+    summary: 'configure web search provider',
+    options: ['Bocha', 'Zhipu', 'Tavily', 'Brave', 'Exa'],
+    enterAction: 'execute',
+  },
+  {
+    name: '/language',
+    summary: 'choose UI & reply language',
+    options: ['English', 'Deutsch', 'Français', 'Español', '中文', '한국어'],
     enterAction: 'execute',
   },
   {
@@ -157,7 +165,7 @@ export function SlashHint({ input, selectedIndex }: SlashHintProps) {
               {isSelected ? ' ❯ ' : '   '}
             </Text>
             <Text color={isSelected ? INDIGO : 'gray'} bold={isSelected} dimColor={!isSelected}>
-              {cmd.name.padEnd(8)}
+              {cmd.name.padEnd(10)}
             </Text>
             <Text color="gray" dimColor>
               {cmd.options.length > 0 ? cmd.options.join(' · ') : cmd.summary}

@@ -16,7 +16,7 @@ function jsx(
   name: string,
   description: string,
   toAction: (args: string | undefined) => CommandAction,
-  opts: { argumentHint?: string } = {},
+  opts: { argumentHint?: string; hidden?: boolean } = {},
 ): LocalJsxCommand {
   return {
     type: 'local-jsx',
@@ -26,6 +26,7 @@ function jsx(
     userInvocable: true,
     modelInvocable: false,
     argumentHint: opts.argumentHint,
+    hidden: opts.hidden,
     toAction,
   }
 }
@@ -63,12 +64,19 @@ export function getBuiltinCommands(): Command[] {
     jsx('goal', 'set a completion condition to work toward',
       args => ({ kind: 'set-goal', args }), { argumentHint: '<condition> | clear' }),
 
-    jsx('wechat', 'summarize WeChat chats now', () => ({ kind: 'wechat-run' })),
+    jsx('wechat', 'summarize WeChat chats now', () => ({ kind: 'wechat-run' }), { hidden: true }),
 
     jsx('vigil', 'scheduled tasks', () => ({ kind: 'open-vigil-panel' }),
       { argumentHint: '[add|list|delete|wechat]' }),
 
     jsx('login', 'set API key and provider', () => ({ kind: 'login-wizard' })),
+
+    jsx('internet', 'configure web search provider (Bocha/Zhipu/Tavily…)', () => ({ kind: 'internet-wizard' })),
+
+    jsx('search', 'configure web search provider (alias of /internet)', () => ({ kind: 'internet-wizard' }), { hidden: true }),
+
+    jsx('language', 'choose UI & reply language (en/de/fr/es/zh/ko)',
+      args => ({ kind: 'language-wizard', args: args?.trim() }), { argumentHint: '[en|de|fr|es|zh|ko]' }),
 
     jsx('clear', 'clear conversation history', () => ({ kind: 'clear-history' })),
 
@@ -117,12 +125,13 @@ export function getBuiltinCommands(): Command[] {
     }),
 
     local('help', 'show available commands', async () => {
-      const cmds = _commandsForHelp().filter(c => c.userInvocable)
+      const { t } = await import('../i18n')
+      const cmds = _commandsForHelp().filter(c => c.userInvocable && !c.hidden)
       const builtin = cmds.filter(c => c.source === 'builtin')
       const skills = cmds.filter(c => c.source !== 'builtin')
       const fmt = (c: Command) => `  /${c.name}${c.argumentHint ? ' ' + c.argumentHint : ''} — ${c.description}`
-      const parts = ['**Commands:**', ...builtin.map(fmt)]
-      if (skills.length) parts.push('', '**Skills:**', ...skills.map(fmt))
+      const parts = [`**${t('helpCommands')}:**`, ...builtin.map(fmt)]
+      if (skills.length) parts.push('', `**${t('helpSkills')}:**`, ...skills.map(fmt))
       return { type: 'text', value: parts.join('\n') }
     }),
   ]

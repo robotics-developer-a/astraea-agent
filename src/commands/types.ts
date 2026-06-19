@@ -22,6 +22,8 @@ export type CommandActionKind =
   | 'open-mcp-panel'
   | 'open-plugin-panel'
   | 'login-wizard'
+  | 'internet-wizard'
+  | 'language-wizard'
   | 'resume-picker'
   | 'clear-history'
   | 'compact-now'
@@ -50,6 +52,8 @@ interface CommandBase {
   modelInvocable: boolean
   /** slash 选择器里的参数提示，如 "[file]"。 */
   argumentHint?: string
+  /** 暂不对外暴露：仍可被 /name 敲出执行，但不进 /help 与 slash 提示。 */
+  hidden?: boolean
 }
 
 /** prompt 命令（skill 是其主体）：命中读全文注入对话。 */

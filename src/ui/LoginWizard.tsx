@@ -3,6 +3,7 @@ import React, { useState } from 'react'
 import { Box, Text, useInput } from 'ink'
 import TextInput from './TextInput'
 import type { Provider } from '../config'
+import { t } from '../i18n'
 
 const INDIGO = '#6A5ACD'
 const SILVER = '#C8D8FF'
@@ -25,22 +26,23 @@ const PROVIDERS: ProviderOption[] = [
 
 interface ModelOption { label: string; value: string; hint: string }
 
+// hint 存 i18n key（运行时 t() 解析），不存翻译文本。
 const MODELS: Record<Exclude<Provider, 'ollama'>, ModelOption[]> = {
   anthropic: [
-    { label: 'claude-opus-4-7', value: 'claude-opus-4-7', hint: '最强' },
-    { label: 'claude-sonnet-4-6', value: 'claude-sonnet-4-6', hint: '推荐' },
-    { label: 'claude-haiku-4-5', value: 'claude-haiku-4-5-20251001', hint: '快速' },
+    { label: 'claude-opus-4-7', value: 'claude-opus-4-7', hint: 'mStrongest' },
+    { label: 'claude-sonnet-4-6', value: 'claude-sonnet-4-6', hint: 'mRecommended' },
+    { label: 'claude-haiku-4-5', value: 'claude-haiku-4-5-20251001', hint: 'mFast' },
   ],
   deepseek: [
-    { label: 'deepseek-chat', value: 'deepseek-chat', hint: 'V4/V3 最新' },
-    { label: 'deepseek-reasoner', value: 'deepseek-reasoner', hint: 'R1 推理' },
+    { label: 'deepseek-chat', value: 'deepseek-chat', hint: 'mDsChat' },
+    { label: 'deepseek-reasoner', value: 'deepseek-reasoner', hint: 'mDsReasoner' },
   ],
   openai: [
-    { label: 'gpt-5.5', value: 'gpt-5.5', hint: '最强 · 128K 输出' },
-    { label: 'gpt-5.4', value: 'gpt-5.4', hint: '推荐 · 性价比' },
-    { label: 'gpt-5.4-mini', value: 'gpt-5.4-mini', hint: '快速 · 子任务' },
-    { label: 'gpt-4o', value: 'gpt-4o', hint: '旧 · 均衡' },
-    { label: 'o3', value: 'o3', hint: '旧 · 推理' },
+    { label: 'gpt-5.5', value: 'gpt-5.5', hint: 'mGpt55' },
+    { label: 'gpt-5.4', value: 'gpt-5.4', hint: 'mGpt54' },
+    { label: 'gpt-5.4-mini', value: 'gpt-5.4-mini', hint: 'mGpt54mini' },
+    { label: 'gpt-4o', value: 'gpt-4o', hint: 'mGpt4o' },
+    { label: 'o3', value: 'o3', hint: 'mO3' },
   ],
 }
 
@@ -126,19 +128,19 @@ export function LoginWizard({ onDone }: Props): React.ReactNode {
       <Box marginBottom={1}>
         <Text color={INDIGO} bold>✦ </Text>
         <Text color={SILVER} bold>Astraea /login</Text>
-        <Text color={DIM}> — 配置 Provider</Text>
+        <Text color={DIM}> {t('loginTitleSuffix')}</Text>
       </Box>
 
       {/* Step 1: 选择 Provider */}
       {step === 'provider' && (
         <>
-          <Text color={SILVER}>选择 Provider:</Text>
+          <Text color={SILVER}>{t('loginSelectProvider')}</Text>
           <Box flexDirection="column" marginY={1}>
             {PROVIDERS.map((p, i) => (
               <ListRow key={p.value} label={p.label} hint={p.hint} active={i === providerIdx} />
             ))}
           </Box>
-          <Text color={DIM}>↑↓ 移动  Enter 确认  Esc 取消</Text>
+          <Text color={DIM}>{t('navHint')}</Text>
         </>
       )}
 
@@ -146,16 +148,16 @@ export function LoginWizard({ onDone }: Props): React.ReactNode {
       {step === 'model' && (
         <>
           <Box>
-            <Text color={DIM}>Provider: </Text>
+            <Text color={DIM}>{t('labelProvider')} </Text>
             <Text color={SILVER}>{providerLabel}</Text>
           </Box>
-          <Text color={SILVER}>选择 Model:</Text>
+          <Text color={SILVER}>{t('loginSelectModel')}</Text>
           <Box flexDirection="column" marginY={1}>
             {models.map((m, i) => (
-              <ListRow key={m.value} label={m.label} hint={m.hint} active={i === modelIdx} />
+              <ListRow key={m.value} label={m.label} hint={t(m.hint)} active={i === modelIdx} />
             ))}
           </Box>
-          <Text color={DIM}>↑↓ 移动  Enter 确认  Esc 取消</Text>
+          <Text color={DIM}>{t('navHint')}</Text>
         </>
       )}
 
@@ -177,14 +179,14 @@ export function LoginWizard({ onDone }: Props): React.ReactNode {
               onChange={setApiKey}
               mask="*"
               enablePaste
-              placeholder="输入后按 Enter 保存（支持粘贴）..."
+              placeholder={t('loginApiKeyPlaceholder')}
               onSubmit={(val) => {
                 if (val.trim()) onDone({ provider, model, apiKey: val.trim() })
               }}
             />
           </Box>
           <Box marginTop={1}>
-            <Text color={DIM}>Enter 保存  Esc 取消</Text>
+            <Text color={DIM}>{t('saveHint')}</Text>
           </Box>
         </>
       )}
@@ -198,5 +200,5 @@ export function formatLoginSuccess(result: LoginResult): string {
   const masked = result.apiKey.length > 8
     ? result.apiKey.slice(0, 4) + '***' + result.apiKey.slice(-4)
     : '***'
-  return `✓ 配置已保存\n  Provider: ${result.provider}\n  Model:    ${result.model}\n  API Key:  ${masked}`
+  return `✓ ${t('loginSavedTitle')}\n  Provider: ${result.provider}\n  Model:    ${result.model}\n  API Key:  ${masked}`
 }

@@ -2,6 +2,7 @@ import React from 'react'
 import { Box, Text, useStdout } from 'ink'
 import { AstraeaSprite } from './AstraeaSprite'
 import { AstraeaWordmark, fitsWordmark } from './AstraeaWordmark'
+import { t } from '../i18n'
 
 const INDIGO = '#6A5ACD'
 const SILVER = '#C8D8FF'
@@ -66,7 +67,7 @@ export function WelcomePanel({ version, cwd, model, tools }: Props): React.React
           <Box marginTop={1} flexDirection="column" alignItems="center">
             <Text color={SILVER} bold>Astraea <Text color={DIM} dimColor>{`v${version}`}</Text></Text>
             <Text color={INDIGO} dimColor>{'· ✦ · ✧ · ✦ ·'}</Text>
-            <Text color={DIM}>{'星之女神'}</Text>
+            <Text color={DIM}>{t('wEpithet')}</Text>
           </Box>
         </Box>
 
@@ -90,31 +91,31 @@ export function WelcomePanel({ version, cwd, model, tools }: Props): React.React
             <Box flexDirection="column" marginBottom={1}>
               <Box>
                 <Text color={SILVER}>{'✦ '}</Text>
-                <Text color={SILVER} italic>{'You speak, I understand · You imagine, I assist · You build, I\'m here.'}</Text>
+                <Text color={SILVER} italic>{t('wTagline1')}</Text>
               </Box>
               <Box>
                 <Text color={INDIGO} dimColor>{'✧ '}</Text>
-                <Text color={DIM} italic>{'Order is not constraint — it\'s the foundation of freedom.'}</Text>
+                <Text color={DIM} italic>{t('wTagline2')}</Text>
               </Box>
               <Box>
                 <Text color={INDIGO} dimColor>{'⋆ '}</Text>
-                <Text color={DIM}>{'Building a better life, together.'}</Text>
+                <Text color={DIM}>{t('wTagline3')}</Text>
               </Box>
             </Box>
             <Box>
-              <Text color={DIM}>{'model  '}</Text>
+              <Text color={DIM}>{t('wModel').padEnd(7)}</Text>
               <Text color={SILVER}>{model}</Text>
             </Box>
             <Box>
-              <Text color={DIM}>{'dir    '}</Text>
+              <Text color={DIM}>{t('wDir').padEnd(7)}</Text>
               <Text>{truncCwd}</Text>
             </Box>
             <Box>
-              <Text color={DIM}>{'tools  '}</Text>
+              <Text color={DIM}>{t('wTools').padEnd(7)}</Text>
               <Text color={DIM}>{toolLine}</Text>
             </Box>
             <Box marginTop={1}>
-              <Text color={DIM} dimColor>{'✦ message · Ctrl+C exit'}</Text>
+              <Text color={DIM} dimColor>{'✦ ' + t('wFooter')}</Text>
             </Box>
           </Box>
         )}

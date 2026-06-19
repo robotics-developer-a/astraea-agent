@@ -6,6 +6,7 @@ import React, { useState, useEffect } from 'react'
 import { Box, Text } from 'ink'
 import { getTodos, clearTodos } from '../services/todo-state'
 import type { Todo, TodoStatus } from '../services/todo-state'
+import { t } from '../i18n'
 
 const POLL_MS = 300
 const DONE_LINGER_MS = 1500
@@ -68,7 +69,7 @@ export function TodoPanel({ namespace = 'main' }: { namespace?: string }) {
         </Box>
       ))}
       {showDone && (
-        <Text color="green">{'  '}✓  所有任务已完成</Text>
+        <Text color="green">{'  '}✓  {t('todoAllDone')}</Text>
       )}
     </Box>
   )
