@@ -12,6 +12,7 @@ import {
   type ToolResultBlock,
   type ToolUseBlock,
   type UserMessage,
+  contextInputTokens,
 } from './types/message'
 import type { Tool, ToolSchema, ToolContext } from './tools/Tool'
 import { findTool } from './tools/registry'
@@ -363,8 +364,10 @@ async function* runQuery(
           stopReason = event.stopReason
           llmUsage = event.usage
           // 触发用聚合 input_tokens（仅主对话）：记最近一次响应的真值，供下轮阈值检查。
+          // 必须用三项 input 之和（input + cache_read + cache_creation）：开缓存后
+          // input_tokens 只剩本轮新增，绝大部分上下文跑到 cache_read 里，只取它会严重低估。
           if (compactionEnabled) {
-            recordInputTokens(event.usage.input_tokens)
+            recordInputTokens(contextInputTokens(event.usage))
             // Microcompact time-based 触发用：记下这一刻为"最后一条 assistant 时间"。
             recordAssistantTs()
             // Eclipse 后台 spawn：token 增量+起步闸触发（fire-and-forget，不阻塞本轮）。

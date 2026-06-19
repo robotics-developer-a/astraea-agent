@@ -28,6 +28,7 @@ import type { AgentTaskState } from '../services/agent-state'
 import { clearTodos, getAllNamespaces } from '../services/todo-state'
 import { renderMarkdown } from '../utils/markdown'
 import { readClipboard } from '../utils/clipboard'
+import { clampLineWidth, safeWinPreview } from '../utils/termWidth'
 import { getMode, setMode } from '../state/sessionMode'
 import type { SessionMode } from '../state/sessionMode'
 import { compactConversation, estimateTokens } from '../services/compact/compact'
@@ -70,7 +71,7 @@ import { ModeSwitchBanner, ModeInputFrame } from './ModeBanner'
 import { ToolBatch, type ToolCall } from './ToolBatch'
 import { TodoPanel } from './TodoPanel'
 import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import { getSettings, validateWechatSettings, resolveWechatSettings, resetSettingsCache } from '../settings'
 import { abortWechatRead, WechatReadTool } from '../tools/WechatReadTool'
@@ -80,6 +81,15 @@ const VIGIL_RESULT_DIR = join(homedir(), '.astraea', 'task-results')
 const INDIGO = '#6A5ACD'
 const DEEP = '#1A0F40'   // dark navy-purple —— 用户消息底色（与 AstraeaSprite 同款品牌色）
 const VERSION = '0.1.0'
+
+const IS_WIN = platform() === 'win32'
+
+// 整屏清除序列（含滚动回溯缓冲）。Ink 的 <Static> 是 append-only：内部用 index 记下
+// 已打印条数，每帧只渲染 items.slice(index)，已落盘的行永不擦除。一旦 history 被整体
+// 替换或缩短（/clear、/resume），旧条目仍留在终端，且新 fresh 条目因 index 卡在旧值而
+// 永不渲染。修复见 wipeStatic：物理清屏 + bump <Static> key 强制重挂载（index 归零重渲，
+// 并触发 Ink 的 onStaticChange 清空 fullStaticOutput）。对齐 ansi-escapes 的 clearTerminal。
+const CLEAR_TERMINAL = IS_WIN ? '\x1b[2J\x1b[0f' : '\x1b[2J\x1b[3J\x1b[H'
 
 function formatToolArg(name: string, input: Record<string, unknown>): string {
   const MAX = 120
@@ -246,6 +256,9 @@ export function App() {
   const [history, setHistory] = useState<HistoryEntry[]>(
     isResumeLaunch ? [{ id: 'welcome', role: 'welcome', text: '' }] : [],
   )
+  // <Static> 的重挂载计数 —— 整体替换 history（/clear、/resume）前自增，强制 Ink 的
+  // <Static> 丢弃 append-only 的内部 index 与累积输出，从头重渲新 history（见 wipeStatic）。
+  const [staticEpoch, setStaticEpoch] = useState(0)
 
   // intro 播放结束（或被按键跳过）→ 收起 live intro，再把 welcome 落进 Static。
   // 分两帧：先 setBooting(false) 让 live frame 归零，下一帧再追加 Static，规避越界擦除。
@@ -528,6 +541,13 @@ export function App() {
   // 普通消息和 /goal 共用同一条流式管线。promptText 是喂给模型的内容，
   // displayText 是在 history 里展示为 "You: …" 的内容（默认与 promptText 相同）。
   // 恢复一个历史会话：重建 conversationRef + history、续写其 transcript、token 计数作废。
+  // 整屏清除 + 强制 <Static> 重挂载 —— 任何「整体替换 history」的入口（非追加）在调用
+  // setHistory 前先调它，否则旧条目残留屏上、新条目又因 Static 的 append-only 语义不渲染。
+  const wipeStatic = useCallback(() => {
+    stdout?.write(CLEAR_TERMINAL)
+    setStaticEpoch(e => e + 1)
+  }, [stdout])
+
   const restoreSession = useCallback((target: SessionSummary) => {
     const msgs = loadSessionMessages(target.path)
     conversationRef.current = msgs
@@ -536,12 +556,13 @@ export function App() {
     markTokensUnknown()
     // microcompact：从 transcript 回填最后一条 assistant 时间，让 resume 后首轮也能算 gap。
     { const ts = getLastAssistantTimestamp(target.path); if (ts !== null) setLastAssistantTs(ts) }
+    wipeStatic()  // 抹掉当前会话屏内容 + 重挂载 Static，再铺恢复出的历史
     setHistory([
       { id: 'welcome', role: 'welcome', text: '' },
       ...rebuildHistoryEntries(msgs, () => String(entryIdRef.current++)),
       { id: String(entryIdRef.current++), role: 'assistant', text: `◎ resumed session — ${msgs.length} messages restored. Continue where you left off.` },
     ])
-  }, [])
+  }, [wipeStatic])
 
   const runConversation = useCallback(
     async (
@@ -613,7 +634,9 @@ export function App() {
               // 工具批结束、叙述恢复 → 先把在途批落盘，保证时序：…文本→工具批→文本…
               if (liveToolsRef.current.length > 0) commitLiveTools()
               accumulated += event.text
-              // 常驻状态行的实时 token 估算（跨轮累积，token ≈ chars/4）。
+              // 常驻状态行的实时输出量「估算」（非 API 真值，仅作活跃度指示）。
+              // token ≈ chars/4，统计口径含叙述文本 + 工具入参（见 tool_use 分支）。
+              // 真实上下文用量走另一条线：message_stop 的 usage 三项 input 之和。
               runOutCharsRef.current += event.text.length
               setLiveTokens(Math.ceil(runOutCharsRef.current / 4))
               if (event.text.trim()) anyVisibleOutput = true
@@ -627,6 +650,12 @@ export function App() {
               // live frame 由「文本」切到「工具行」，不会塌缩为 0 行 → 规避 done-bug 越界擦除。
               flushAssistant()
               setActiveTool(event.name)
+              // 工具入参也是模型本轮的输出，计入活跃度估算——否则探索类任务
+              // （连续 Grep/Read，几乎无叙述文本）状态行会一直显示接近 0 token。
+              try {
+                runOutCharsRef.current += JSON.stringify(event.input).length
+                setLiveTokens(Math.ceil(runOutCharsRef.current / 4))
+              } catch { /* 入参含循环引用等无法序列化时跳过 */ }
               const argPreview = formatToolArg(event.name, event.input)
               syncLiveTools([
                 ...liveToolsRef.current,
@@ -998,6 +1027,7 @@ export function App() {
           '◌  signal lost. static cleared.',
         ]
         const clearLine = CLEAR_LINES[Math.floor(Math.random() * CLEAR_LINES.length)]
+        wipeStatic()  // 物理清屏 + 重挂载 Static，否则旧对话残留、welcome/回执不渲染
         const fresh: HistoryEntry[] = [{ id: 'welcome', role: 'welcome', text: '' }]
         fresh.push({
           id: String(entryIdRef.current++),
@@ -1771,7 +1801,7 @@ export function App() {
 
   return (
     <Box flexDirection="column">
-      <Static items={history}>
+      <Static key={staticEpoch} items={history}>
         {entry => {
           if (entry.role === 'welcome') {
             return (
@@ -1831,8 +1861,15 @@ export function App() {
           {streamingText && (() => {
             // 实时预览只渲染尾部若干行，把帧高封顶 → 避免越界擦除把页脚/输入框盖住。
             // 完整文本在本轮结束时整段落盘进 Static（见 finalText），故此处截断只影响"进行中"预览。
-            const lines = streamingText.split('\n')
             const maxLines = Math.max(8, (stdout?.rows ?? 24) - 14)
+            // Windows：Ink 擦除按"换行符行数"算，但超宽行（尤其中文全角=2 宽）会被终端
+            // 自动折行成多物理行，导致擦不干净、✦ Astraea 与正文一层层重影。这里把预览
+            // 截成"每行不超宽的纯文本"，让逻辑行数==物理行数。富文本完整版仍进 <Static>。
+            if (IS_WIN) {
+              const cols = Math.max(1, (stdout?.columns ?? 80) - 1)
+              return <Text>{safeWinPreview(streamingText, cols, maxLines)}</Text>
+            }
+            const lines = streamingText.split('\n')
             const preview = lines.length <= maxLines
               ? streamingText
               : '⋯\n' + lines.slice(-maxLines).join('\n')
@@ -1847,7 +1884,8 @@ export function App() {
               {liveOutput && (
                 <Box flexDirection="column" marginLeft={4}>
                   {liveOutput.trimEnd().split('\n').slice(-20).map((line, i) => (
-                    <Text key={i} color="gray" dimColor>⎿  {line}</Text>
+                    // Windows 同样按列数硬截断，避免超宽行折行后擦不干净（见 safeWinPreview）。
+                    <Text key={i} color="gray" dimColor>⎿  {IS_WIN ? clampLineWidth(line, Math.max(1, (stdout?.columns ?? 80) - 6)) : line}</Text>
                   ))}
                 </Box>
               )}

@@ -100,7 +100,13 @@ export async function* streamMessageAnthropic(
         const finalMsg: SDKMessage = await stream.finalMessage()
         yield {
           type: 'message_stop',
-          usage: { input_tokens: finalMsg.usage.input_tokens, output_tokens: finalMsg.usage.output_tokens },
+          usage: {
+            input_tokens: finalMsg.usage.input_tokens,
+            output_tokens: finalMsg.usage.output_tokens,
+            // 开缓存后大部分上下文都在这两笔里；不读出来上下文用量会严重低估。
+            cache_read_input_tokens: finalMsg.usage.cache_read_input_tokens ?? 0,
+            cache_creation_input_tokens: finalMsg.usage.cache_creation_input_tokens ?? 0,
+          },
           stopReason: finalMsg.stop_reason === 'max_tokens' ? 'max_tokens'
             : finalMsg.stop_reason === 'tool_use' ? 'tool_use'
             : finalMsg.stop_reason === 'end_turn' ? 'end_turn'

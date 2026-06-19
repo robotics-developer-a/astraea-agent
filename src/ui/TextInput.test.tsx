@@ -51,13 +51,13 @@ test('单个多字符 chunk（无括号粘贴时整段到达）整体插入', as
 })
 
 test('回车触发 onSubmit，带上当前完整值', async () => {
-  let submitted: string | null = null
-  const { stdin } = render(<Controlled onSubmit={(v) => { submitted = v }} />)
+  const box = { value: '' }
+  const { stdin } = render(<Controlled onSubmit={(v) => { box.value = v }} />)
   for (const ch of 'done') {
     stdin.write(ch)
     await tick()
   }
   stdin.write('\r')
   await tick()
-  expect(submitted).toBe('done')
+  expect(box.value).toBe('done')
 })

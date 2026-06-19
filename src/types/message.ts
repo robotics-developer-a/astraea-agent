@@ -50,7 +50,34 @@ export type StreamEvent =
   | { type: 'text'; text: string }
   // incomplete: 工具入参 JSON 在累积过程中被截断、parse 失败 —— 不可执行，需让模型重试
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown>; incomplete?: boolean }
-  | { type: 'message_stop'; usage: { input_tokens: number; output_tokens: number }; stopReason?: StopReason }
+  // 开启 prompt caching 后，input 被服务器拆成三份：input_tokens（本轮未命中缓存的新增）、
+  // cache_read_input_tokens（命中缓存读取）、cache_creation_input_tokens（写入缓存）。
+  // 三者都实打实占着上下文窗口，量真实上下文用量时必须三项相加（见 TokenUsage 工具）。
+  // cache_* 为可选：仅 Anthropic 返回，其它 provider（无缓存概念）省略 → 视为 0。
+  | {
+      type: 'message_stop'
+      usage: {
+        input_tokens: number
+        output_tokens: number
+        cache_read_input_tokens?: number
+        cache_creation_input_tokens?: number
+      }
+      stopReason?: StopReason
+    }
+
+// 真实上下文 input 用量 = 三项 input 之和（不含 output，对齐状态行/压缩阈值口径）。
+// 参照 claude-code-main/src/utils/context.ts:131 calculateContextPercentages。
+export function contextInputTokens(usage: {
+  input_tokens: number
+  cache_read_input_tokens?: number
+  cache_creation_input_tokens?: number
+}): number {
+  return (
+    usage.input_tokens +
+    (usage.cache_creation_input_tokens ?? 0) +
+    (usage.cache_read_input_tokens ?? 0)
+  )
+}
 
 // ───────────────────────────────── 工具函数 ──────────────────────────────────
 
