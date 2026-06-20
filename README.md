@@ -13,7 +13,7 @@ Built from the ground up on [**Bun**](https://bun.com), with a React Ink TUI, mu
   <img alt="Runtime" src="https://img.shields.io/badge/runtime-Bun-000000?logo=bun&logoColor=white">
   <img alt="Language" src="https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white">
   <img alt="UI" src="https://img.shields.io/badge/TUI-React%20Ink-61DAFB?logo=react&logoColor=black">
-  <img alt="Providers" src="https://img.shields.io/badge/providers-Anthropic%20·%20OpenAI%20·%20Ollama-7C3AED">
+  <img alt="Providers" src="https://img.shields.io/badge/providers-Anthropic%20·%20DeepSeek%20·%20OpenAI%20·%20Ollama-7C3AED">
   <img alt="License" src="https://img.shields.io/badge/license-Private-lightgrey">
 </p>
 
@@ -33,7 +33,7 @@ It runs in your terminal as either a **persistent REPL** (multi-turn, React Ink 
 
 | | |
 |---|---|
-| **Multi-provider** | First-class support for **Anthropic**, **OpenAI**, and local **Ollama** — switch with a single env var. |
+| **Multi-provider** | First-class support for **Anthropic**, **DeepSeek**, **OpenAI**, and local **Ollama** — switch with a single env var. |
 | **Five session modes** | `default` · `orbit` (read-only planning) · `cruise` (auto-accept edits) · `forge` (bypass prompts) · `counsel` (confirm direction first). |
 | **Permission system** | A mode × behavior matrix with hard **red-lines** that can never be bypassed — auto-approve the safe, always gate the dangerous. |
 | **Rich tool suite** | Files, shell (Bash + PowerShell), web (fetch / search / headless browser), LSP, MCP resources, and skills. |
