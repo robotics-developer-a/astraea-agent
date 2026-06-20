@@ -386,8 +386,22 @@ async function* runQuery(
     } catch (err: unknown) {
       // ESC 中止：保存部分消息后干净退出，不抛给调用方
       if (err instanceof Error && err.name === 'AbortError') {
-        const partial: AssistantMessage = { role: 'assistant', content: contentBlocks }
-        yield { type: 'done', messages: contentBlocks.length > 0 ? [...messages, partial] : messages }
+        // 只有当部分助手消息含可见内容（文本或工具调用）才落盘。空 content 的 assistant
+        // 消息会让下游 provider 报 400（OpenAI 兼容："content or tool_calls must be set"）。
+        // 例如中止恰好落在 reasoning-only 片段、文本/工具尚未产出时。— eval Item 15
+        const hasText = contentBlocks.some(b => b.type === 'text' && b.text.trim().length > 0)
+        const hasToolUse = contentBlocks.some(b => b.type === 'tool_use')
+        if (hasText || hasToolUse) {
+          const partial: AssistantMessage = { role: 'assistant', content: contentBlocks }
+          // 中止时 tool_use 已发出但工具尚未执行 → 补「已取消」占位 tool_result，否则
+          // tool_use/tool_result 不配对，下次（如「continue your work」）请求同样 400。
+          const cancelResults = hasToolUse
+            ? [...yieldMissingToolResultBlocks(partial, 'Tool call interrupted — cancelled by user before it ran.')]
+            : []
+          yield { type: 'done', messages: [...messages, partial, ...cancelResults] }
+        } else {
+          yield { type: 'done', messages }
+        }
         return
       }
       // Eclipse 溢出急救（drain-then-reactive）：先排空 staged 折叠腾空间，静默重试本轮

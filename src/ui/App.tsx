@@ -38,6 +38,16 @@ import { renderMarkdown } from '../utils/markdown'
 import { readClipboard } from '../utils/clipboard'
 import { clampLineWidth, safeWinPreview } from '../utils/termWidth'
 import { displayPath } from '../utils/displayPath'
+import {
+  initTitle,
+  titleStartTask,
+  titleUpgradeSummary,
+  titleTaskDone,
+  titleTaskError,
+  titleIdle,
+  clearTitle,
+} from '../utils/terminalTitle'
+import { generateTitleSummary } from '../services/titleSummary'
 import { getMode, setMode } from '../state/sessionMode'
 import type { SessionMode } from '../state/sessionMode'
 import { compactConversation, estimateTokens } from '../services/compact/compact'
@@ -92,7 +102,7 @@ const INDIGO = '#6A5ACD'
 // Astraea 的前导星 —— turn 头与工具前叙述句共用，单点可换形/换大小。
 // 备选（由小到大/由细到粗）：✦ ✶ ✷ ✸ ✹ ✺ ❂ ★
 const STAR = '✸'
-const DEEP = '#1A0F40'   // dark navy-purple —— 用户消息底色（与 AstraeaSprite 同款品牌色）
+const DEEP = '#1A0F40'   // dark navy-purple —— 用户消息底色（与 AstraeaGoddess 同款品牌色）
 const VERSION = pkg.version   // 单一来源：版本号只在 package.json 维护，UI 自动跟随
 
 const IS_WIN = platform() === 'win32'
@@ -395,6 +405,14 @@ export function App() {
   // Also start UDS server for cross-process IPC (only on mount)
   useEffect(() => { startUDSServer() }, [])
 
+  // 终端窗口标题栏（grill 决议）：挂载铺一条空闲标题；退出/卸载清空，让终端回落默认标题。
+  useEffect(() => {
+    initTitle()
+    const onExit = () => clearTitle()
+    process.on('exit', onExit)
+    return () => { process.off('exit', onExit); clearTitle() }
+  }, [])
+
   // MCP 启动期连接（实现文档 §1.7）：连上后工具进 getMcpTools()，下一轮 query 即可见。
   // 失败容忍（registry 记状态供 /mcp 面板展示）；不阻塞 UI。
   useEffect(() => {
@@ -604,6 +622,12 @@ export function App() {
     ) => {
       const controller = new AbortController()
       abortControllerRef.current = controller
+
+      // 终端标题栏：任务起跑 → ✸ + 即时输入摘要；后台用主模型精炼成极短短语后静静回填。
+      const titleTurn = titleStartTask(displayText ?? promptText)
+      void generateTitleSummary(promptText, controller.signal).then(s => {
+        if (s) titleUpgradeSummary(titleTurn, s)
+      })
 
       commandHistoryRef.current.push(displayText ?? promptText)
       historyIndexRef.current = -1
@@ -851,6 +875,7 @@ export function App() {
                 setStreamingText('')
                 setIsStreaming(false)
                 commitLiveTools()
+                titleTaskDone(titleTurn)  // 用户主动中止 = 本轮结束，标题转 ✓（非错误）
                 break
               }
               // ── 修复「回复闪一下就消失」──────────────────────────────────────
@@ -863,6 +888,7 @@ export function App() {
               setStreamingText('')      // 帧 A：live frame 干净收起（含在途工具批），Static 不变，无越界
               setIsStreaming(false)
               setGoalTick(t => t + 1)
+              titleTaskDone(titleTurn)  // 本轮干净收尾 → 标题转 ✓（摘要保持到下一任务）
               setTimeout(() => {        // 帧 B：live frame 已为 0，单纯向 Static 追加，安全
                 // 先落盘以工具结尾的在途批（此时 finalText 为空），再落最终文本 → 顺序正确。
                 commitLiveTools()
@@ -894,6 +920,7 @@ export function App() {
           setActiveTool(null)
           setLiveOutput('')
           commitLiveTools()
+          titleTaskDone(titleTurn)  // 中止 = 本轮结束，标题转 ✓（非错误）
         } else {
           const errMsg = err instanceof Error ? err.message : String(err)
           commitLiveTools()   // 报错前已跑完的工具批落盘，便于定位失败上下文
@@ -904,6 +931,7 @@ export function App() {
           setStreamingText('')
           setIsStreaming(false)
           setActiveTool(null)
+          titleTaskError(titleTurn)  // 本轮报错 → 标题转 ✗（摘要保留）
         }
       } finally {
         abortControllerRef.current = null
@@ -1129,6 +1157,7 @@ export function App() {
         for (const ns of getAllNamespaces()) clearTodos(ns)  // 清空所有命名空间的 todo
         const aborted = clearAllTasks()               // 协作式中止子 Agent 并丢弃任务字典
         setGoalTick(t => t + 1)
+        titleIdle()                                   // 终端标题回到 ◌ 空闲 + 品牌名
 
         // ④ REPL 可见历史 —— 只留 welcome 面板 + 一行创意清空回执
         const CLEAR_LINES = [
@@ -2034,6 +2063,10 @@ export function App() {
         // ✦ Astraea，续接的流式文本就不再重复刷头（eval Item 6）。
         const lastRole = history.length > 0 ? history[history.length - 1]?.role : undefined
         const showHeader = lastRole !== 'assistant' && lastRole !== 'tools'
+        // 状态行（StreamStatus）已移到 Tasks 面板下方（eval Item 12），live frame 不再有常驻
+        // 末行兜底。续接态下若既无预览正文又无工具，整个 box 会是空的 → 跳过以免多出一空行。
+        const hasBody = showHeader || !!streamingText || liveTools.length > 0 || activeTool != null
+        if (!hasBody) return null
         return (
         <Box flexDirection="column" marginBottom={1}>
           {(() => {
@@ -2041,18 +2074,13 @@ export function App() {
             const previewEl = streamingText ? (() => {
               // 实时预览只渲染尾部若干行，把帧高封顶 → 避免越界擦除把页脚/输入框盖住。
               const maxLines = Math.max(8, (stdout?.rows ?? 24) - 14)
-              // Windows：Ink 擦除按"换行符行数"算，但超宽行（尤其中文全角=2 宽）会被终端
-              // 自动折行成多物理行，导致擦不干净、星与正文一层层重影。这里把预览
-              // 截成"每行不超宽的纯文本"，让逻辑行数==物理行数。富文本完整版仍进 <Static>。
-              if (IS_WIN) {
-                const cols = Math.max(1, (stdout?.columns ?? 80) - 1)
-                return <Text>{safeWinPreview(streamingText, cols, maxLines)}</Text>
-              }
-              const lines = streamingText.split('\n')
-              const preview = lines.length <= maxLines
-                ? streamingText
-                : '⋯\n' + lines.slice(-maxLines).join('\n')
-              return <Text>{renderMarkdown(preview)}</Text>
+              // 所有平台都按列宽硬截断流式预览：Ink 擦除按"换行符行数"算，但超宽行（尤其
+              // 中文全角=2 宽）会被终端自动折行成多物理行，导致擦不干净、星与正文一层层
+              // 重影堆叠（eval Item 14：同一行 ✸… 在 REPL 里复印了几十遍）。把预览截成
+              // "每行不超宽的纯文本"，让逻辑行数==物理行数，擦除才数得准。富文本完整版
+              // 仍在本轮结束进 <Static>，仅流式中的瞬时预览退化为无色纯文本。
+              const cols = Math.max(1, (stdout?.columns ?? 80) - 1)
+              return <Text>{safeWinPreview(streamingText, cols, maxLines)}</Text>
             })() : null
             // turn 起点：「STAR Astraea」独占一行、正文在下。
             if (showHeader) {
@@ -2082,16 +2110,13 @@ export function App() {
               {liveOutput && (
                 <Box flexDirection="column" marginLeft={4}>
                   {liveOutput.trimEnd().split('\n').slice(-20).map((line, i) => (
-                    // Windows 同样按列数硬截断，避免超宽行折行后擦不干净（见 safeWinPreview）。
-                    <Text key={i} color="gray" dimColor>⎿  {IS_WIN ? clampLineWidth(line, Math.max(1, (stdout?.columns ?? 80) - 6)) : line}</Text>
+                    // 同样按列数硬截断，避免超宽行折行后擦不干净、一层层重影（见 safeWinPreview）。
+                    <Text key={i} color="gray" dimColor>⎿  {clampLineWidth(line, Math.max(1, (stdout?.columns ?? 80) - 6))}</Text>
                   ))}
                 </Box>
               )}
             </Box>
           )}
-          {/* 常驻状态行：流式期间一直显示（轮换短语 + 实时秒数 + token + esc 提示），
-              解决"跑到一半停住、不知是否还在运行"的问题。置于 live frame 底部。 */}
-          <StreamStatus startTime={streamStart} tokens={liveTokens} />
         </Box>
         )
       })()}
@@ -2237,6 +2262,11 @@ export function App() {
           ])
         }
       />
+
+      {/* 常驻状态行：流式期间一直显示（轮换短语 + 实时秒数 + token + esc 提示），
+          解决"跑到一半停住、不知是否还在运行"的问题。钉在 Tasks 面板下方（eval Item 12：
+          状态行应展示在 Tasks 列表下面，而非其上方）。 */}
+      {isStreaming && <StreamStatus startTime={streamStart} tokens={liveTokens} />}
 
       {!showLogin && !showInternet && !showLanguage && !pendingModeSelect && !pendingVigilPanel && !pendingConfirm && !pendingResumePicker && (
         <ModeInputFrame mode={sessionMode}>

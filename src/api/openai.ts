@@ -75,11 +75,16 @@ export async function* streamMessageOpenAI(
         function: { name: b.name, arguments: JSON.stringify(b.input) },
       }))
 
-      chatMessages.push({
-        role: 'assistant',
-        content: textParts.map((b) => b.text).join('') || null,
-        tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
-      })
+      const assistantText = textParts.map((b) => b.text).join('') || null
+      // assistant 消息必须至少有 content 或 tool_calls，否则 provider 报 400
+      //（"content or tool_calls must be set"）。两者皆空的残片（如中止后留下的空消息）跳过。
+      if (assistantText !== null || toolCalls.length > 0) {
+        chatMessages.push({
+          role: 'assistant',
+          content: assistantText,
+          tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+        })
+      }
     }
   }
 

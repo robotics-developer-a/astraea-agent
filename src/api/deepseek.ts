@@ -61,11 +61,15 @@ export async function* streamMessageDeepSeek(
         type: 'function' as const,
         function: { name: b.name, arguments: JSON.stringify(b.input) },
       }))
-      chatMessages.push({
-        role: 'assistant',
-        content: textParts.map((b) => b.text).join('') || null,
-        tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
-      })
+      const assistantText = textParts.map((b) => b.text).join('') || null
+      // 至少要有 content 或 tool_calls，否则 provider 报 400（"content or tool_calls must be set"）。
+      if (assistantText !== null || toolCalls.length > 0) {
+        chatMessages.push({
+          role: 'assistant',
+          content: assistantText,
+          tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+        })
+      }
     }
   }
 

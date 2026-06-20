@@ -66,6 +66,18 @@ function fmtTokens(n: number): string {
   return String(n)
 }
 
+// 把经过秒数转成人类可读的 "1h 4min 3s" 形式：超过一分钟才拆分，
+// 只显示非零的高位单位（<1min → "45s"，<1h → "4min 3s"，否则 "1h 4min 3s"）。
+function fmtElapsed(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  if (h > 0) return `${h}h ${m}min ${sec}s`
+  if (m > 0) return `${m}min ${sec}s`
+  return `${sec}s`
+}
+
 // StreamStatus —— 流式运行期间**常驻**的状态行（取代仅空闲时出现的 ThinkingIndicator）。
 //
 // 解决"agent 跑到一半停住、用户不知是否还在运行"的问题：只要在流式中就一直显示
@@ -92,7 +104,7 @@ export function StreamStatus({
 
   const meta: string[] = []
   if (tokens > 0) meta.push(`${fmtTokens(tokens)} tokens`)
-  meta.push(`${elapsed}s`)
+  meta.push(fmtElapsed(elapsed))
   meta.push('esc · /stop to interrupt')
 
   return (
