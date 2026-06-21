@@ -27,7 +27,9 @@ import type { Locale } from '../i18n'
 import { resetAllApiClients } from '../api/stream'
 import { getSystemPrompt } from '../context/systemPrompt/builder'
 import { onQuestion, answer } from '../tools/AskUserQuestionTool/bridge'
-import type { PendingQuestion } from '../tools/AskUserQuestionTool/bridge'
+import type { PendingQuestion, Question } from '../tools/AskUserQuestionTool/bridge'
+import { QuestionPanel } from './QuestionPanel'
+import { detectLongTask } from '../utils/detectLongTask'
 import { setSessionSystemPrompt } from '../services/session-context'
 import { startUDSServer } from '../services/uds-server'
 import { getState, clearAllTasks, killAllRunningAgents } from '../services/agent-state'
@@ -280,6 +282,42 @@ function rebuildHistoryEntries(
   return out
 }
 
+// ── AskUserQuestion 多问题面板辅助函数（纯函数，避免 stale-closure 依赖）────────
+// 不可变地更新数组第 i 项
+function setAt<T>(arr: T[], i: number, val: T): T[] {
+  const next = arr.slice()
+  next[i] = val
+  return next
+}
+
+// 某题是否已作答（有勾选项或自填文本）
+function qAnswered(sel: number[] | undefined, ft: string | undefined): boolean {
+  return (sel?.length ?? 0) > 0 || (ft ?? '').trim().length > 0
+}
+
+// 从 from 之后找下一道未作答的问题（环绕）；全答完返回 from
+function nextUnanswered(questions: Question[], selections: number[][], freeTexts: string[], from: number): number {
+  for (let step = 1; step <= questions.length; step++) {
+    const i = (from + step) % questions.length
+    if (!qAnswered(selections[i], freeTexts[i])) return i
+  }
+  return from
+}
+
+// 把全部答案格式化成喂给模型 / 落 history 的文本
+function formatAnswers(questions: Question[], selections: number[][], freeTexts: string[]): string {
+  return questions
+    .map((q, i) => {
+      const header = q.header || `Q${i + 1}`
+      const ft = (freeTexts[i] ?? '').trim()
+      const ans = ft
+        ? ft
+        : (selections[i] ?? []).map(idx => q.options[idx]?.label ?? '').filter(Boolean).join('; ')
+      return `[${header}] ${q.question}\n→ ${ans || '(no answer)'}`
+    })
+    .join('\n\n')
+}
+
 // ─────────────────────────── 主组件 ──────────────────────────────────────────
 
 export function App() {
@@ -364,9 +402,12 @@ export function App() {
   // 权限确认方向键选择器（由 confirmBridge 驱动，工具执行中弹出）
   const [pendingConfirm, setPendingConfirm] = useState<ConfirmRequest | null>(null)
   const [confirmIndex, setConfirmIndex] = useState(0)
-  const [questionOptionIndex, setQuestionOptionIndex] = useState(-1)
-  // "Chat about this" — when a question has options, the user can pick the extra
-  // entry to instead type their own thoughts. true = free-text input is revealed.
+  // AskUserQuestion 多问题面板状态（←→ 切题 / ↑↓ 移动 / Space 勾选 / Enter 提交）
+  const [qIndex, setQIndex] = useState(0)            // 当前问题
+  const [optCursor, setOptCursor] = useState<number[]>([])   // 每题光标行
+  const [selections, setSelections] = useState<number[][]>([]) // 每题已选项索引
+  const [freeTexts, setFreeTexts] = useState<string[]>([])     // 每题自填文本
+  // ✎ 自填：true 时显示输入框，由 TextInput 接管当前问题的回答
   const [questionFreeText, setQuestionFreeText] = useState(false)
   const [vigilInlineValues, setVigilInlineValues] = useState<Record<string, string>>({})
   // 递增计数器，用于在目标状态变化 / 计时器 tick 时刷新 ◎ /goal active 横幅
@@ -379,6 +420,15 @@ export function App() {
   const transcriptRef = useRef<TranscriptWriter | null>(null)
   const loggedLenRef = useRef(0)
   const entryIdRef = useRef(0)
+  // 收尾：格式化全部答案 → 落 history + resolve 工具 Promise + 复位面板状态
+  const submitQuestions = useCallback((questions: Question[], sel: number[][], fts: string[]) => {
+    const formatted = formatAnswers(questions, sel, fts)
+    setPendingQuestion(null)
+    setQuestionFreeText(false)
+    setInputValue('')
+    setHistory(prev => [...prev, { id: String(entryIdRef.current++), role: 'user', text: formatted }])
+    answer(formatted)
+  }, [])
   // 写 liveToolsRef（同步真相）+ liveTools（触发重渲染）。
   const syncLiveTools = useCallback((next: ToolCall[]) => {
     liveToolsRef.current = next
@@ -598,9 +648,13 @@ export function App() {
     return unsubscribe
   }, [])
 
-  // Default cursor to first option whenever a new question arrives
+  // Reset panel state whenever a new question set arrives
   useEffect(() => {
-    setQuestionOptionIndex(pendingQuestion?.options?.length ? 0 : -1)
+    const qs = pendingQuestion?.questions ?? []
+    setQIndex(0)
+    setOptCursor(qs.map(() => 0))
+    setSelections(qs.map(() => []))
+    setFreeTexts(qs.map(() => ''))
     setQuestionFreeText(false)
   }, [pendingQuestion])
 
@@ -1043,20 +1097,24 @@ export function App() {
       const trimmed = text.trim()
       if (!trimmed) return
 
-      // AskUserQuestion answer mode: relay to bridge, don't start a new query
+      // AskUserQuestion answer mode: this fires from the ✎ free-text box for the
+      // current question. Store the typed text, then advance to the next unanswered
+      // question or submit the whole set. (When not in free-text the input box is
+      // hidden and navigation is handled in useInput.)
       if (pendingQuestion) {
+        const questions = pendingQuestion.questions
         setInputValue('')
-        setPendingQuestion(null)
-        // If the user navigated to an option with arrow keys, use that; otherwise use typed text
-        const responseText =
-          questionOptionIndex >= 0 && pendingQuestion.options?.[questionOptionIndex]
-            ? pendingQuestion.options[questionOptionIndex]!
-            : trimmed
-        setQuestionOptionIndex(-1)
         setQuestionFreeText(false)
-        const entryId = String(entryIdRef.current++)
-        setHistory(prev => [...prev, { id: entryId, role: 'user', text: responseText }])
-        answer(responseText)
+        const nextFt = setAt(freeTexts, qIndex, trimmed)
+        const nextSel = setAt(selections, qIndex, [])
+        setFreeTexts(nextFt)
+        setSelections(nextSel)
+        const allAnswered = questions.every((_, i) => qAnswered(nextSel[i], nextFt[i]))
+        if (allAnswered) {
+          submitQuestions(questions, nextSel, nextFt)
+        } else {
+          setQIndex(nextUnanswered(questions, nextSel, nextFt, qIndex))
+        }
         return
       }
 
@@ -1625,10 +1683,18 @@ export function App() {
         }
       }
 
+      // 长任务自动切入 counsel：仅在 default 模式下触发（不覆盖用户显式选的 orbit/cruise/forge）。
+      // 切入后由 query.ts 双闸强制先问后做；模型仍可自行决定问几道题（trivial 任务可只问一道）。
+      if (getMode() === 'default' && detectLongTask(trimmed).long) {
+        setMode('counsel')
+        setSessionModeState('counsel')
+        setHistory(prev => [...prev, { id: String(entryIdRef.current++), role: 'mode_banner' as const, text: 'counsel' }])
+      }
+
       // 展开粘贴占位符 → 真实内容喂给模型；history 仍显示占位符（trimmed）
       await runConversation(expandPastes(trimmed), trimmed)
     },
-    [isStreaming, systemPrompt, pendingQuestion, pendingModeSelect, pendingVigilPanel, questionOptionIndex, runConversation, stopActiveWork],
+    [isStreaming, systemPrompt, pendingQuestion, pendingModeSelect, pendingVigilPanel, qIndex, selections, freeTexts, submitQuestions, runConversation, stopActiveWork],
   )
 
   const handleLoginDone = useCallback(async (result: LoginResult | null) => {
@@ -1774,7 +1840,7 @@ export function App() {
 
   usePaste(
     ingestPaste,
-    { isActive: !showLogin && !showInternet && !showLanguage && !pendingModeSelect && !pendingVigilPanel && !pendingConfirm && !pendingResumePicker && !pendingRewindPicker && !(pendingQuestion?.options?.length && !questionFreeText) },
+    { isActive: !showLogin && !showInternet && !showLanguage && !pendingModeSelect && !pendingVigilPanel && !pendingConfirm && !pendingResumePicker && !pendingRewindPicker && !(pendingQuestion && !questionFreeText) },
   )
 
   // Ctrl+V 兜底：部分 Windows 终端（conhost / PowerShell 控制台）按 Ctrl+V 不会触发
@@ -1998,10 +2064,9 @@ export function App() {
         return
       }
 
-      // Priority 1.5: Esc from "chat about this" free-text → back to the option list
-      if (pendingQuestion?.options?.length && questionFreeText) {
+      // Priority 1.5: Esc from ✎ free-text → back to the option list (keep panel open)
+      if (pendingQuestion && questionFreeText) {
         setQuestionFreeText(false)
-        setQuestionOptionIndex(0)
         setInputValue('')
         return
       }
@@ -2049,28 +2114,56 @@ export function App() {
     }
     if (isStreaming && !pendingQuestion) return
 
-    // AskUserQuestion option navigation and confirmation.
-    // A synthetic "Chat about this…" entry sits one past the real options
-    // (index === options.length); selecting it reveals the free-text input.
-    if (pendingQuestion?.options?.length && !questionFreeText) {
-      const chatIdx = pendingQuestion.options.length
-      if (key.upArrow) { setQuestionOptionIndex(i => Math.max(0, i - 1)); return }
-      if (key.downArrow) { setQuestionOptionIndex(i => Math.min(chatIdx, i + 1)); return }
-      if (key.return && questionOptionIndex >= 0) {
-        if (questionOptionIndex === chatIdx) {
-          // Switch to free-text: reveal the input box, keep the question open.
-          setQuestionFreeText(true)
-          setQuestionOptionIndex(-1)
-          return
+    // AskUserQuestion multi-question panel navigation.
+    //   ←→ switch question · ↑↓ move cursor · Space toggle/pick · Enter confirm/submit
+    // The last row (index === options.length) is the ✎ free-text escape.
+    // While free-text is active the TextInput owns keystrokes, so do nothing here.
+    if (pendingQuestion && !questionFreeText) {
+      const questions = pendingQuestion.questions
+      const q = questions[qIndex]
+      if (!q) return
+      const otherRow = q.options.length
+      const cursor = optCursor[qIndex] ?? 0
+
+      if (key.leftArrow) { setQIndex(i => Math.max(0, i - 1)); return }
+      if (key.rightArrow) { setQIndex(i => Math.min(questions.length - 1, i + 1)); return }
+      if (key.upArrow) { setOptCursor(cur => setAt(cur, qIndex, Math.max(0, (cur[qIndex] ?? 0) - 1))); return }
+      if (key.downArrow) { setOptCursor(cur => setAt(cur, qIndex, Math.min(otherRow, (cur[qIndex] ?? 0) + 1))); return }
+
+      // Space: open free-text on the ✎ row, otherwise toggle/pick the cursor option
+      if (input === ' ') {
+        if (cursor === otherRow) { setQuestionFreeText(true); return }
+        if (q.multiSelect) {
+          setSelections(prev => {
+            const arr = (prev[qIndex] ?? []).slice()
+            const at = arr.indexOf(cursor)
+            if (at >= 0) arr.splice(at, 1)
+            else arr.push(cursor)
+            return setAt(prev, qIndex, arr.sort((a, b) => a - b))
+          })
+        } else {
+          // single-select radio: pick this one, clear the rest (toggle off if same)
+          setSelections(prev => setAt(prev, qIndex, (prev[qIndex] ?? []).includes(cursor) ? [] : [cursor]))
         }
-        const selected = pendingQuestion.options[questionOptionIndex]!
-        setInputValue('')
-        setQuestionOptionIndex(0)
-        setPendingQuestion(null)
-        setHistory(prev => [...prev, { id: String(entryIdRef.current++), role: 'user', text: selected }])
-        answer(selected)
+        // choosing an option supersedes any free text for this question
+        setFreeTexts(prev => setAt(prev, qIndex, ''))
         return
       }
+
+      if (key.return) {
+        if (cursor === otherRow) { setQuestionFreeText(true); return }
+        // Ensure the current question has an answer; if none, take the cursor option.
+        let sel = selections
+        if (!qAnswered(selections[qIndex], freeTexts[qIndex])) {
+          sel = setAt(selections, qIndex, [cursor])
+          setSelections(sel)
+        }
+        const allAnswered = questions.every((_, i) => qAnswered(sel[i], freeTexts[i]))
+        if (allAnswered) submitQuestions(questions, sel, freeTexts)
+        else setQIndex(nextUnanswered(questions, sel, freeTexts, qIndex))
+        return
+      }
+      return
     }
 
     if (key.upArrow) {
@@ -2136,14 +2229,13 @@ export function App() {
             )
           }
           if (entry.role === 'status') {
-            // 状态行：marker 与补充文字留白，仅「第一个提醒词」按状态色上色
-            // （success 绿 / pending 黄 / error 红）。纯文本，不走 markdown。
+            // 状态行：marker 与「第一个提醒词」一起按状态色上色（marker 作状态锚点，
+            // 与工具头 ⏺ 同规则），仅补充文字留白（success 绿 / pending 黄 / error 红）。
             const { marker, keyword, rest } = splitStatusLine(entry.text)
             return (
               <Box key={entry.id} marginBottom={1}>
                 <Text wrap="truncate-end">
-                  {marker}
-                  <Text color={STATUS_COLOR[entry.status ?? 'pending']}>{keyword}</Text>
+                  <Text color={STATUS_COLOR[entry.status ?? 'pending']}>{marker}{keyword}</Text>
                   {rest}
                 </Text>
               </Box>
@@ -2261,7 +2353,7 @@ export function App() {
           {/* 次要查询循环（如 WechatRead）只设 activeTool、不入 liveTools → 退回单行 spinner。 */}
           {liveTools.length === 0 && activeTool && (
             <Box flexDirection="column">
-              <Text><Text color="yellow">{'⏺  '}{activeTool}</Text>…</Text>
+              <Text><Text color="yellow">{'⏺ '}{activeTool}</Text>…</Text>
               {liveOutput && (
                 <Box flexDirection="column" marginLeft={4}>
                   {liveOutput.trimEnd().split('\n').slice(-20).map((line, i) => (
@@ -2324,38 +2416,15 @@ export function App() {
         )
       })()}
 
-      {/* AskUserQuestion prompt */}
+      {/* AskUserQuestion multi-question panel */}
       {pendingQuestion && (
-        <Box flexDirection="column" marginBottom={1} borderStyle="round" borderColor={INDIGO} paddingX={1}>
-          <Text bold color={INDIGO}>Astraea asks:</Text>
-          <Text>{pendingQuestion.question}</Text>
-          {pendingQuestion.options && pendingQuestion.options.length > 0 && (
-            <Box flexDirection="column" marginTop={1}>
-              {pendingQuestion.options.map((opt, i) => {
-                const isSelected = !questionFreeText && i === questionOptionIndex
-                return (
-                  <Text key={i} color={isSelected ? 'white' : 'gray'} bold={isSelected}>
-                    {isSelected ? ' ❯ ' : '   '}{opt}
-                  </Text>
-                )
-              })}
-              {/* "Chat about this" — extra entry that opens a free-text reply */}
-              {(() => {
-                const chatIdx = pendingQuestion.options.length
-                const isSelected = !questionFreeText && questionOptionIndex === chatIdx
-                const active = isSelected || questionFreeText
-                return (
-                  <Text color={isSelected ? 'white' : questionFreeText ? INDIGO : 'gray'} bold={active} dimColor={!active}>
-                    {active ? ' ❯ ' : '   '}✎ Chat about this…
-                  </Text>
-                )
-              })()}
-              <Text color="gray" dimColor>
-                {questionFreeText ? 'type your thoughts · Enter send · Esc back' : '↑↓ select · Enter confirm'}
-              </Text>
-            </Box>
-          )}
-        </Box>
+        <QuestionPanel
+          questions={pendingQuestion.questions}
+          qIndex={qIndex}
+          optCursor={optCursor}
+          selections={selections}
+          freeTexts={freeTexts}
+        />
       )}
 
       {showLogin && <LoginWizard onDone={handleLoginDone} />}
@@ -2433,13 +2502,12 @@ export function App() {
 
       {!showLogin && !showInternet && !showLanguage && !pendingModeSelect && !pendingVigilPanel && !pendingConfirm && !pendingResumePicker && !pendingRewindPicker && (
         <ModeInputFrame mode={sessionMode}>
-          {/* When a question with options is pending, hide the text input entirely —
-              user navigates with ↑↓ + Enter just like the /mode selector.
-              Unless they picked "Chat about this" (questionFreeText) — then the
-              text box is revealed so they can type their own reply. */}
-          {pendingQuestion?.options?.length && !questionFreeText ? (
+          {/* While the question panel is open, hide the text input — the panel owns
+              ←→/↑↓/Space/Enter. Once the user picks ✎ 自填 (questionFreeText), reveal
+              the box so they can type a free answer for the current question. */}
+          {pendingQuestion && !questionFreeText ? (
             <Box>
-              <Text bold color="yellow">↑↓ select · Enter confirm · Esc cancel</Text>
+              <Text bold color="yellow">←→ question · ↑↓ move · Space select · Enter confirm · Esc skip</Text>
             </Box>
           ) : (
             <>

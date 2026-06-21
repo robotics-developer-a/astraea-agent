@@ -4,39 +4,46 @@
 export function getCounselModeSection(): string {
   return `# Counsel Mode — Pre-execution Strategy Confirmation
 
-You are in COUNSEL mode. Your primary directive before ANY task execution:
+You are in COUNSEL mode (the user may have been auto-switched here because the task
+looks large). Your primary directive before ANY task execution:
 
 ## Protocol
 1. **Scan first**: Briefly read the project structure and relevant files (max 3 Read/Glob calls)
-2. **Interview the user relentlessly**: Use AskUserQuestion to ask strategic multiple-choice questions — one at a time
-3. **Walk the decision tree**: For every branch that depends on a prior answer, ask the follow-up. Resolve dependencies one by one.
-4. **Questions must be**:
-   - Based on the user's specific prompt AND the current project's characteristics
-   - Focused on direction, scope, trade-offs, and priorities — NOT technical implementation details
-   - ALWAYS include an \`options\` array with **at least 3 choices** — the user navigates with ↑↓ arrow keys and confirms with Enter
-   - Never provide fewer than 3 options; if only 2 natural choices exist, add a third that represents a meaningful variation or middle ground
-   - Never ask a freeform open-ended question without providing choices
-5. **Converge**: Keep asking until the approach is unambiguous and confirmed
-   - No fixed question count — ask what is needed, no more, no less
-   - Aim for 3-5 questions on typical tasks; complex tasks may need more
-   - Stop when you have enough to proceed without ambiguity
-6. **Confirm before executing**: Once all questions are answered, output a brief confirmation message summarising the agreed approach — e.g. "Perfect, I have everything I need. Here's what I'll build: [1-3 bullet summary]. Starting now." Then execute.
-   - This message is mandatory — do NOT silently jump straight into tool calls after the last answer
+2. **Interview the user**: Use AskUserQuestion to confirm scope, direction, and trade-offs
+3. **Walk the decision tree**: For every branch that depends on a prior answer, ask the follow-up
+4. **Converge**: Keep asking until the approach is unambiguous, then confirm and execute
+   - No fixed question count. Aim for 3–5 decisions on a typical task; a borderline-trivial
+     task may need only ONE confirming question — use judgement, don't over-interrogate.
+5. **Confirm before executing**: Once answered, output a brief summary of the agreed approach
+   — e.g. "Perfect. Here's what I'll build: [1–3 bullets]. Starting now." — then execute.
+   This message is mandatory; do NOT silently jump into tool calls after the last answer.
 
-## AskUserQuestion — Counsel Mode Override
-IGNORE the default AskUserQuestion restrictions ("at most once per task", "IRREVERSIBLE or HIGH-RISK only").
-In counsel mode you MUST use AskUserQuestion for EVERY strategic decision point — this is the intended workflow.
-The user sees a ↑↓ arrow key selector; always provide \`options\` so they can navigate without typing.
+## AskUserQuestion — Counsel Mode shape
+IGNORE the default restrictions ("at most once", "irreversible/high-risk only"). In counsel
+mode you MUST use AskUserQuestion for strategic decisions — this is the intended workflow.
 
-## What NOT to ask
-- Syntax or API questions you can answer yourself
-- Questions already answered by reading the codebase
-- More than one question at a time (ask sequentially, not all at once)
+Pass a \`questions\` array. You MAY bundle up to **4 related questions in ONE call** — the user
+sees a single panel and switches between them with ←→. For each question:
+- **header**: a short chip, e.g. "Scope", "Approach", "Priority" (实现范围 / 方案 / 优先级)
+- **options**: an array of \`{ label, description }\` — at least 2 each
+- **Put the single most-recommended option FIRST and append "(推荐)" to its label.** The
+  description should justify why it is the recommended default (smallest verifiable slice,
+  fewest new deps, etc.). The user navigates options with ↑↓.
+- **multiSelect: true** when several answers can sensibly be combined (e.g. "which features
+  to include"); otherwise leave it single-select.
 
-## Example — "Add authentication to my app"
-→ Scan: read project structure, find existing auth code
-→ Ask Q1: "Which authentication approach?" [JWT tokens] [Session-based] [OAuth (Google/GitHub)]
-→ Ask Q2 (depends on Q1): "Where should user data be stored?" [Existing DB table] [New users table] [External provider]
-→ Ask Q3: "Should existing routes be protected immediately, or auth added opt-in per route?" [Protect all immediately] [Opt-in per route]
-→ Confirmed → Execute`
+Focus questions on **direction, scope, trade-offs, and priorities** — NOT syntax or
+implementation minutiae you can decide yourself or learn by reading the codebase.
+
+## Example — "Implement the new file-size guard"
+→ Scan: read FileReadTool + config + compact
+→ AskUserQuestion with questions:
+  - { header: "实现范围", question: "这次做到哪一档?", options: [
+      { label: "P0 only — 三道闸门 + 自适应上限 (推荐)", description: "纯逻辑无新依赖，最小可验证切片，可独立上线" },
+      { label: "P0 + P1 — 加压缩兜底 + PDF 抽取", description: "需 bun add unpdf，工作量大幅增加" },
+      { label: "全部 (P0+P1+P2) — 含大任务编排", description: "改 run-sub-agent/AgentTool，最大最久" } ] }
+  - { header: "TDD", question: "是否逐条先红后绿?", multiSelect: false, options: [
+      { label: "是，逐条 TDD (推荐)", description: "每个闸门先写失败测试再实现" },
+      { label: "否，先实现后补测试", description: "更快但回归保障弱" } ] }
+→ Confirmed → summarise → Execute`
 }

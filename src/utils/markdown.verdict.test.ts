@@ -2,9 +2,9 @@ import { test, expect } from 'bun:test'
 import { renderMarkdown } from './markdown'
 
 // chalk truecolor 序列（renderMarkdown 在非 TTY 下强制 level 3）。
-const DEEP_GREEN = '\x1b[38;2;46;125;50m' // #2e7d32
-const RED = '\x1b[31m'
-const YELLOW = '\x1b[33m'
+const DEEP_GREEN = '\x1b[38;2;46;125;50m'  // #2e7d32
+const DEEP_RED = '\x1b[38;2;198;40;40m'    // #c62828
+const DEEP_YELLOW = '\x1b[38;2;249;168;37m' // #f9a825
 
 test('⟦ok⟧ 结论 → 深绿，标记被吞掉', () => {
   const out = renderMarkdown('⟦ok⟧ 全部 5 个问题已解决。')
@@ -13,20 +13,19 @@ test('⟦ok⟧ 结论 → 深绿，标记被吞掉', () => {
   expect(out).toContain('全部 5 个问题已解决。')
 })
 
-test('⟦err⟧ 结论 → 红', () => {
+test('⟦err⟧ 结论 → 深红', () => {
   const out = renderMarkdown('⟦err⟧ 测试 3 项 fail。')
-  expect(out).toContain(RED)
+  expect(out).toContain(DEEP_RED)
   expect(out).not.toContain('⟦err⟧')
 })
 
-test('⟦warn⟧ 结论 → 黄', () => {
+test('⟦warn⟧ 结论 → 深黄', () => {
   const out = renderMarkdown('⟦warn⟧ 改完 X，还剩 Y，要我接着做吗？')
-  expect(out).toContain(YELLOW)
+  expect(out).toContain(DEEP_YELLOW)
   expect(out).not.toContain('⟦warn⟧')
 })
 
-test('深绿不同于工具/状态行的浅绿（ANSI green 31→32）', () => {
-  // 工具行用 c.green（\x1b[32m）；verdict 用 hex 深绿。二者序列必须不同。
+test('深绿不同于 ANSI green（\x1b[32m）', () => {
   const out = renderMarkdown('⟦ok⟧ 通过。')
   expect(out).not.toContain('\x1b[32m')
 })

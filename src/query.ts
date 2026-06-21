@@ -25,7 +25,7 @@ import {
   type PhoenixTrace,
 } from './observability/phoenix'
 import { getMode } from './state/sessionMode'
-import { ask } from './tools/AskUserQuestionTool/bridge'
+import { askOne } from './tools/AskUserQuestionTool/bridge'
 import { yieldMissingToolResultBlocks } from './utils/messages'
 import {
   getSystemContext,
@@ -726,13 +726,14 @@ async function* runQuery(
           if (tool.name === 'AskUserQuestion' && !result.isError) {
             counselConsulted = true
             if (ctx.mode === 'counsel' && !counselStartConfirmed) {
-              const go = await ask(
+              const go = await askOne(
                 'Direction confirmed. Start executing now? / 方向已确认，现在开始执行吗？',
                 ['yes — start executing now', 'no — keep discussing'],
               )
               const ans = go.trim().toLowerCase()
-              // 空答复（无 UI 监听）视为放行，避免死锁；'no…' 保持闸闭
-              counselStartConfirmed = ans === '' || ans.startsWith('y') || ans.startsWith('1')
+              // 答复是格式化文本（含被选 label）。空答复（无 UI 监听）视为放行避免死锁；
+              // 命中 yes/「start executing」即放行，否则（含 no — keep discussing）保持闸闭。
+              counselStartConfirmed = ans === '' || ans.includes('start executing') || ans.includes('yes —')
             }
           }
           return { toolUse, output: result.output, isError: result.isError ?? false }

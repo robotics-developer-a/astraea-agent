@@ -3,7 +3,7 @@ import { buildTool } from '../Tool.js'
 import type { Tool, ToolCallResult, ToolContext } from '../Tool.js'
 import { addTask, ensureDaemon, type VigilTask } from '../../utils/vigilTasks.js'
 import { calcNextFireAt } from '../../services/cron-scheduler.js'
-import { ask } from '../AskUserQuestionTool/bridge.js'
+import { askOne } from '../AskUserQuestionTool/bridge.js'
 import { randomUUID } from 'node:crypto'
 import { promptNeedsWechat, checkWechatSetup } from '../../utils/wechatSetupGuard.js'
 
@@ -85,7 +85,7 @@ Before calling this tool, always tell the user what you are about to schedule an
       `Proceed?`,
     ].join('\n')
 
-    const answer = await ask(confirmMsg, ['Yes', 'No'])
+    const answer = await askOne(confirmMsg, ['Yes', 'No'])
     if (!answer.trim().toLowerCase().startsWith('y')) {
       return { output: 'Task scheduling cancelled by user.' }
     }

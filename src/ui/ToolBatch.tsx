@@ -89,7 +89,7 @@ function ToolCallRow({ call, liveOutput }: { call: ToolCall; liveOutput?: string
   return (
     <Box flexDirection="column">
       <Text wrap="truncate-end">
-        <Text color={toolStatusColor(call.status)}>{'⏺  '}{call.name}</Text>
+        <Text color={toolStatusColor(call.status)}>{'⏺ '}{call.name}</Text>
         {`(${call.argText})${running ? ' …' : ''}`}
       </Text>
       {!running && call.resultLines ? <ResultLines lines={call.resultLines} /> : null}
@@ -110,7 +110,7 @@ function CollapsedGroup({ group, liveOutput }: { group: Group; liveOutput?: stri
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Text wrap="truncate-end">
-        <Text color={headColor}>{'⏺  '}{group.name}</Text>
+        <Text color={headColor}>{'⏺ '}{group.name}</Text>
         {` ×${total}${progress}`}
       </Text>
       {/* ⎿ 统一缩进到第 4 列，与非折叠的 ResultLines 对齐（trace 1：折叠 2 格/普通 4 格不一致）。 */}

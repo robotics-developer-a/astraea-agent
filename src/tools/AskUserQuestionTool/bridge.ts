@@ -1,15 +1,35 @@
 // AskUserQuestion bridge — 工具层与 UI 层之间的异步通信通道
 //
 // 工作原理：
-//   1. 工具调用 ask()，返回一个 pending Promise
-//   2. UI 层（App.tsx）通过 onQuestion() 订阅，收到通知后显示问题
-//   3. 用户输入答案后，UI 调用 answer()，Promise resolve
+//   1. 工具调用 ask(questions)，返回一个 pending Promise
+//   2. UI 层（App.tsx）通过 onQuestion() 订阅，收到通知后显示多问题面板
+//   3. 用户回答（每题可单选/多选/自填）后，UI 把格式化后的答案文本传给 answer()
 //
 // 在 CLI 非交互模式下，没有 UI 订阅者，ask() 会立即 resolve 空字符串。
+//
+// 规范结构（canonical）：一次 ask 可携带 1–4 道相关问题，用户用 ←→ 切题、↑↓ 移动、
+// Space 勾选（多选）、Enter 确认/提交。每题第一项约定为模型最推荐项（label 自带「(推荐)」）。
+
+export interface QuestionOption {
+  /** 选项标题；counsel 模式下推荐项排第一并在 label 末尾带「(推荐)」 */
+  label: string
+  /** 选项补充说明（可选），渲染为次要灰字 */
+  description?: string
+}
+
+export interface Question {
+  /** 问题正文 */
+  question: string
+  /** 极短的分类标签，用作问题标签页（如「实现范围」）。缺省时 UI 用 Q1/Q2… */
+  header?: string
+  /** 是否允许多选。true 时 Space 勾选多个；false 为单选（radio） */
+  multiSelect?: boolean
+  /** 选项列表（≥2） */
+  options: QuestionOption[]
+}
 
 export interface PendingQuestion {
-  question: string
-  options?: string[]
+  questions: Question[]
 }
 
 type Listener = (q: PendingQuestion) => void
@@ -21,15 +41,25 @@ const _listeners: Listener[] = []
  * 提问。在 REPL 模式下挂起等待用户回答；
  * 非交互模式（无监听者）下立即返回空字符串。
  */
-export function ask(question: string, options?: string[]): Promise<string> {
+export function ask(questions: Question[]): Promise<string> {
   if (_listeners.length === 0) {
     // CLI 一次性模式：无法交互，让模型自行判断
     return Promise.resolve('')
   }
   return new Promise<string>(resolve => {
-    _pending = { q: { question, options }, resolve }
-    for (const fn of _listeners) fn({ question, options })
+    const q: PendingQuestion = { questions }
+    _pending = { q, resolve }
+    for (const fn of _listeners) fn(q)
   })
+}
+
+/**
+ * 单题便捷封装：把 (question, string[] options) 包成一道 Question 再走 ask()。
+ * 供 ExitOrbitMode / Vigil / counsel「现在开始执行」等只需一个是非/单选确认的调用方使用。
+ */
+export function askOne(question: string, options?: string[]): Promise<string> {
+  const opts = (options ?? []).map(label => ({ label }))
+  return ask([{ question, options: opts }])
 }
 
 /**

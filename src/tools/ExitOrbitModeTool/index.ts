@@ -8,7 +8,7 @@ import { buildTool } from '../Tool.js'
 import type { Tool, ToolCallResult, ToolContext } from '../Tool.js'
 import { restorePreMode, getMode } from '../../state/sessionMode.js'
 import { getPlanFilePath, getPlanSlug } from '../../utils/planSlug.js'
-import { ask } from '../AskUserQuestionTool/bridge.js'
+import { askOne } from '../AskUserQuestionTool/bridge.js'
 import { writeFileSync } from 'node:fs'
 
 export const ExitOrbitModeTool = buildTool({
@@ -71,7 +71,7 @@ The plan parameter must contain your complete, structured implementation plan.`,
       'Approve this plan and begin implementation?',
     ].join('\n')
 
-    const answer = await ask(approvalPrompt, ['yes — approve and execute', 'no — revise the plan'])
+    const answer = await askOne(approvalPrompt, ['yes — approve and execute', 'no — revise the plan'])
 
     const approved = answer.toLowerCase().startsWith('y') ||
       answer === '1' ||
