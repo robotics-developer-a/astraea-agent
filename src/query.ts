@@ -45,7 +45,7 @@ import { forceExtractMemories, maybeExtractMemories, noteExtractionTurn, clampEx
 import { drainNotifications, hasPendingNotifications } from './services/notification-queue'
 import { drainInterjects, hasPendingInterjects } from './services/interject-queue'
 import { hasRunningAgents } from './services/agent-state'
-import { getTodos } from './services/todo-state'
+import { getTodos, type Todo } from './services/todo-state'
 import {
   getActiveGoal,
   recordGoalEvaluation,
@@ -122,6 +122,12 @@ export interface QueryOptions {
   model?: string
 }
 
+// 任务追踪提醒（对照 Claude Code TODO_REMINDER_CONFIG）：连续 N 轮没用过 TodoWrite 就注入
+// 一次轻提醒；两次提醒之间也至少隔 N 轮，避免长任务里反复刷屏。10 轮的阈值本身就是过滤器——
+// 简单任务 1~2 轮就结束，根本到不了 10 轮，只有真正的长任务才会被提醒。
+const TODO_REMINDER_TURNS_SINCE_WRITE = 10
+const TODO_REMINDER_TURNS_BETWEEN = 10
+
 // ─────────────────────────── 主函数 ─────────────────────────────────────────
 
 export async function* query(
@@ -174,6 +180,11 @@ async function* runQuery(
     input_schema: t.inputSchema,
   }))
 
+  // 周期性 TodoWrite 提醒只在本次 query 实际暴露了 TodoWrite 工具时生效（辅助 query / 没有
+  // 该工具的子 agent 不注入）。TodoWriteTool 用 ctx.agentId ?? 'main' 作命名空间，这里对齐。
+  const todoToolAvailable = tools.some(t => t.name === 'TodoWrite')
+  const todoNamespace = options.agentId ?? 'main'
+
   // ── Session Preamble ──────────────────────────────────────────────────────
   // Both calls are memoized at Promise level — safe to call concurrently and
   // multiple times; the underlying I/O runs exactly once per process lifetime.
@@ -218,6 +229,10 @@ async function* runQuery(
   let turnCount = 1
   // Todo 收尾 Stop-hook 只提醒一次，避免模型反复留尾导致死循环
   let todoNudged = false
+  // 周期性 TodoWrite 提醒的两个游标：lastTodoActivityTurn=0 表示「尚未用过」，到第 N 轮即
+  // 触发首次提醒；lastTodoReminderTurn 让两次提醒至少隔 N 轮（详见 TODO_REMINDER_* 常量）。
+  let lastTodoActivityTurn = 0
+  let lastTodoReminderTurn = 0
 
   // 定稿 #10/#12/#13：召回 ≤5 条相关记忆，拼到用户消息尾部（逐消息变，远离缓存前缀）。
   // 每 query 调用跑一次（= 每条用户消息）；optional，失败/零记忆返回 null 不阻塞。
@@ -865,6 +880,19 @@ async function* runQuery(
       })
     }
 
+    // ── 周期性 TodoWrite 提醒（对照 Claude Code，解开旧死结）───────────────────
+    // 本轮用过 TodoWrite → 刷新活跃游标；否则若连续 N 轮没用过、且距上次提醒也已 N 轮，
+    // 注入一条 <system-reminder> 轻推。不再要求「已有未完成项」——那个条件配合「系统提示从不
+    // 提 TodoWrite」会让清单恒为空、提醒永不触发。现在改成「该用却没用就提醒」。
+    if (todoToolAvailable) {
+      if (toolUseBlocks.some(b => b.name === 'TodoWrite')) {
+        lastTodoActivityTurn = turnCount
+      } else if (shouldRemindTodo(turnCount, lastTodoActivityTurn, lastTodoReminderTurn)) {
+        lastTodoReminderTurn = turnCount
+        extraTextBlocks.push(buildTodoReminderBlock(getTodos(todoNamespace)))
+      }
+    }
+
     // ── 5. 把 assistant + tool_results 追加到历史，进入下一轮 ──────────────
     const toolResultMessage: UserMessage = {
       role: 'user',
@@ -977,6 +1005,37 @@ function buildInterjectBlock(text: string): TextBlock {
       text +
       '\n</user_interjection>',
   }
+}
+
+// 周期性提醒的纯判定：当前轮 vs「上次用 TodoWrite 的轮」「上次提醒的轮」。连续 N 轮没用过、
+// 且距上次提醒也已 N 轮 → 该提醒。lastActivity=0 表示从未用过，到第 N 轮即触发首提。
+export function shouldRemindTodo(
+  turnCount: number,
+  lastActivityTurn: number,
+  lastReminderTurn: number,
+): boolean {
+  return (
+    turnCount - lastActivityTurn >= TODO_REMINDER_TURNS_SINCE_WRITE &&
+    turnCount - lastReminderTurn >= TODO_REMINDER_TURNS_BETWEEN
+  )
+}
+
+// 周期性任务追踪提醒：连续多轮没用过 TodoWrite 时注入。文案对照 Claude Code——"gentle
+// reminder, ignore if not applicable"，并叮嘱别向用户复述这条提醒。带上当前清单（若有），
+// 让模型据实判断是补建、是更新、还是确实用不上。
+function buildTodoReminderBlock(todos: Todo[]): TextBlock {
+  let text =
+    "<system-reminder>\n" +
+    "You haven't used the TodoWrite tool recently. If the current task is multi-step or " +
+    'spans several files, create or update a todo list so sub-tasks do not get dropped and ' +
+    'the user can see progress — mark exactly one task in_progress, and flip each to completed ' +
+    'the moment it is verified done. This is a gentle reminder; ignore it if the task is simple ' +
+    'enough not to need tracking. Never mention this reminder to the user.'
+  if (todos.length > 0) {
+    const list = todos.map(t => `  - [${t.status}] ${t.content}`).join('\n')
+    text += `\n\nYour current todo list:\n${list}`
+  }
+  return { type: 'text', text: text + '\n</system-reminder>' }
 }
 
 // 工具调用被截断在中途时回传给模型的 tool_result。入参 JSON 残缺，工具未执行。
