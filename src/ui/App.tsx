@@ -2,7 +2,7 @@
 // 参考: claude-code-main/src/screens/REPL.tsx + components/App.tsx
 
 import React, { useState, useCallback, useRef, useMemo, useEffect } from 'react'
-import { Box, Text, Static, useApp, useInput, usePaste, useStdout, useWindowSize } from 'ink'
+import { Box, Text, Static, useApp, useInput, useStdout, useWindowSize } from 'ink'
 import pkg from '../../package.json' with { type: 'json' }
 import TextInput from './TextInput'
 import { query } from '../query'
@@ -37,7 +37,6 @@ import { enqueueInterject, clearInterjects } from '../services/interject-queue'
 import type { AgentTaskState } from '../services/agent-state'
 import { clearTodos, getAllNamespaces } from '../services/todo-state'
 import { renderMarkdown } from '../utils/markdown'
-import { readClipboard } from '../utils/clipboard'
 import { normalizeDraggedPath } from '../utils/dragPath'
 import { clampLineWidth, safeWinPreview } from '../utils/termWidth'
 import { displayPath } from '../utils/displayPath'
@@ -1901,48 +1900,27 @@ export function App() {
     })()
   }, [systemPrompt])
 
-  // ── 粘贴折叠：大段粘贴 → 占位符；小段 → 直接插入 ──────────────────────────
-  // ink v7 的 usePaste 在 bracketed-paste 模式下把整段粘贴作为单个字符串送来，
-  // 且不会转发给 TextInput（useInput），因此输入框不会被刷屏。
-  const ingestPaste = useCallback((text: string) => {
-    if (!text) return
+  // ── 粘贴折叠：大段粘贴 → 占位符；小段 → 原样；拖入文件 → 规整路径 ──────────────
+  // 作为 TextInput 的 transformPaste 钩子：只负责「把原始粘贴文本转换成要插入的字符串」，
+  // 真正的插入（插到光标处、推进光标）由 TextInput.insertText 完成——这样粘贴就会落在
+  // 光标位置，而不是像以前那样一律追加到末尾。
+  const transformPaste = useCallback((text: string): string | null => {
+    if (!text) return null
     // 拖文件进终端：终端把文件路径当作一段「粘贴」塞进来（含 shell 转义 / 引号 / 末尾空格）。
-    // 识别出来就还原成干净的绝对路径直接插入，后面跟一个空格方便继续输入。
+    // 识别出来就还原成干净的绝对路径，后面跟一个空格方便继续输入。
     const dragged = normalizeDraggedPath(text)
-    if (dragged) {
-      historyIndexRef.current = -1
-      setInputValue((prev) => prev + dragged + ' ')
-      return
-    }
+    if (dragged) return dragged + ' '
+
     const lineCount = text.split('\n').length
     const isLarge = lineCount > 1 || text.length > 200
-    if (!isLarge) {
-      // 小段单行粘贴：直接插入，行为符合直觉
-      setInputValue((prev) => prev + text)
-      return
-    }
+    if (!isLarge) return text // 小段单行粘贴：原样插入
+
     const id = ++pasteCounterRef.current
     const summary = lineCount > 1 ? `+${lineCount} lines` : `+${text.length} chars`
     const token = `[Pasted text #${id} ${summary}]`
     pasteStoreRef.current.set(token, text)
-    historyIndexRef.current = -1
-    setInputValue((prev) => prev + token)
+    return token
   }, [])
-
-  usePaste(
-    ingestPaste,
-    { isActive: !showLogin && !showInternet && !showLanguage && !pendingReasonSelect && !pendingModeSelect && !pendingVigilPanel && !pendingConfirm && !pendingResumePicker && !pendingRewindPicker && !(pendingQuestion && !questionFreeText) },
-  )
-
-  // Ctrl+V 兜底：部分 Windows 终端（conhost / PowerShell 控制台）按 Ctrl+V 不会触发
-  // 终端粘贴，而是把原始字节 \x16 发过来——bracketed-paste 收不到，普通文本也不到。
-  // 这里直接拦截 Ctrl+V、主动读系统剪贴板，把内容按同样的折叠逻辑插进输入框。
-  const pasteFromClipboard = useCallback(() => {
-    void (async () => {
-      const text = await readClipboard()
-      if (text) ingestPaste(text)
-    })()
-  }, [ingestPaste])
 
   // 提交时把占位符展开回真实内容（喂给模型）；消费后从 store 删除。
   const expandPastes = useCallback((text: string): string => {
@@ -2137,10 +2115,10 @@ export function App() {
       return
     }
 
-    // ── Ctrl+V 兜底：主动读系统剪贴板（Windows conhost 不触发终端粘贴时的退路）──
-    // 到这里说明各类覆盖层（确认/恢复/Vigil/模式）都没拦截，是普通输入态。
+    // ── Ctrl+V：在普通输入态交给主输入框（TextInput enablePaste）自行读剪贴板插到光标处。──
+    // 这里只吞掉事件，避免下方逻辑把字面 'v' 当普通输入；真正的粘贴由 TextInput 完成，
+    // 这样 Ctrl+V 也能落在光标位置而非追加到末尾。
     if (key.ctrl && (input === 'v' || input === 'V')) {
-      pasteFromClipboard()
       return
     }
 
@@ -2671,6 +2649,8 @@ export function App() {
                   onSubmit={handleSubmit}
                   focus={inputFocused}
                   placeholder={inputPlaceholder}
+                  enablePaste
+                  transformPaste={transformPaste}
                 />
               </Box>
             </>

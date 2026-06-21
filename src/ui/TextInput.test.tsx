@@ -50,6 +50,40 @@ test('单个多字符 chunk（无括号粘贴时整段到达）整体插入', as
   expect(strip(lastFrame())).toContain('hello world')
 })
 
+// 受控包装：开启 enablePaste + 真实光标，用于验证「粘贴落在光标处」。
+function PasteControlled({ transformPaste }: { transformPaste?: (raw: string) => string | null }) {
+  const [value, setValue] = useState('')
+  return (
+    <TextInput value={value} onChange={setValue} enablePaste transformPaste={transformPaste} />
+  )
+}
+
+// bracketed-paste 序列：ESC[200~ <text> ESC[201~
+const bracketed = (text: string) => `\x1b[200~${text}\x1b[201~`
+const LEFT = '\x1b[D'
+
+test('粘贴插到光标处，而非追加到末尾', async () => {
+  const { stdin, lastFrame } = render(<PasteControlled />)
+  for (const ch of 'ab') { stdin.write(ch); await tick() }
+  stdin.write(LEFT) // 光标移到 a 与 b 之间
+  await tick()
+  stdin.write(bracketed('XY'))
+  await tick()
+  expect(strip(lastFrame())).toContain('aXYb')
+})
+
+test('transformPaste 钩子转换后的文本插到光标处', async () => {
+  const { stdin, lastFrame } = render(
+    <PasteControlled transformPaste={() => '[token]'} />,
+  )
+  for (const ch of 'ab') { stdin.write(ch); await tick() }
+  stdin.write(LEFT)
+  await tick()
+  stdin.write(bracketed('a very long original paste'))
+  await tick()
+  expect(strip(lastFrame())).toContain('a[token]b')
+})
+
 test('回车触发 onSubmit，带上当前完整值', async () => {
   const box = { value: '' }
   const { stdin } = render(<Controlled onSubmit={(v) => { box.value = v }} />)

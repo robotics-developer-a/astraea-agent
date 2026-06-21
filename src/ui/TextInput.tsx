@@ -24,8 +24,11 @@ export interface TextInputProps {
   onSubmit?: (value: string) => void
   // 传了 onPaste（或仅 enablePaste）时，本组件自己监听 bracketed-paste 事件，
   // 把整段粘贴插到光标处。用于 /login 这类「自己就是焦点输入框」的场景；主输入框
-  // 不传，由 App 顶层的 usePaste 统一处理（避免双份粘贴）。
+  // 也开启它，这样粘贴/Ctrl+V 都经 insertText 插到光标处（而非 App 顶层的「追加到末尾」）。
   enablePaste?: boolean
+  // 粘贴前的转换钩子：拿到原始粘贴文本，返回真正要插入的字符串（如把大段折叠成占位符、
+  // 把拖入的文件路径规整成绝对路径）。返回 null/空串则忽略本次粘贴。不传则原样插入。
+  transformPaste?: (raw: string) => string | null
 }
 
 export default function TextInput({
@@ -38,6 +41,7 @@ export default function TextInput({
   onChange,
   onSubmit,
   enablePaste = false,
+  transformPaste,
 }: TextInputProps) {
   const [state, setState] = useState({
     cursorOffset: (originalValue || '').length,
@@ -92,10 +96,16 @@ export default function TextInput({
     onChange(next)
   }, [onChange])
 
+  // 粘贴入口：先过 transformPaste（折叠大段 / 规整拖入路径），再插到光标处。
+  const handlePaste = useCallback((raw: string) => {
+    const out = transformPaste ? transformPaste(raw) : raw
+    if (out) insertText(out)
+  }, [insertText, transformPaste])
+
   // 自己监听整段粘贴：插到当前光标处。只在显式开启且获得焦点时激活，
   // 这样同一时刻全局只有一个 paste 监听者，不会和 App 顶层的 usePaste 抢。
   usePaste(
-    insertText,
+    handlePaste,
     { isActive: enablePaste && focus },
   )
 
@@ -142,7 +152,7 @@ export default function TextInput({
         if (enablePaste) {
           void (async () => {
             const text = await readClipboard()
-            if (text) insertText(text)
+            if (text) handlePaste(text)
           })()
         }
         return
