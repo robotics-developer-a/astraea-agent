@@ -39,6 +39,16 @@ export const MODE_OPTIONS: ModeOption[] = [
   },
 ]
 
+// Shift+Tab 快速循环顺序：从最克制 → 最放手，末端回到 default 收束。
+// orbit(只读) → cruise(写自动) → forge(全自动) → counsel(先问后做) → default(标准)
+export const MODE_CYCLE: SessionMode[] = ['orbit', 'cruise', 'forge', 'counsel', 'default']
+
+/** 返回 Shift+Tab 循环中 current 的下一个模式（到末尾回绕到开头）。 */
+export function nextCycleMode(current: SessionMode): SessionMode {
+  const i = MODE_CYCLE.indexOf(current)
+  return MODE_CYCLE[(i + 1) % MODE_CYCLE.length]!
+}
+
 const INDIGO = '#6A5ACD'
 
 interface ModeSelectorProps {

@@ -91,7 +91,7 @@ import {
   GOAL_CLEAR_ALIASES,
   GOAL_MAX_CONDITION_LENGTH,
 } from '../state/goalState'
-import { ModeSelector, MODE_OPTIONS } from './ModeSelector'
+import { ModeSelector, MODE_OPTIONS, nextCycleMode } from './ModeSelector'
 import { ConfirmSelector, CONFIRM_CHOICES } from './ConfirmSelector'
 import { onConfirmRequest, resolveConfirm, type ConfirmRequest } from '../tools/BashTool/permissions/confirmBridge'
 import { VigilPanel, VIGIL_ACTIONS } from './VigilPanel'
@@ -1418,7 +1418,7 @@ export function App() {
           text: [
             '**Available commands:**',
             '',
-            '  /mode    — select session mode: orbit · cruise · forge · counsel · default',
+            '  /mode    — select session mode: orbit · cruise · forge · counsel · default (or press Shift+Tab to cycle)',
             '  /goal    — set a completion condition Astraea works toward autonomously',
             '  /vigil   — manage scheduled background tasks: add · list · delete',
             '  /login   — configure API key and provider',
@@ -1787,6 +1787,16 @@ export function App() {
     return out
   }, [])
 
+  // 切换会话模式并写入 history 横幅（/mode、ModeSelector、Shift+Tab 共用同一落点）。
+  const applyMode = useCallback((newMode: SessionMode) => {
+    setMode(newMode)
+    setSessionModeState(newMode)
+    setHistory(prev => [
+      ...prev,
+      { id: String(entryIdRef.current++), role: 'mode_banner' as const, text: newMode },
+    ])
+  }, [])
+
   useInput((input, key) => {
     if (showLogin || showInternet || showLanguage) return
 
@@ -1911,6 +1921,16 @@ export function App() {
         }
         return
       }
+      return
+    }
+
+    // ── Shift+Tab 快速循环会话模式 ────────────────────────────────────────────
+    // 终端对 Shift+Tab 发的是 CSI Z（"\x1b[Z"，backtab）；Ink 统一解析为
+    // key.tab && key.shift，在 macOS / Linux / Windows Terminal / conhost 上一致，
+    // 无需平台分支。必须排在下方 slash 列表的纯 Tab 补全之前，否则会被当成补全吞掉。
+    // 流式执行中也允许切换（与 /mode 一致），但 ModeSelector 打开时让它走方向键。
+    if (key.tab && key.shift && !pendingModeSelect) {
+      applyMode(nextCycleMode(getMode()))
       return
     }
 

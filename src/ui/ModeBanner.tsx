@@ -38,9 +38,12 @@ export function ModeInputFrame({ mode, children }: ModeInputFrameProps) {
   const cols = Math.max(1, (stdout?.columns ?? 80) - 1)
   const meta = MODE_META[mode]
 
-  // 上边横线：模式标签嵌在中间
-  // 格式: ─── label: tagline ───────────────────
-  const label = ` ${meta.label}: ${meta.tagline} `
+  // 上边横线：模式标签嵌在中间，尾部带 shift+tab 循环提示（窄终端自动省略）
+  // 格式: ─── label: tagline · shift+tab to cycle ───────────────────
+  const hint = ' · shift+tab to cycle'
+  const base = ` ${meta.label}: ${meta.tagline} `
+  // 仅当横线还放得下提示（且不挤掉两侧装饰）时才追加，避免 Windows 窄终端换行错位
+  const label = base.length + hint.length + 4 <= cols ? ` ${meta.label}: ${meta.tagline}${hint} ` : base
   const totalDashes = Math.max(0, cols - label.length)
   const dashLeft  = 2
   const dashRight = Math.max(0, totalDashes - dashLeft)
