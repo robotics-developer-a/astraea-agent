@@ -71,7 +71,11 @@ function LiveOut({ text }: { text: string }) {
   return (
     <Box flexDirection="column" marginLeft={4}>
       {text.trimEnd().split('\n').slice(-20).map((line, i) => (
-        <Text key={i} color="gray" dimColor>⎿  {line}</Text>
+        // 关键：必须 truncate-end，与 ResultLines/CollapsedGroup 一致。否则长行（如
+        // PowerShell 带长路径的实时 stdout）会软折行成多物理行，Ink 按逻辑行数擦除时
+        // 少算行数 → 上一帧擦不干净 → 输入框被顶出视口并留下一份残影（Windows 实测：
+        // 输入框上下各出现一个）。截断成单物理行后，逻辑行数==物理行数，擦除才数得准。
+        <Text key={i} color="gray" dimColor wrap="truncate-end">⎿  {line}</Text>
       ))}
     </Box>
   )

@@ -2071,17 +2071,23 @@ export function App() {
         <Box flexDirection="column" marginBottom={1}>
           {(() => {
             // 流式正文预览（落盘前的"进行中"截断版；完整版本轮结束进 <Static>）。
-            const previewEl = streamingText ? (() => {
-              // 实时预览只渲染尾部若干行，把帧高封顶 → 避免越界擦除把页脚/输入框盖住。
-              const maxLines = Math.max(8, (stdout?.rows ?? 24) - 14)
-              // 所有平台都按列宽硬截断流式预览：Ink 擦除按"换行符行数"算，但超宽行（尤其
-              // 中文全角=2 宽）会被终端自动折行成多物理行，导致擦不干净、星与正文一层层
-              // 重影堆叠（eval Item 14：同一行 ✸… 在 REPL 里复印了几十遍）。把预览截成
-              // "每行不超宽的纯文本"，让逻辑行数==物理行数，擦除才数得准。富文本完整版
-              // 仍在本轮结束进 <Static>，仅流式中的瞬时预览退化为无色纯文本。
-              const cols = Math.max(1, (stdout?.columns ?? 80) - 1)
-              return <Text>{safeWinPreview(streamingText, cols, maxLines)}</Text>
-            })() : null
+            // 实时预览只渲染尾部若干行，把帧高封顶 → 避免越界擦除把页脚/输入框盖住。
+            const maxLines = Math.max(8, (stdout?.rows ?? 24) - 14)
+            // 所有平台都按列宽硬截断流式预览：Ink 擦除按"换行符行数"算，但超宽行（尤其
+            // 中文全角=2 宽）会被终端自动折行成多物理行，导致擦不干净、星与正文一层层
+            // 重影堆叠（eval Item 14：同一行 ✸… 在 REPL 里复印了几十遍）。把预览截成
+            // "每行不超宽的纯文本"，让逻辑行数==物理行数，擦除才数得准。富文本完整版
+            // 仍在本轮结束进 <Static>，仅流式中的瞬时预览退化为无色纯文本。
+            //
+            // 关键：行内续接态（!showHeader）预览左侧多出 "✸ "（2 列）前缀，与正文同行。
+            // 若仍按整宽截断，星+正文合计会超出终端 1~2 列 → 末行软折行 → Ink 擦除少算
+            // 行数 → ✸ 行一层层重影堆叠（Windows 实测：同一句叙述被复印数遍）。这里按
+            // 是否带前导星预留对应列宽，保证含星后整行仍不超宽。
+            const starCols = showHeader ? 0 : 2   // 行内分支左侧 "✸ " 占 2 列
+            const cols = Math.max(1, (stdout?.columns ?? 80) - 1 - starCols)
+            const previewEl = streamingText
+              ? <Text>{safeWinPreview(streamingText, cols, maxLines)}</Text>
+              : null
             // turn 起点：「STAR Astraea」独占一行、正文在下。
             if (showHeader) {
               return (

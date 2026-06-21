@@ -52,6 +52,15 @@ export function getToolRulesSection(enabledTools: Set<string>): string {
     ? ` - Before editing a file with Edit, Read the WHOLE file first — not a 50-line slice with offset/limit. Edit refuses to run against a partially-read file (the write guard rejects it), so a partial Read forces a wasteful re-read and retry. Read it fully once, then edit.`
     : null
 
+  const hasWebSearch = enabledTools.has('WebSearch')
+  const webSearchGuidance = hasWebSearch
+    ? [
+        ` - Astraea's own configuration & secrets (web search keys, LLM keys) live in env vars loaded at startup from \`~/.astraea/.env\` (global, configured via the \`/internet\` and \`/login\` wizards) and \`<project>/.env\` — NOT in the project working directory. Do NOT Glob the project for \`*.env*\` / \`*config*\` / \`*bocha*\` to answer "is X configured" — those files are not in the CWD.`,
+        `   - Web search is provider-based. To check whether a provider is configured, inspect its env var, not the filesystem: Bocha → \`BOCHA_API_KEY\`, Zhipu → \`ZHIPU_API_KEY\`, Brave → \`BRAVE_SEARCH_API_KEY\`, Tavily → \`TAVILY_API_KEY\`, Exa → \`EXA_API_KEY\`. Read \`~/.astraea/.env\` (it may be outside the CWD — use its absolute path) or check the env var directly.`,
+        `   - To verify connectivity (is the key actually working?), the most reliable test is to just run one WebSearch query. If results come back, it is connected; if not, the tool returns either setup instructions (key missing) or an API error (key invalid/network). Report which.`,
+      ].join('\n')
+    : null
+
   const lines = [
     '# Using your tools',
     ` - Do NOT use Bash when a dedicated tool is provided:`,
@@ -63,6 +72,7 @@ export function getToolRulesSection(enabledTools: Set<string>): string {
     vigilGuidance,
     writeGuidance,
     editGuidance,
+    webSearchGuidance,
   ].filter((x): x is string => x !== null)
 
   return lines.join('\n')
