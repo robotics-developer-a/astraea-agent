@@ -395,6 +395,9 @@ export function App() {
   const historyIndexRef = useRef(-1)
   const draftInputRef = useRef('')
   const abortControllerRef = useRef<AbortController | null>(null)
+  // 本回合用户刚发出的原文：ESC 叫停（流式态）时回填到 input box，免得用户重打一遍。
+  // runConversation 起跑时写入；ESC Priority 1 取用后清空。
+  const cancelRestoreRef = useRef('')
   // ESC double-press: 800ms 窗口内第二次 ESC 清空 input
   const lastEscPressRef = useRef(0)
   const escPendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -672,6 +675,7 @@ export function App() {
       })
 
       commandHistoryRef.current.push(displayText ?? promptText)
+      cancelRestoreRef.current = displayText ?? promptText  // ESC 叫停时回填用
       historyIndexRef.current = -1
       // /rewind 检查点：记录本回合用户消息追加「之前」的 conversationRef 长度。
       // 必须在 conversationRef 被改动前取（done 事件才会写回），故置于本函数顶部。
@@ -1953,6 +1957,12 @@ export function App() {
           ...prev,
           { id: String(entryIdRef.current++), role: 'status', status: 'error', text: '■ cancelled' },
         ])
+        // 把刚发出的原文回填到 input box，免得用户重打一遍（仅在框为空时，不覆盖插队草稿）。
+        if (cancelRestoreRef.current && !inputValue) {
+          setInputValue(cancelRestoreRef.current)
+          historyIndexRef.current = -1
+        }
+        cancelRestoreRef.current = ''
         return
       }
 
