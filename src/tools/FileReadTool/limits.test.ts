@@ -1,9 +1,10 @@
-// 方案 A / §A.1 / §5-#4: Read 闸门的纯函数
+// 方案 A / §A.1 / §5-#4 / §5-#5: Read 闸门的纯函数
 import { test, expect } from 'bun:test'
 import {
   computeReadMaxTokens,
   checkFileSize,
   checkTokenBudget,
+  looksBinary,
   READ_TOKEN_FLOOR,
   READ_TOKEN_CEIL,
 } from './limits'
@@ -45,4 +46,10 @@ test('§5-#4: 超硬上限即使传 limit 也报错', () => {
 test('checkTokenBudget: 超预算报错、未超放行', () => {
   expect(checkTokenBudget(30_000, 7_680)).not.toBeNull()
   expect(checkTokenBudget(5_000, 7_680)).toBeNull()
+})
+
+// ── §5-#5: 二进制嗅探（NUL 字节）──────────────────────────────────────────
+test('looksBinary: 含 NUL 字节 → true；纯文本 → false', () => {
+  expect(looksBinary('abc\u0000def')).toBe(true)
+  expect(looksBinary('plain text 中文')).toBe(false)
 })

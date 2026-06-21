@@ -7,9 +7,12 @@ import { estimateTextTokens } from '../../services/compact/compact'
 import {
   checkFileSize,
   checkTokenBudget,
+  looksBinary,
   readDefaultLineLimit,
+  readHardMaxBytes,
   readMaxTokens,
 } from './limits'
+import { extractPdfText, formatPdfOutput, parsePagesParam } from './pdf'
 
 export const FileReadTool = buildTool({
   name: 'Read',
@@ -31,7 +34,11 @@ export const FileReadTool = buildTool({
       },
       limit: {
         type: 'number',
-        description: 'Number of lines to read (optional)',
+        description: 'Number of lines to read (optional). Ignored for PDFs (use `pages`).',
+      },
+      pages: {
+        type: 'string',
+        description: 'For PDFs only: page selection like "3" or "1-5" (max 20 pages per read). Defaults to the first pages.',
       },
     },
     required: ['file_path'],
@@ -41,6 +48,7 @@ export const FileReadTool = buildTool({
     const filePath = input['file_path'] as string
     const offset = (input['offset'] as number | undefined) ?? 1
     const limit = input['limit'] as number | undefined
+    const pages = input['pages'] as string | undefined
 
     try {
       const file = Bun.file(filePath)
@@ -49,11 +57,26 @@ export const FileReadTool = buildTool({
         return { output: `File not found: ${filePath}`, isError: true }
       }
 
+      // ── 方案 B: PDF 走专用抽取路径（§5-#10: 用 pages，忽略 offset/limit）──
+      if (filePath.toLowerCase().endsWith('.pdf')) {
+        return await readPdf(filePath, file, pages)
+      }
+
       // ① 体积闸门（读前）：超软上限且无 limit、或超硬上限（含 §5-#4：limit 也绕不过）→ 抛短错误
       const sizeErr = checkFileSize(file.size, limit !== undefined)
       if (sizeErr) return { output: sizeErr, isError: true }
 
       const text = await file.text()
+
+      // §5-#5: 二进制嗅探 —— 非 PDF 的二进制（.docx/图片/sqlite…）不吐乱码，直接友好报错
+      if (looksBinary(text.slice(0, 8192))) {
+        return {
+          output: `File appears to be binary (contains NUL bytes), not UTF-8 text. `
+            + `Refusing to dump raw bytes. If it is a document (PDF/DOCX/XLSX/…), use a dedicated extractor.`,
+          isError: true,
+        }
+      }
+
       const lines = text.split('\n')
 
       const startIdx = Math.max(0, offset - 1)
@@ -93,3 +116,42 @@ export const FileReadTool = buildTool({
     return [`Read ${lineCount} lines ← ${filePath}`]
   },
 })
+
+// 方案 B: PDF 抽取文字层 + 按页分块。硬上限仍生效（§5-#13: unpdf 整本入内存）；
+// 软上限对 PDF 不适用（抽的是文字层而非原始字节）。
+async function readPdf(
+  filePath: string,
+  file: import('bun').BunFile,
+  pages: string | undefined,
+): Promise<ToolCallResult> {
+  const hard = readHardMaxBytes()
+  if (file.size > hard) {
+    return { output: `PDF too large (${file.size} bytes, hard limit ${hard}).`, isError: true }
+  }
+
+  let extracted: { totalPages: number; texts: string[] }
+  try {
+    extracted = await extractPdfText(new Uint8Array(await file.arrayBuffer()))
+  } catch (e) {
+    return { output: `Failed to parse PDF: ${String(e)}`, isError: true }
+  }
+
+  const sel = parsePagesParam(pages, extracted.totalPages)
+  if ('error' in sel) return { output: sel.error, isError: true }
+
+  const texts = sel.pages.map(p => extracted.texts[p - 1] ?? '')
+  if (texts.every(t => t.trim() === '')) {
+    return {
+      output: `This PDF has no extractable text layer on the requested pages `
+        + `(likely a scanned/image PDF). OCR is not supported in this version.`,
+      isError: true,
+    }
+  }
+
+  const out = formatPdfOutput(filePath, sel.pages, extracted.totalPages, texts)
+  const tokenErr = checkTokenBudget(estimateTextTokens(out), readMaxTokens())
+  if (tokenErr) return { output: tokenErr, isError: true }
+
+  recordRead(filePath, true)
+  return { output: out }
+}

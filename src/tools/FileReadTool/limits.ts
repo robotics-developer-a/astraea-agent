@@ -1,4 +1,4 @@
-// Read 闸门的纯函数（方案 A / §A.1 / §5-#4）
+// Read 闸门的纯函数（方案 A / §A.1 / §5-#4 / §5-#5）
 // 参考源码: claude-code-main 的 FileReadTool/limits.ts —— 但 token 上限改为模型自适应。
 import { activeContextWindow } from '../../config'
 
@@ -46,6 +46,13 @@ export function checkFileSize(sizeBytes: number, hasExplicitLimit: boolean): str
       + `or use Grep/search to locate the part you need.`
   }
   return null
+}
+
+// ── §5-#5: 二进制嗅探 ─────────────────────────────────────────────────────
+// 文本前缀含 NUL 字节即判定为二进制（廉价启发式，与 Claude Code 一致）。挡住
+// .docx/.xlsx/图片/sqlite 等被当文本读出乱码的情况——不止 PDF。
+export function looksBinary(textPrefix: string): boolean {
+  return textPrefix.includes('\u0000')
 }
 
 // ── 输出 token 闸门（读后）────────────────────────────────────────────────
