@@ -398,6 +398,9 @@ export function App() {
   // 本回合用户刚发出的原文：ESC 叫停（流式态）时回填到 input box，免得用户重打一遍。
   // runConversation 起跑时写入；ESC Priority 1 取用后清空。
   const cancelRestoreRef = useRef('')
+  // 上一轮是否被中断（ESC / /stop）。中断后 todo 保留（用户仍能看），但用户一旦发起
+  // 「下一个任务」就把这批残留 todo 抹掉 —— 在 runConversation 起跑时按此标志清场。
+  const interruptedRef = useRef(false)
   // ESC double-press: 800ms 窗口内第二次 ESC 清空 input
   const lastEscPressRef = useRef(0)
   const escPendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -667,6 +670,13 @@ export function App() {
     ) => {
       const controller = new AbortController()
       abortControllerRef.current = controller
+
+      // 上一轮被 ESC / /stop 中断后残留的 todo：用户发起「下一个任务」即视为换题 → 清场，
+      // 避免上一个任务的 Tasks 面板赖在新任务里。模型若仍需规划会在本轮重发 TodoWrite。
+      if (interruptedRef.current) {
+        for (const ns of getAllNamespaces()) clearTodos(ns)
+        interruptedRef.current = false
+      }
 
       // 终端标题栏：任务起跑 → ✸ + 即时输入摘要；后台用主模型精炼成极短短语后静静回填。
       const titleTurn = titleStartTask(displayText ?? promptText)
@@ -969,6 +979,7 @@ export function App() {
           setActiveTool(null)
           setLiveOutput('')
           commitLiveTools()
+          interruptedRef.current = true  // 本轮被 ESC 中断 → 残留 todo 待下一个任务起跑时清场
           titleTaskDone(titleTurn)  // 中止 = 本轮结束，标题转 ✓（非错误）
         } else {
           const errMsg = err instanceof Error ? err.message : String(err)
@@ -997,6 +1008,7 @@ export function App() {
   const stopActiveWork = useCallback(() => {
     const wasStreaming = isStreaming && !!abortControllerRef.current
     if (wasStreaming) {
+      interruptedRef.current = true  // /stop 中断 → 残留 todo 待下一个任务起跑时清场
       abortControllerRef.current?.abort()
       clearInterjects()  // 叫停时丢弃未拾取的插队，与 ESC 语义一致
       setIsStreaming(false)
@@ -2249,7 +2261,7 @@ export function App() {
           {/* 次要查询循环（如 WechatRead）只设 activeTool、不入 liveTools → 退回单行 spinner。 */}
           {liveTools.length === 0 && activeTool && (
             <Box flexDirection="column">
-              <Text>{'⏺  '}<Text color="yellow">{activeTool}</Text>…</Text>
+              <Text><Text color="yellow">{'⏺  '}{activeTool}</Text>…</Text>
               {liveOutput && (
                 <Box flexDirection="column" marginLeft={4}>
                   {liveOutput.trimEnd().split('\n').slice(-20).map((line, i) => (

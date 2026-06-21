@@ -84,13 +84,12 @@ function LiveOut({ text }: { text: string }) {
 // 非折叠：经典两段式——⏺ 调用行 + 其 result 块。running 时缀 " …"。
 function ToolCallRow({ call, liveOutput }: { call: ToolCall; liveOutput?: string }) {
   const running = call.status === 'running'
-  // 克制上色：marker 与括号内参数留白，仅「工具名」按状态色上色
+  // 克制上色：marker ⏺ 与工具名按状态色上色（作状态锚点），仅括号内参数留白
   // （running 黄（进行中）· done 绿（已落盘）· error 红（失败））。
   return (
     <Box flexDirection="column">
       <Text wrap="truncate-end">
-        {'⏺  '}
-        <Text color={toolStatusColor(call.status)}>{call.name}</Text>
+        <Text color={toolStatusColor(call.status)}>{'⏺  '}{call.name}</Text>
         {`(${call.argText})${running ? ' …' : ''}`}
       </Text>
       {!running && call.resultLines ? <ResultLines lines={call.resultLines} /> : null}
@@ -107,12 +106,11 @@ function CollapsedGroup({ group, liveOutput }: { group: Group; liveOutput?: stri
   const anyRunning = doneN < total
   // 折叠组的聚合色：任一失败 → 红，否则任一在跑 → 黄，全部完成 → 绿。
   const headColor = aggregateStatusColor(group.calls.map(c => c.status))
-  // 克制上色：marker 与 "×N (n/m)" 计数留白，仅「工具名」按聚合状态色上色。
+  // 克制上色：marker ⏺ 与工具名按聚合状态色上色，仅 "×N (n/m)" 计数留白。
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Text wrap="truncate-end">
-        {'⏺  '}
-        <Text color={headColor}>{group.name}</Text>
+        <Text color={headColor}>{'⏺  '}{group.name}</Text>
         {` ×${total}${progress}`}
       </Text>
       {/* ⎿ 统一缩进到第 4 列，与非折叠的 ResultLines 对齐（trace 1：折叠 2 格/普通 4 格不一致）。 */}
