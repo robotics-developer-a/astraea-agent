@@ -27,13 +27,13 @@ Astraea works with a growing set of model providers. Pick the one that fits your
 
 <br>
 <p align="center">
-  <img src="./assets/anthropic.svg" height="56" alt="Anthropic" style="filter:invert(1)">
+  <img src="./assets/anthropic.svg" height="72" alt="Anthropic">
   &emsp;&emsp;&emsp;
-  <img src="./assets/deepseek.svg" height="56" alt="DeepSeek" style="filter:invert(1)">
+  <img src="./assets/deepseek.svg" height="72" alt="DeepSeek">
   &emsp;&emsp;&emsp;
-  <img src="./assets/openai.svg" height="56" alt="OpenAI" style="filter:invert(1)">
+  <img src="./assets/openai.svg" height="72" alt="OpenAI">
   &emsp;&emsp;&emsp;
-  <img src="./assets/kimi.svg" height="56" alt="Kimi" style="filter:invert(1)">
+  <img src="./assets/kimi.svg" height="72" alt="Kimi">
 </p>
 <p align="center">
   <strong>Anthropic</strong> &nbsp;Claude
