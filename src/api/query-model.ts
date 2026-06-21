@@ -15,6 +15,17 @@ import { isReasoningModel } from './openai'
 const ANTHROPIC_SMALL_MODEL = 'claude-haiku-4-5-20251001'
 const OPENAI_SMALL_MODEL = 'gpt-4o-mini'
 
+// 当前激活 provider 的小模型名（与上面策略一致）。供子 agent map 阶段省钱用（§5-#12）。
+export function smallModelName(provider = config.provider): string {
+  switch (provider) {
+    case 'anthropic': return ANTHROPIC_SMALL_MODEL
+    case 'openai': return OPENAI_SMALL_MODEL
+    case 'deepseek': return config.deepseek.model
+    case 'kimi': return config.kimi.model
+    default: return config.ollama.model
+  }
+}
+
 export async function querySmallModel(
   userPrompt: string,
   signal?: AbortSignal,

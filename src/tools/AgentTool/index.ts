@@ -4,7 +4,7 @@
 import { buildTool } from '../Tool.js'
 import type { Tool, ToolCallResult } from '../Tool.js'
 import { generateAgentId, registerAgentTask } from '../../services/agent-state.js'
-import { runSubAgent } from '../../services/run-sub-agent.js'
+import { runSubAgent, resolveSubAgentModel } from '../../services/run-sub-agent.js'
 import { getSessionSystemPrompt } from '../../services/session-context.js'
 import { getWorkerTools } from '../registry.js'
 
@@ -19,7 +19,10 @@ Use to:
 
 Returns immediately with a taskId. The sub-agent runs in the background.
 When the sub-agent completes, a <task_notification> is injected into your next turn.
-Use TaskList / TaskGet to monitor running agents.`,
+Use TaskList / TaskGet to monitor running agents (collect the final result via TaskGet's \`result\`).
+
+Concurrency is capped globally; spawn freely — excess agents queue automatically.
+For cheap map/summarization sub-tasks, set model:"small" to save cost.`,
   isReadOnly: () => false,
   inputSchema: {
     type: 'object',
@@ -32,6 +35,10 @@ Use TaskList / TaskGet to monitor running agents.`,
         type: 'string',
         description: 'Short human-readable description of what this agent does (shown in status UI).',
       },
+      model: {
+        type: 'string',
+        description: 'Optional: "small" runs the sub-agent on a cheaper/faster model (good for map/summarization). Defaults to the main model.',
+      },
     },
     required: ['prompt', 'description'],
   },
@@ -39,6 +46,7 @@ Use TaskList / TaskGet to monitor running agents.`,
   async call(input, _ctx: import("../Tool.js").ToolContext): Promise<ToolCallResult> {
     const prompt = input['prompt'] as string
     const description = input['description'] as string | undefined ?? prompt.slice(0, 60)
+    const model = resolveSubAgentModel(input['model'] as string | undefined)
 
     const agentId = generateAgentId()
     const task = registerAgentTask(agentId, prompt, description)
@@ -47,7 +55,7 @@ Use TaskList / TaskGet to monitor running agents.`,
     const tools = getWorkerTools()
 
     // Fire-and-Observe: do NOT await, sub-agent runs concurrently
-    void runSubAgent(agentId, prompt, tools, system, task.abortController.signal)
+    void runSubAgent(agentId, prompt, tools, system, task.abortController.signal, model)
 
     return {
       output: JSON.stringify({

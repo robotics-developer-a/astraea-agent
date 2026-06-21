@@ -11,8 +11,16 @@ import {
   failAgentTask,
 } from './agent-state'
 import { enqueueAgentNotification } from './notification-queue'
+import { acquireAgentSlot, releaseAgentSlot } from './agent-concurrency'
+import { smallModelName } from '../api/query-model'
 
 const MAX_TURNS = 30
+
+// §5-#12: 子 agent 模型选择。'small' → 当前 provider 的小模型（map/摘要省钱）；
+// 其余 → undefined（streamMessage 用默认主模型）。orchestrator 经 Agent({model:'small'}) 选。
+export function resolveSubAgentModel(hint: string | undefined): string | undefined {
+  return hint === 'small' ? smallModelName() : undefined
+}
 
 export async function runSubAgent(
   agentId: string,
@@ -20,8 +28,10 @@ export async function runSubAgent(
   tools: Tool[],
   system: string,
   signal: AbortSignal,
+  model?: string,
 ): Promise<void> {
   const startedAt = Date.now()
+  await acquireAgentSlot() // §5-#8: 受全局并发上限约束，超额时在此排队
 
   const toolSchemas: ToolSchema[] = tools.map(t => ({
     name: t.name,
@@ -65,6 +75,7 @@ export async function runSubAgent(
       for await (const event of streamMessage(messages, {
         system,
         tools: toolSchemas.length > 0 ? toolSchemas : undefined,
+        ...(model ? { model } : {}),
       })) {
         if (signal.aborted) break
 
@@ -132,6 +143,15 @@ export async function runSubAgent(
       const toolResultMessage: UserMessage = { role: 'user', content: toolResultBlocks }
       messages = [...messages, assistantMessage, toolResultMessage]
     }
+
+    if (signal.aborted) {
+      enqueueAgentNotification(agentId, 'killed', undefined, undefined, Date.now() - startedAt)
+      return
+    }
+
+    if (completeAgentTask(agentId, lastText)) {
+      enqueueAgentNotification(agentId, 'completed', lastText, undefined, Date.now() - startedAt)
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     if (!signal.aborted) {
@@ -139,15 +159,7 @@ export async function runSubAgent(
         enqueueAgentNotification(agentId, 'failed', undefined, msg, Date.now() - startedAt)
       }
     }
-    return
-  }
-
-  if (signal.aborted) {
-    enqueueAgentNotification(agentId, 'killed', undefined, undefined, Date.now() - startedAt)
-    return
-  }
-
-  if (completeAgentTask(agentId, lastText)) {
-    enqueueAgentNotification(agentId, 'completed', lastText, undefined, Date.now() - startedAt)
+  } finally {
+    releaseAgentSlot() // §5-#8: 任何退出路径都归还槽位
   }
 }
