@@ -11,7 +11,7 @@
 //   panel   — 交互式命令，打开方向键面板（/mode /vigil）
 
 import React from 'react'
-import { Box, Text, useStdout } from 'ink'
+import { Box, Text, useWindowSize } from 'ink'
 
 export interface SlashCommand {
   name: string         // '/mode'
@@ -69,7 +69,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     name: '/reason',
     summary: 'set reasoning effort',
     options: ['low', 'medium', 'high', 'max', 'auto'],
-    enterAction: 'complete',
+    enterAction: 'execute',
   },
   {
     name: '/usage',
@@ -172,13 +172,13 @@ interface SlashHintProps {
 }
 
 export function SlashHint({ input, selectedIndex }: SlashHintProps) {
-  const { stdout } = useStdout()
+  const { columns, rows } = useWindowSize()
   const matches = matchSlashCommands(input)
   if (matches.length === 0) return null
 
   // 最多可见 = min(6, rows-3)，随终端高度限制（参考 claude-code inline 模式）
-  const rows = stdout?.rows ?? 24
-  const maxVisible = Math.min(6, Math.max(1, rows - 3))
+  const termRows = rows ?? 24
+  const maxVisible = Math.min(6, Math.max(1, termRows - 3))
 
   // 滑动窗口·选中居中：高亮项尽量保持在窗口中部
   const len = matches.length

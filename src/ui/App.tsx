@@ -2,7 +2,7 @@
 // 参考: claude-code-main/src/screens/REPL.tsx + components/App.tsx
 
 import React, { useState, useCallback, useRef, useMemo, useEffect } from 'react'
-import { Box, Text, Static, useApp, useInput, usePaste, useStdout } from 'ink'
+import { Box, Text, Static, useApp, useInput, usePaste, useStdout, useWindowSize } from 'ink'
 import pkg from '../../package.json' with { type: 'json' }
 import TextInput from './TextInput'
 import { query } from '../query'
@@ -94,6 +94,9 @@ import {
   GOAL_MAX_CONDITION_LENGTH,
 } from '../state/goalState'
 import { ModeSelector, MODE_OPTIONS, nextCycleMode } from './ModeSelector'
+import { ReasonSelector, REASON_OPTIONS } from './ReasonSelector'
+import { deepseekEffectiveModel, resolveAppliedEffort, currentEffortStatus } from '../api/reasoningEffort'
+import { executeReason, persistReason } from '../commands/reason'
 import { ConfirmSelector, CONFIRM_CHOICES } from './ConfirmSelector'
 import { onConfirmRequest, resolveConfirm, type ConfirmRequest } from '../tools/BashTool/permissions/confirmBridge'
 import { VigilPanel, VIGIL_ACTIONS } from './VigilPanel'
@@ -157,7 +160,7 @@ function formatDuration(ms: number): string {
   const h = Math.floor(s / 3600)
   const m = Math.floor((s % 3600) / 60)
   const sec = s % 60
-  return [h ? `${h}h` : '', m || h ? `${m}m` : '', `${sec}s`].filter(Boolean).join('')
+  return [h ? `${h}h` : '', m || h ? `${m}m` : '', `${sec}s`].filter(Boolean).join(' ')
 }
 
 // /goal 无参数时的状态文本：优先显示激活目标，否则显示上一条已达成记录。
@@ -189,13 +192,42 @@ function formatGoalStatus(): string {
   return '◎ **/goal** — no goal active. Set one with `/goal <condition>`.'
 }
 
+// 创意 done 通知短语池 —— 烹饪/星辰/锻造主题，每轮 clean 收尾时随机抽取
+const DONE_PHRASES: string[] = [
+  'Simmered under starlight',
+  'Caramelized to perfection',
+  'Forged in the celestial fire',
+  'Weighed against the scales',
+  'Polished the constellations',
+  'Plated among the cosmos',
+  'Steeped in cosmic wisdom',
+  'Seared across the firmament',
+  'Tempered by the silent void',
+  'Whipped into crystalline form',
+  'Infused with clarity',
+  'Marinated in moonlight',
+  'Braised beyond the event horizon',
+  'Glazed with stardust',
+  'Roasted on the cosmic hearth',
+  'Cured by cold precision',
+  'Toasted to a golden finish',
+  'Set like a jewel in the night',
+  'Baked under a binary sun',
+  'Sautéed in the astral forge',
+  'Stewed until the stars aligned',
+  'Drizzled with insight',
+  'Seasoned with exacting care',
+  'Folded into the constellation',
+  'Etched into the fabric of logic',
+]
+
 // ─────────────────────────── 类型 ────────────────────────────────────────────
 
 interface HistoryEntry {
   id: string
   // 路径 A 重构（Stage 1）：tool_use/tool_result 两类合并为一条 'tools' 批（calls 承载，
   // 逐调用配对 + 同类折叠由 <ToolBatch> 渲染）。文本/banner 角色保持不变。
-  role: 'welcome' | 'user' | 'assistant' | 'mode_banner' | 'skill_banner' | 'tools' | 'status'
+  role: 'welcome' | 'user' | 'assistant' | 'mode_banner' | 'skill_banner' | 'tools' | 'status' | 'done_notification'
   text: string
   lines?: string[]       // 多行结果显示（历史遗留字段，'tools' 不用）
   calls?: ToolCall[]     // 'tools' 行专用：一个已落盘的工具批
@@ -367,6 +399,7 @@ export function App() {
   // 终端行数 —— 给"进行中"的流式预览封顶：实时帧（非 Static）一旦高过屏幕，
   // Ink 重绘时无法擦除滚出可视区的旧行，页脚（agents/tasks/输入框）会残留幽灵副本。
   const { stdout } = useStdout()
+  const { columns, rows } = useWindowSize()
   const [compactChars, setCompactChars] = useState(0)      // 已生成摘要字符数 → 驱动进度条
   // 粘贴折叠（像 Claude Code）：大段粘贴在输入框里只显示占位符 [Pasted text #N …]，
   // 真实内容存在 ref map 里，提交时展开喂给模型。
@@ -388,6 +421,8 @@ export function App() {
   const [sessionMode, setSessionModeState] = useState<SessionMode>('default')
   const [pendingModeSelect, setPendingModeSelect] = useState(false)
   const [modeSelectorIndex, setModeSelectorIndex] = useState(0)
+  const [pendingReasonSelect, setPendingReasonSelect] = useState(false)
+  const [reasonSelectorIndex, setReasonSelectorIndex] = useState(0)
   const [pendingVigilPanel, setPendingVigilPanel] = useState(false)
   const [vigilPanelIndex, setVigilPanelIndex] = useState(0)
   const [pendingResumePicker, setPendingResumePicker] = useState(false)
@@ -448,6 +483,7 @@ export function App() {
   // 本回合用户刚发出的原文：ESC 叫停（流式态）时回填到 input box，免得用户重打一遍。
   // runConversation 起跑时写入；ESC Priority 1 取用后清空。
   const cancelRestoreRef = useRef('')
+  const runStartRef = useRef(0)
   // 上一轮是否被中断（ESC / /stop）。中断后 todo 保留（用户仍能看），但用户一旦发起
   // 「下一个任务」就把这批残留 todo 抹掉 —— 在 runConversation 起跑时按此标志清场。
   const interruptedRef = useRef(false)
@@ -746,6 +782,7 @@ export function App() {
       beginCheckpoint({ convLen: conversationRef.current.length, userText: displayText ?? promptText })
       setInputValue('')
       setIsStreaming(true)
+      runStartRef.current = Date.now()
       setStreamingText('')
       setActiveTool(null)
       setLiveOutput('')
@@ -1021,6 +1058,19 @@ export function App() {
                     },
                   ])
                 }
+                // 创意 done 通知：仅当本轮产生过可见输出且非中止时，追加紫色灵感短语
+                if (!controller.signal.aborted && (finalText.trim() || anyVisibleOutput)) {
+                  const elapsed = Date.now() - runStartRef.current
+                  const phrase = DONE_PHRASES[Math.floor(Math.random() * DONE_PHRASES.length)]
+                  const h = Math.floor(elapsed / 3600000)
+                  const m = Math.floor((elapsed % 3600000) / 60000)
+                  const s = Math.floor((elapsed % 60000) / 1000)
+                  const duration = [h ? h + 'h' : '', m || h ? m + 'm' : '', s + 's'].filter(Boolean).join(' ')
+                  setHistory(prev => [
+                    ...prev,
+                    { id: String(entryIdRef.current++), role: 'done_notification' as const, text: `✻ ${phrase} for ${duration}` },
+                  ])
+                }
               }, 0)
               break
             }
@@ -1241,7 +1291,7 @@ export function App() {
             '**Current model**',
             '',
             `  Provider     ${p}`,
-            `  Model        ${modelId}`,
+            `  Model        ${config.provider === 'deepseek' ? deepseekEffectiveModel(resolveAppliedEffort(), config.deepseek.model) : modelId}`,
             `  Endpoint     ${baseUrl}`,
             `  Max tokens   ${maxTokens}`,
             '',
@@ -1488,13 +1538,33 @@ export function App() {
           text: [
             '**Available commands:**',
             '',
+            '**Session control:**',
+            '  /clear   — clear conversation history (also clears any active goal)',
+            '  /resume  — resume a past session (args: session-id or number from /resume list)',
+            '  /rewind  — rewind this session — restore conversation + edited files',
+            '  /compact — force context compaction now (optional: /compact <focus>)',
+            '',
+            '**Mode:**',
             '  /mode    — select session mode: orbit · cruise · forge · counsel · default (or press Shift+Tab to cycle)',
             '  /goal    — set a completion condition Astraea works toward autonomously',
-            '  /vigil   — manage scheduled background tasks: add · list · delete',
-            '  /login   — configure API key and provider',
+            '  /stop    — stop current task and any running sub-agents',
+            '',
+            '**Configuration:**',
+            '  /login     — configure API key and provider',
+            '  /language  — choose UI & reply language',
+            '  /internet  — configure web search provider',
+            '  /reason    — set reasoning effort: low · medium · high · max · auto',
+            '',
+            '**Info:**',
             '  /model   — show the current provider, model, and endpoint',
-            '  /clear   — clear conversation history (also clears any active goal)',
+            '  /usage   — show session token usage & cost',
+            '  /mcp     — show MCP server status',
+            '  /plugin  — show installed plugins',
             '  /help    — show this message',
+            '',
+            '**Tasks & automation:**',
+            '  /vigil   — manage scheduled background tasks: add · list · delete',
+            '  /wechat  — run WeChat chat summary (configured via settings.json)',
           ].join('\n'),
         }])
         return
@@ -1523,6 +1593,27 @@ export function App() {
         const currentIdx = MODE_OPTIONS.findIndex(o => o.value === getMode())
         setModeSelectorIndex(currentIdx >= 0 ? currentIdx : 0)
         setPendingModeSelect(true)
+        return
+      }
+
+      // /reason <arg> — 带参直接执行（不走 UI），无参弹选择器
+      if (trimmed === '/reason' || trimmed.startsWith('/reason ')) {
+        setInputValue('')
+        historyIndexRef.current = -1
+        const arg = trimmed.slice('/reason'.length).trim()
+        if (arg) {
+          const r = executeReason(arg)
+          void persistReason(r).then(() => {
+            setHistory(prev => [...prev, {
+              id: String(entryIdRef.current++),
+              role: 'assistant',
+              text: r.message,
+            }])
+          })
+        } else {
+          setReasonSelectorIndex(0)
+          setPendingReasonSelect(true)
+        }
         return
       }
 
@@ -1840,7 +1931,7 @@ export function App() {
 
   usePaste(
     ingestPaste,
-    { isActive: !showLogin && !showInternet && !showLanguage && !pendingModeSelect && !pendingVigilPanel && !pendingConfirm && !pendingResumePicker && !pendingRewindPicker && !(pendingQuestion && !questionFreeText) },
+    { isActive: !showLogin && !showInternet && !showLanguage && !pendingReasonSelect && !pendingModeSelect && !pendingVigilPanel && !pendingConfirm && !pendingResumePicker && !pendingRewindPicker && !(pendingQuestion && !questionFreeText) },
   )
 
   // Ctrl+V 兜底：部分 Windows 终端（conhost / PowerShell 控制台）按 Ctrl+V 不会触发
@@ -2002,6 +2093,40 @@ export function App() {
       return
     }
 
+    // ── ReasonSelector 键盘控制 ──────────────────────────────────────────────
+    if (pendingReasonSelect) {
+      if (key.escape) {
+        setPendingReasonSelect(false)
+        return
+      }
+      if (key.upArrow) {
+        setReasonSelectorIndex(i => (i - 1 + REASON_OPTIONS.length) % REASON_OPTIONS.length)
+        return
+      }
+      if (key.downArrow) {
+        setReasonSelectorIndex(i => (i + 1) % REASON_OPTIONS.length)
+        return
+      }
+      if (key.return) {
+        const selected = REASON_OPTIONS[reasonSelectorIndex]
+        if (selected) {
+          setPendingReasonSelect(false)
+          // 滑块选 = 显式确认，对 DeepSeek reasoner 档自动带 --confirm
+          const autoConfirm = config.provider === 'deepseek' && ['medium', 'high', 'max'].includes(selected.value)
+          const r = executeReason(autoConfirm ? `${selected.value} --confirm` : selected.value)
+          void persistReason(r).then(() => {
+            setHistory(prev => [...prev, {
+              id: String(entryIdRef.current++),
+              role: 'assistant',
+              text: r.message,
+            }])
+          })
+        }
+        return
+      }
+      return
+    }
+
     // ── Shift+Tab 快速循环会话模式 ────────────────────────────────────────────
     // 终端对 Shift+Tab 发的是 CSI Z（"\x1b[Z"，backtab）；Ink 统一解析为
     // key.tab && key.shift，在 macOS / Linux / Windows Terminal / conhost 上一致，
@@ -2125,8 +2250,8 @@ export function App() {
       const otherRow = q.options.length
       const cursor = optCursor[qIndex] ?? 0
 
-      if (key.leftArrow) { setQIndex(i => Math.max(0, i - 1)); return }
-      if (key.rightArrow) { setQIndex(i => Math.min(questions.length - 1, i + 1)); return }
+      if (key.upArrow) { setQIndex(i => Math.max(0, i - 1)); return }
+      if (key.downArrow) { setQIndex(i => Math.min(questions.length - 1, i + 1)); return }
       if (key.upArrow) { setOptCursor(cur => setAt(cur, qIndex, Math.max(0, (cur[qIndex] ?? 0) - 1))); return }
       if (key.downArrow) { setOptCursor(cur => setAt(cur, qIndex, Math.min(otherRow, (cur[qIndex] ?? 0) + 1))); return }
 
@@ -2196,13 +2321,13 @@ export function App() {
       : config.provider === 'openai'
         ? config.openai.model
         : config.provider === 'deepseek'
-          ? config.deepseek?.model ?? ''
+          ? deepseekEffectiveModel(resolveAppliedEffort(), config.deepseek?.model ?? '')
           : config.provider === 'kimi'
             ? config.kimi?.model ?? ''
             : config.anthropic.model
 
   // 执行中输入框保持可用（不锁定）：用户可随时 /mode 切换。仅在模式/面板覆盖层时让出焦点。
-  const inputFocused = !pendingModeSelect && !pendingVigilPanel && !pendingConfirm && !pendingResumePicker && !pendingRewindPicker
+  const inputFocused = !pendingReasonSelect && !pendingModeSelect && !pendingVigilPanel && !pendingConfirm && !pendingResumePicker && !pendingRewindPicker
   const inputPlaceholder = pendingQuestion
     ? 'Type your answer… (Esc to skip)'
     : isStreaming
@@ -2241,6 +2366,14 @@ export function App() {
               </Box>
             )
           }
+          if (entry.role === 'done_notification') {
+            return (
+              <Box key={entry.id} marginBottom={1}>
+                <Text color={INDIGO}>{entry.text}</Text>
+              </Box>
+            )
+          }
+
           if (entry.role === 'mode_banner') {
             return (
               <ModeSwitchBanner key={entry.id} mode={entry.text as SessionMode} />
@@ -2281,7 +2414,7 @@ export function App() {
             return (
               <Box key={entry.id} flexDirection="column" marginBottom={1}>
                 <Text bold color={INDIGO}>{STAR} Astraea</Text>
-                <Text>{renderMarkdown(entry.text)}</Text>
+                <Text bold>{renderMarkdown(entry.text)}</Text>
               </Box>
             )
           }
@@ -2289,7 +2422,7 @@ export function App() {
             <Box key={entry.id} flexDirection="row" marginBottom={1}>
               <Text bold color={INDIGO}>{STAR} </Text>
               <Box flexDirection="column" flexGrow={1}>
-                <Text>{renderMarkdown(entry.text)}</Text>
+                <Text bold>{renderMarkdown(entry.text)}</Text>
               </Box>
             </Box>
           )
@@ -2313,7 +2446,7 @@ export function App() {
           {(() => {
             // 流式正文预览（落盘前的"进行中"截断版；完整版本轮结束进 <Static>）。
             // 实时预览只渲染尾部若干行，把帧高封顶 → 避免越界擦除把页脚/输入框盖住。
-            const maxLines = Math.max(8, (stdout?.rows ?? 24) - 14)
+            const maxLines = Math.max(8, (rows ?? 24) - 14)
             // 所有平台都按列宽硬截断流式预览：Ink 擦除按"换行符行数"算，但超宽行（尤其
             // 中文全角=2 宽）会被终端自动折行成多物理行，导致擦不干净、星与正文一层层
             // 重影堆叠（eval Item 14：同一行 ✸… 在 REPL 里复印了几十遍）。把预览截成
@@ -2325,9 +2458,9 @@ export function App() {
             // 行数 → ✸ 行一层层重影堆叠（Windows 实测：同一句叙述被复印数遍）。这里按
             // 是否带前导星预留对应列宽，保证含星后整行仍不超宽。
             const starCols = showHeader ? 0 : 2   // 行内分支左侧 "✸ " 占 2 列
-            const cols = Math.max(1, (stdout?.columns ?? 80) - 1 - starCols)
+            const cols = Math.max(1, (columns ?? 80) - 1 - starCols)
             const previewEl = streamingText
-              ? <Text>{safeWinPreview(streamingText, cols, maxLines)}</Text>
+              ? <Text bold>{safeWinPreview(streamingText, cols, maxLines)}</Text>
               : null
             // turn 起点：「STAR Astraea」独占一行、正文在下。
             if (showHeader) {
@@ -2358,7 +2491,7 @@ export function App() {
                 <Box flexDirection="column" marginLeft={4}>
                   {liveOutput.trimEnd().split('\n').slice(-20).map((line, i) => (
                     // 同样按列数硬截断，避免超宽行折行后擦不干净、一层层重影（见 safeWinPreview）。
-                    <Text key={i} color="gray" dimColor>⎿  {clampLineWidth(line, Math.max(1, (stdout?.columns ?? 80) - 6))}</Text>
+                    <Text key={i} color="gray" dimColor>⎿  {clampLineWidth(line, Math.max(1, (columns ?? 80) - 6))}</Text>
                   ))}
                 </Box>
               )}
@@ -2448,6 +2581,14 @@ export function App() {
         />
       )}
 
+      {/* ReasonSelector — 方向键导航选推理强度 */}
+      {pendingReasonSelect && (
+        <ReasonSelector
+          selectedIndex={reasonSelectorIndex}
+          provider={config.provider}
+        />
+      )}
+
       {/* ResumePicker — 历史会话恢复选择器（/resume） */}
       {pendingResumePicker && (
         <ResumePicker
@@ -2500,7 +2641,7 @@ export function App() {
           状态行应展示在 Tasks 列表下面，而非其上方）。 */}
       {isStreaming && <StreamStatus startTime={streamStart} tokens={liveTokens} />}
 
-      {!showLogin && !showInternet && !showLanguage && !pendingModeSelect && !pendingVigilPanel && !pendingConfirm && !pendingResumePicker && !pendingRewindPicker && (
+      {!showLogin && !showInternet && !showLanguage && !pendingReasonSelect && !pendingModeSelect && !pendingVigilPanel && !pendingConfirm && !pendingResumePicker && !pendingRewindPicker && (
         <ModeInputFrame mode={sessionMode}>
           {/* While the question panel is open, hide the text input — the panel owns
               ←→/↑↓/Space/Enter. Once the user picks ✎ 自填 (questionFreeText), reveal
