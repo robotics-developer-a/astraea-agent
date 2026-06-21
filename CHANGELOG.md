@@ -8,6 +8,18 @@
 
 > **1.0.0 发布门槛**（达成后才从 0.x 升到 1.0 并打首个 `git tag v1.0.0`）：
 
+## [0.9.6] - 2026-06-21
+
+### 新增
+- **拖文件进 REPL 自动还原绝对路径**（macOS / Linux / Windows）：把文件从访达 /
+  资源管理器拖进输入框时，终端会把路径当作一段「粘贴」塞进来。新增
+  `src/utils/dragPath.ts` 识别这类粘贴并还原成干净的绝对路径后插入（末尾补空格）：
+  去掉 Windows 拖入的双引号包裹、还原 macOS/Linux 的 shell 反斜杠转义（`My\ Photos`
+  → `My Photos`）、去掉终端补的首尾空格；用「文件确实存在」(`existsSync`) 作为强信号，
+  避免把普通文本误判成路径。含空格的路径自动包单引号；支持一次拖入多个文件（空格连接）。
+  接入点在 `App.tsx` 的 `ingestPaste`，识别失败则原样回退到普通粘贴逻辑。思路对齐
+  Claude Code 的 `imagePaste`（`removeOuterQuotes` + `stripBackslashEscapes`），泛化到任意文件。
+
 ## [0.9.4] - 2026-06-21
 
 ### 新增

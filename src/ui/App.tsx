@@ -36,6 +36,7 @@ import type { AgentTaskState } from '../services/agent-state'
 import { clearTodos, getAllNamespaces } from '../services/todo-state'
 import { renderMarkdown } from '../utils/markdown'
 import { readClipboard } from '../utils/clipboard'
+import { normalizeDraggedPath } from '../utils/dragPath'
 import { clampLineWidth, safeWinPreview } from '../utils/termWidth'
 import { displayPath } from '../utils/displayPath'
 import {
@@ -1732,6 +1733,14 @@ export function App() {
   // 且不会转发给 TextInput（useInput），因此输入框不会被刷屏。
   const ingestPaste = useCallback((text: string) => {
     if (!text) return
+    // 拖文件进终端：终端把文件路径当作一段「粘贴」塞进来（含 shell 转义 / 引号 / 末尾空格）。
+    // 识别出来就还原成干净的绝对路径直接插入，后面跟一个空格方便继续输入。
+    const dragged = normalizeDraggedPath(text)
+    if (dragged) {
+      historyIndexRef.current = -1
+      setInputValue((prev) => prev + dragged + ' ')
+      return
+    }
     const lineCount = text.split('\n').length
     const isLarge = lineCount > 1 || text.length > 200
     if (!isLarge) {
