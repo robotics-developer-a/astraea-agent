@@ -8,6 +8,12 @@ import React from 'react'
 import { App } from './ui/App'
 import { listTools } from './tools/registry'
 import { initTitle } from './utils/terminalTitle'
+import { installCrashGuard, restoreTerminal } from './utils/terminalGuard'
+
+// 进程级崩溃护栏：必须在 render()（Ink 接管终端、进 raw mode / 隐光标）之前装好。
+// 这样即使流式管线之外的 fire-and-forget 回调抛出未捕获异常 / 未处理拒绝，进程退出前也会
+// 先把终端复位（显光标、退 raw mode、关 bracketed-paste / 同步渲染），避免「整个终端卡死」。
+installCrashGuard()
 
 // 管理子命令：`astraea mcp …` / `astraea plugin …`（全局 bin 指向本文件）。
 // 在渲染 REPL 之前拦截，跑完即退，不进 Ink UI。
@@ -36,6 +42,8 @@ const { waitUntilExit } = render(<App />)
 waitUntilExit()
   .then(() => process.exit(0))
   .catch((err: unknown) => {
+    // Ink 的 render Promise 被拒（如挂载期 raw mode 不被支持）也走终端复位，别留个坏终端。
+    restoreTerminal()
     process.stderr.write(`Fatal error: ${err instanceof Error ? err.message : String(err)}\n`)
     process.exit(1)
   })
