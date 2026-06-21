@@ -26,32 +26,30 @@ Built from the ground up on [**Bun**](https://bun.com), with a React Ink TUI, mu
 Astraea works with a growing set of model providers. Pick the one that fits your needs — cloud or local, paid or free.
 
 <br>
-<div align="center">
-<table border="0" cellspacing="0" cellpadding="12" style="border:none;border-collapse:collapse">
-<tr style="border:none">
-<td align="center" width="150" style="border:none">
-  <img src="./assets/anthropic.svg" height="96" alt="Anthropic"><br><br>
+<table align="center" border="0" cellspacing="0" cellpadding="16">
+<tr>
+<td align="center" width="170">
+  <img src="./assets/anthropic.svg" height="120" alt="Anthropic"><br><br>
   <strong>Anthropic</strong><br>
   <sub>Claude</sub>
 </td>
-<td align="center" width="150" style="border:none">
-  <img src="./assets/deepseek.svg" height="96" alt="DeepSeek"><br><br>
+<td align="center" width="170">
+  <img src="./assets/deepseek.svg" height="120" alt="DeepSeek"><br><br>
   <strong>DeepSeek</strong><br>
   <sub>High quality, low cost</sub>
 </td>
-<td align="center" width="150" style="border:none">
-  <img src="./assets/openai.svg" height="96" alt="OpenAI"><br><br>
+<td align="center" width="170">
+  <img src="./assets/openai.svg" height="120" alt="OpenAI"><br><br>
   <strong>OpenAI</strong><br>
   <sub>GPT-4o &amp; friends</sub>
 </td>
-<td align="center" width="150" style="border:none">
-  <img src="./assets/kimi.svg" height="96" alt="Kimi"><br><br>
+<td align="center" width="170">
+  <img src="./assets/kimi.svg" height="120" alt="Kimi"><br><br>
   <strong>Kimi</strong><br>
   <sub>Moonshot AI</sub>
 </td>
 </tr>
 </table>
-</div>
 
 In addition to the above, Astraea supports **Ollama** for fully local models and any **OpenAI-compatible** endpoint — configure your own base URL, model name, and API key via the `.env` file.
 
