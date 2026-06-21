@@ -25,29 +25,30 @@ Built from the ground up on [**Bun**](https://bun.com), with a React Ink TUI, mu
 
 Astraea works with a growing set of model providers. Pick the one that fits your needs — cloud or local, paid or free.
 
-<div align="center" style="display:flex;justify-content:center;gap:48px;flex-wrap:wrap;margin:24px 0;align-items:center;">
-
-<div style="text-align:center;">
-  <img src="./assets/anthropic.svg" height="32" alt="Anthropic" style="filter:invert(0);">
-  <p><strong>Anthropic</strong><br><span style="font-size:0.85em;color:#888;">Claude (recommended)</span></p>
-</div>
-
-<div style="text-align:center;">
-  <img src="./assets/deepseek.svg" height="32" alt="DeepSeek" style="filter:invert(0);">
-  <p><strong>DeepSeek</strong><br><span style="font-size:0.85em;color:#888;">High quality, low cost</span></p>
-</div>
-
-<div style="text-align:center;">
-  <img src="./assets/openai.svg" height="32" alt="OpenAI" style="filter:invert(0);">
-  <p><strong>OpenAI</strong><br><span style="font-size:0.85em;color:#888;">GPT-4o & friends</span></p>
-</div>
-
-<div style="text-align:center;">
-  <img src="./assets/kimi.svg" height="32" alt="Kimi" style="filter:invert(0);">
-  <p><strong>Kimi (Moonshot AI)</strong><br><span style="font-size:0.85em;color:#888;">China-based LLM</span></p>
-</div>
-
-</div>
+<table align="center">
+  <tr>
+    <td align="center" width="25%">
+      <img src="./assets/anthropic.svg" height="32" alt="Anthropic">
+      <br><strong>Anthropic</strong>
+      <br><sub>Claude (recommended)</sub>
+    </td>
+    <td align="center" width="25%">
+      <img src="./assets/deepseek.svg" height="32" alt="DeepSeek">
+      <br><strong>DeepSeek</strong>
+      <br><sub>High quality, low cost</sub>
+    </td>
+    <td align="center" width="25%">
+      <img src="./assets/openai.svg" height="32" alt="OpenAI">
+      <br><strong>OpenAI</strong>
+      <br><sub>GPT-4o & friends</sub>
+    </td>
+    <td align="center" width="25%">
+      <img src="./assets/kimi.svg" height="32" alt="Kimi">
+      <br><strong>Kimi (Moonshot AI)</strong>
+      <br><sub>China-based LLM</sub>
+    </td>
+  </tr>
+</table>
 
 In addition to the above, Astraea supports **Ollama** for fully local models and any **OpenAI-compatible** endpoint — configure your own base URL, model name, and API key via the `.env` file.
 
