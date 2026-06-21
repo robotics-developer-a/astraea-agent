@@ -98,7 +98,7 @@ import { VigilPanel, VIGIL_ACTIONS } from './VigilPanel'
 import { SlashHint, allSlashCommands, matchSlashCommands } from './SlashHint'
 import { ModeSwitchBanner, ModeInputFrame } from './ModeBanner'
 import { ToolBatch, type ToolCall } from './ToolBatch'
-import { STATUS_COLOR, type AgentStatus } from './theme'
+import { STATUS_COLOR, splitStatusLine, type AgentStatus } from './theme'
 import { TodoPanel } from './TodoPanel'
 import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { homedir, platform } from 'node:os'
@@ -975,7 +975,7 @@ export function App() {
           commitLiveTools()   // 报错前已跑完的工具批落盘，便于定位失败上下文
           setHistory(prev => [
             ...prev,
-            { id: String(entryIdRef.current++), role: 'status', status: 'error', text: `■ Error: ${errMsg}` },
+            { id: String(entryIdRef.current++), role: 'status', status: 'error', text: `■ Error. ${errMsg}` },
           ])
           setStreamingText('')
           setIsStreaming(false)
@@ -2104,10 +2104,16 @@ export function App() {
             )
           }
           if (entry.role === 'status') {
-            // 状态行：按状态色矩阵整行上色（success 绿 / pending 黄 / error 红）。纯文本，不走 markdown。
+            // 状态行：marker 与补充文字留白，仅「第一个提醒词」按状态色上色
+            // （success 绿 / pending 黄 / error 红）。纯文本，不走 markdown。
+            const { marker, keyword, rest } = splitStatusLine(entry.text)
             return (
               <Box key={entry.id} marginBottom={1}>
-                <Text color={STATUS_COLOR[entry.status ?? 'pending']} wrap="truncate-end">{entry.text}</Text>
+                <Text wrap="truncate-end">
+                  {marker}
+                  <Text color={STATUS_COLOR[entry.status ?? 'pending']}>{keyword}</Text>
+                  {rest}
+                </Text>
               </Box>
             )
           }
@@ -2223,7 +2229,7 @@ export function App() {
           {/* 次要查询循环（如 WechatRead）只设 activeTool、不入 liveTools → 退回单行 spinner。 */}
           {liveTools.length === 0 && activeTool && (
             <Box flexDirection="column">
-              <Text color="yellow">⏺  {activeTool}…</Text>
+              <Text>{'⏺  '}<Text color="yellow">{activeTool}</Text>…</Text>
               {liveOutput && (
                 <Box flexDirection="column" marginLeft={4}>
                   {liveOutput.trimEnd().split('\n').slice(-20).map((line, i) => (

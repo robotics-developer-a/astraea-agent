@@ -17,12 +17,34 @@ const EOL = '\n'
 // 把标记吞掉（绝不显示给用户）。仅在「自成一段的结论行」生效，普通正文不受影响。
 const VERDICT_RE = /^⟦(ok|warn|err)⟧[ \t]*/
 
-// 按状态色给整句上色。深绿是 hex（c.hex），红/黄是 chalk 具名色（c.red / c.yellow）。
-function colorizeVerdict(c: C, kind: VerdictKind, text: string): string {
+// 按状态色给一段文字上色。深绿是 hex（c.hex），红/黄是 chalk 具名色（c.red / c.yellow）。
+function paint(c: C, kind: VerdictKind, text: string): string {
   const v = VERDICT_COLOR[kind]
   return v.startsWith('#')
     ? c.hex(v)(text)
     : (c as unknown as Record<string, (s: string) => string>)[v]!(text)
+}
+
+// 拆出 verdict 的「点睛部分」：首句（含句末标点）或首个词，余下留白。
+// 克制上色规则：颜色只点睛结论的第一个词/句，后续的路径与补充文字一律保持默认色
+//   「全部 5 个问题已解决。src/foo.ts 已更新」→ 仅「全部 5 个问题已解决。」上色
+//   「All done.」/「Finished.」/「完成」          → 整体即点睛部分，全部上色
+function splitVerdictHead(text: string): [string, string] {
+  // ① 首句：懒匹配到第一个句末标点（中英文句号/感叹/问号），含标点。
+  // 若首句即全文（rest 为空）→ 整段上色；否则首句上色、余下留白。
+  const sent = text.match(/^[\s\S]*?[。．.！!？?]+/)
+  if (sent) return [sent[0], text.slice(sent[0].length)]
+  // ② 无句末标点但有空白：取首个空白分隔的词（如「完成 已更新 X」→「完成」）。
+  const word = text.match(/^\S+/)
+  if (word && word[0].length < text.length) return [word[0], text.slice(word[0].length)]
+  // ③ 整段就是一个词/一句：全部上色。
+  return [text, '']
+}
+
+// verdict 结论行：仅点睛部分按状态色上色，余下补充文字留白。
+function colorizeVerdict(c: C, kind: VerdictKind, text: string): string {
+  const [head, rest] = splitVerdictHead(text)
+  return paint(c, kind, head) + rest
 }
 
 // cli-highlight 用自带的 chalk@4 上色，其色彩等级在「导入时」缓存一次。Ink 接管终端后

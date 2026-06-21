@@ -40,6 +40,19 @@ export const VERDICT_COLOR = {
 
 export type VerdictKind = keyof typeof VERDICT_COLOR
 
+// 状态行拆分：marker（含尾随空格） | 首个提醒词 | 余下补充文字。
+// 克制上色规则：仅「第一个提醒词」按状态色上色，marker 与补充文字一律留白
+// （与工具名、verdict 同一规则 —— 颜色只点睛一个词，不铺满整行）。
+//   「■ Error. Request was aborted.」→ { marker:'■ ', keyword:'Error', rest:'. Request was aborted.' }
+//   「◌ /stop — nothing is running.」 → { marker:'◌ ', keyword:'/stop', rest:' — nothing is running.' }
+//   「■ cancelled」                    → { marker:'■ ', keyword:'cancelled', rest:'' }
+// marker 限定为「单个符号 + 空白」（■ / ◌ 等），从而 "/stop" 这类以 / 开头的提醒词不被误吞。
+export function splitStatusLine(text: string): { marker: string; keyword: string; rest: string } {
+  const m = text.match(/^([^\w\s/]\s+)?(\S+?)(?=[\s.。！!？?,，:：]|$)([\s\S]*)$/)
+  if (!m) return { marker: '', keyword: text, rest: '' }
+  return { marker: m[1] ?? '', keyword: m[2] ?? '', rest: m[3] ?? '' }
+}
+
 // 折叠组的聚合颜色：任一失败 → 红；否则任一在跑 → 黄；全部完成 → 绿。
 export function aggregateStatusColor(
   statuses: Array<'running' | 'done' | 'error'>,

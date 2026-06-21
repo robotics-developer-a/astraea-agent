@@ -28,22 +28,22 @@ Astraea works with a growing set of model providers. Pick the one that fits your
 <br>
 <table align="center" border="0" cellspacing="0" cellpadding="16">
 <tr>
-<td align="center" width="170">
+<td align="center" width="140">
   <img src="./assets/anthropic.svg" height="120" alt="Anthropic"><br><br>
   <strong>Anthropic</strong><br>
   <sub>Claude</sub>
 </td>
-<td align="center" width="170">
+<td align="center" width="140">
   <img src="./assets/deepseek.svg" height="120" alt="DeepSeek"><br><br>
   <strong>DeepSeek</strong><br>
   <sub>High quality, low cost</sub>
 </td>
-<td align="center" width="170">
+<td align="center" width="140">
   <img src="./assets/openai.svg" height="120" alt="OpenAI"><br><br>
   <strong>OpenAI</strong><br>
-  <sub>GPT-4o &amp; friends</sub>
+  <sub>GPT-5.5 &amp; friends</sub>
 </td>
-<td align="center" width="170">
+<td align="center" width="140">
   <img src="./assets/kimi.svg" height="120" alt="Kimi"><br><br>
   <strong>Kimi</strong><br>
   <sub>Moonshot AI</sub>
