@@ -266,10 +266,30 @@ export const BashTool = buildTool({
   },
 })
 
+// 模型可见输出的字符上限（对照 Claude Code BashTool maxResultSizeChars: 30000）。
+// 仅作用于「发给模型的 output」——执行器的 64MB 字节闸（shell.ts MAX_OUTPUT_BYTES）是
+// 防进程 OOM，这里这道闸是防上下文爆炸：一次 cat 大文件 / 安装日志 / find / 大 JSON
+// 就能灌入几十万 token，触发 reactive compaction 或 413 溢出，把细粒度上下文一刀切毁掉。
+// FileReadTool 早有输出 token 闸（limits.ts），输出更不可控的 Bash 此前反而没有。
+const MAX_STDOUT_CHARS = 30_000
+const MAX_STDERR_CHARS = 10_000
+
+// 超限截断：保留头部 + 尾部，中间挖掉并标注被省略的字符数。
+// 取头尾而非纯 head——构建/测试日志的失败摘要常落在末尾，纯头截断会把最关键的信息丢掉。
+export function truncateForModel(text: string, limit: number): string {
+  if (text.length <= limit) return text
+  const headLen = Math.floor(limit * 0.7)
+  const tailLen = limit - headLen
+  const head = text.slice(0, headLen)
+  const tail = text.slice(text.length - tailLen)
+  const omitted = text.length - headLen - tailLen
+  return `${head}\n\n... [${omitted} characters truncated — re-run a narrower command or pipe through head/grep/tail to see specific parts] ...\n\n${tail}`
+}
+
 function formatResult(result: Awaited<ReturnType<typeof executeBash>>): ToolCallResult {
   const parts: string[] = []
-  if (result.stdout) parts.push(result.stdout)
-  if (result.stderr) parts.push(`[stderr]\n${result.stderr}`)
+  if (result.stdout) parts.push(truncateForModel(result.stdout, MAX_STDOUT_CHARS))
+  if (result.stderr) parts.push(`[stderr]\n${truncateForModel(result.stderr, MAX_STDERR_CHARS)}`)
   if (result.timedOut)   parts.push('[timed out]')
   if (result.interrupted) parts.push('[interrupted]')
 

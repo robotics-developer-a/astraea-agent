@@ -8,6 +8,17 @@
 
 > **1.0.0 发布门槛**（达成后才从 0.x 升到 1.0 并打首个 `git tag v1.0.0`）：
 
+## [0.9.16] - 2026-06-21
+
+### 修复
+- **Bash 输出对模型截断（防上下文爆炸）**：`BashTool.formatResult` 此前把 stdout 原样塞回
+  给模型，模型可见侧没有任何字符上限——执行器的 64MB 字节闸只防进程 OOM，那个 `MAX=40` 行
+  截断又只作用于终端 UI（`renderResult`）。结果一次 `cat 大文件` / 安装日志 / `find /` /
+  大 JSON 就能把几十万 token 灌进上下文，触发 reactive compaction 或 413 溢出，把细粒度上下
+  文一刀切毁掉，还烧 token、淹没模型。现新增 `truncateForModel`：stdout 限 30000 字符、
+  stderr 限 10000 字符，超限保留**头部 + 尾部**（构建/测试日志的失败摘要常在末尾）、中间挖
+  掉并标注省略字符数。对照 Claude Code 的 `maxResultSizeChars: 30000`。
+
 ## [0.9.15] - 2026-06-21
 
 ### 新增
