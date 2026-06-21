@@ -126,14 +126,23 @@ export function getBuiltinCommands(): Command[] {
       const bySource = (s: string) => skills.filter(c => c.source === s).length
       const loaded = status.filter(s => s.state === 'loaded')
       const failed = status.filter(s => s.state === 'failed')
-      const parts: string[] = [
-        '**Reloaded skills & plugins**',
-        '',
-        `  Skills available: ${skills.length}  (user ${bySource('user')} · project ${bySource('project')} · plugin ${bySource('plugin')})`,
-        `  Plugins: ${loaded.length} loaded${failed.length ? ` · ${failed.length} failed` : ''}`,
-      ]
-      for (const f of failed) parts.push(`    ✗ ${f.name}: ${f.error ?? 'unknown'}`)
-      parts.push('', '_New skills take effect from your next message. Plugin MCP server connections still need a restart._')
+      // verdict header + indigo-bordered dashboard table
+      const parts: string[] = []
+      if (failed.length === 0) {
+        parts.push(`⟦ok⟧ Reloaded — ${loaded.length} plugin${loaded.length === 1 ? '' : 's'} · ${skills.length} skill${skills.length === 1 ? '' : 's'} · all nominal.`)
+      } else {
+        parts.push(`⟦warn⟧ Reloaded — ${loaded.length} loaded · ${failed.length} failed.`)
+      }
+      parts.push('')
+      parts.push('| Reload Results                | Skills & Plugins          |')
+      parts.push('| :--------------------------- | :------------------------ |')
+      parts.push(`| Skills available             | ${skills.length}  (u:${bySource('user')} · p:${bySource('project')} · plugin:${bySource('plugin')}) |`)
+      parts.push(`| Plugins loaded               | ${loaded.length} [ok] |`)
+      for (const f of failed) {
+        parts.push(`| Plugin failed                | [x] ${f.name}: ${f.error ?? 'unknown'} |`)
+      }
+      parts.push('| New skills take effect       | [ok] from next message     |')
+      parts.push('| MCP server connections       | [~] restart to reconnect   |')
       return { type: 'text', value: parts.join('\n') }
     }),
 
