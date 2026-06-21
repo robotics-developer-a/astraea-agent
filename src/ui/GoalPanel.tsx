@@ -27,6 +27,42 @@ function truncate(s: string, n: number): string {
   return oneLine.length > n ? oneLine.slice(0, n - 1) + '…' : oneLine
 }
 
+// ── GoalHint ──────────────────────────────────────────────────────────────────
+// 实时使用提示：用户**正在输入** /goal（敲下空格、或正在打条件）时立刻浮出，
+// 不必等回车。和 SlashHint 一起钉在输入框上方，随 inputValue 变化即时显隐。
+// 触发：input 正好是 "/goal" 或以 "/goal " 开头（即已进入"输条件"阶段）。
+
+/** 当前输入是否在编排 /goal 命令（用于决定是否浮出实时提示）。 */
+export function isComposingGoal(input: string): boolean {
+  const t = input.trimStart()
+  return t === '/goal' || t.startsWith('/goal ')
+}
+
+export function GoalHint({ input }: { input: string }) {
+  if (!isComposingGoal(input)) return null
+  return (
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor={INDIGO}
+      paddingX={1}
+      paddingY={0}
+      marginBottom={1}
+    >
+      <Text bold color={INDIGO}>◎ /goal：定个"做完的标准"，Astraea 自己反复干到达标才停。</Text>
+      <Box>
+        <Text color="#2e7d32">  好用 </Text>
+        <Text color="gray">—— 标准能用命令验证、对错一目了然的活（把测试跑通、清掉报错、类型检查通过）</Text>
+      </Box>
+      <Box>
+        <Text color="#c62828">  别用 </Text>
+        <Text color="gray">—— 靠"感觉"、说不清算不算完成的活（"写优雅""功能能用"）→ 易被误判，甚至走捷径</Text>
+      </Box>
+      <Text color="gray" dimColor>  诀窍：把"用哪条命令验证、期望看到什么"写进目标，越具体越靠谱。</Text>
+    </Box>
+  )
+}
+
 interface GoalPanelProps {
   /** 主 Agent 是否正在流式运行（决定显示"第 N 轮进行中"还是"待下一轮"）。
    *  本组件未 memo，App 每次 goalTick setState 都会带它重渲读取最新单例，故无需 tick 入参。 */

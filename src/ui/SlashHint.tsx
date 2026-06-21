@@ -29,9 +29,12 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   },
   {
     name: '/goal',
+    // 无参回车 → execute（显示当前目标状态 + 使用场景提示），对齐 /reason。
+    // 用 'complete' 会把输入补成 "/goal " 后 return，吞掉状态展示，让用户以为没反应。
+    // 输条件仍可直接打 "/goal <condition>"（带空格不走 slash 选择器分支）。
     summary: 'set a completion condition to work toward',
     options: ['<condition>', 'clear'],
-    enterAction: 'complete',
+    enterAction: 'execute',
   },
   // /wechat —— 功能保留（App.tsx 直接路由 trimmed === '/wechat' 仍可执行），
   // 但暂不在 slash 提示里暴露，故不列入 SLASH_COMMANDS。

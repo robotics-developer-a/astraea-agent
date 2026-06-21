@@ -23,6 +23,24 @@
     「有未完成项才提醒」改为「该用却没用就提醒」。10 轮阈值本身就是过滤器——简单任务到不了 10
     轮，不会被打扰。对照 Claude Code `TODO_REMINDER_CONFIG`。
 
+## [0.9.18] - 2026-06-21
+
+### 修复
+- **/goal 无参回车无反应**：`/goal` 的 slash `enterAction` 原为 `complete`，回车只把输入补成
+  `/goal ` 后 return，吞掉了状态展示。改为 `execute`（对齐 `/reason`）——`/goal` 回车即显示当前
+  目标状态 + 使用场景提示。
+- **/goal 实时使用提示（GoalHint）**：输入 `/goal` 或敲下空格 `/goal ` 起，提示框即时浮在输入框
+  上方（不必等回车）；新增 `isComposingGoal` 判定 + `GoalHint` 组件，与 SlashHint 并列。
+- **/goal 设定后短暂空白像卡死**：set 时质量门 `assessGoalVerifiability` 是 1~2s 网络调用，原先
+  `await` 在「清空输入→开跑」之间，期间无任何输出。改为先即时显示 set 确认并立即开跑（StreamStatus
+  的耗时·token·短语状态行随即出现），质量门退为后台并发，模糊时异步补提醒。
+- **去掉模式切换 banner**：切换模式不再在 scrollback 里刷 `── switched to X ──` 横幅（渲染处
+  `return null`）；当前模式仍由输入框 `ModeInputFrame` 边框标签持续可见。
+
+### 变更
+- **/goal 无参状态文本去掉「预设快捷」行**：不再展示 `/goal test · lint · typecheck · build`
+  那行（预设功能本身保留可用）。
+
 ## [0.9.16] - 2026-06-21
 
 ### 修复

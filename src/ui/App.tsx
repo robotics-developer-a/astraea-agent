@@ -99,10 +99,10 @@ import { executeReason, persistReason } from '../commands/reason'
 import { ConfirmSelector, CONFIRM_CHOICES } from './ConfirmSelector'
 import { onConfirmRequest, resolveConfirm, type ConfirmRequest } from '../tools/BashTool/permissions/confirmBridge'
 import { VigilPanel, VIGIL_ACTIONS } from './VigilPanel'
-import { GoalPanel } from './GoalPanel'
+import { GoalPanel, GoalHint } from './GoalPanel'
 import { assessGoalVerifiability } from '../services/goal-evaluator'
 import { SlashHint, allSlashCommands, matchSlashCommands } from './SlashHint'
-import { ModeSwitchBanner, ModeInputFrame } from './ModeBanner'
+import { ModeInputFrame } from './ModeBanner'
 import { ToolBatch, type ToolCall } from './ToolBatch'
 import { STATUS_COLOR, splitStatusLine, type AgentStatus } from './theme'
 import { TodoPanel } from './TodoPanel'
@@ -215,7 +215,7 @@ function formatGoalStatus(): string {
       GOAL_USECASE_HINT,
     ].join('\n')
   }
-  return `◎ **/goal** — no goal active. Set one with \`/goal <condition>\`.\n\n${GOAL_USECASE_HINT}\n\n_预设快捷:_ \`/goal test\` · \`/goal lint\` · \`/goal typecheck\` · \`/goal build\``
+  return `◎ **/goal** — no goal active. Set one with \`/goal <condition>\`.\n\n${GOAL_USECASE_HINT}`
 }
 
 // 创意 done 通知短语池 —— 烹饪/星辰/锻造主题，每轮 clean 收尾时随机抽取
@@ -1560,24 +1560,7 @@ export function App() {
           return
         }
 
-        // ③ 质量门（非阻断）：非预设条件先用小快模型判可验证性，模糊则提醒+给改写建议，
-        // 但仍按用户原意继续。任何异常都被 assessGoalVerifiability 吞掉（默认放行）。
-        if (!preset) {
-          try {
-            const verdict = await assessGoalVerifiability(condition)
-            if (!verdict.verifiable) {
-              const tip = verdict.suggestion
-                ? `\n\n  建议改写:${verdict.suggestion}`
-                : ''
-              setHistory(prev => [...prev, {
-                id: String(entryIdRef.current++),
-                role: 'assistant',
-                text: `◎ **/goal** ⚠ 这个目标可能难以客观验证，容易被误判为完成或诱发走捷径。${tip}\n\n_仍按原条件继续。如要改，敲 \`/goal clear\` 后重设。_`,
-              }])
-            }
-          } catch { /* 质量门是辅助提醒，出错绝不拦设定 */ }
-        }
-
+        // 先即时反馈 + 开跑，绝不让"设定→开跑"之间出现无任何输出的空白（会被误以为卡死/崩溃）。
         setGoal(condition)
         setGoalTick(t => t + 1)
         setHistory(prev => [...prev, {
@@ -1585,7 +1568,26 @@ export function App() {
           role: 'assistant',
           text: `◎ **/goal** set — working until this holds:\n\n> ${condition}`,
         }])
-        // condition 本身就是 directive —— 直接开跑，无需另发 prompt
+
+        // ③ 质量门（非阻断、后台并发）：非预设条件用小快模型判可验证性，模糊则**异步**补一条
+        // 提醒+改写建议。刻意不 await —— 这是辅助提示，不能挡在开跑前拖出 1~2s 无反馈空窗。
+        if (!preset) {
+          void assessGoalVerifiability(condition)
+            .then(verdict => {
+              if (!verdict.verifiable) {
+                const tip = verdict.suggestion ? `\n\n  建议改写:${verdict.suggestion}` : ''
+                setHistory(prev => [...prev, {
+                  id: String(entryIdRef.current++),
+                  role: 'assistant',
+                  text: `◎ **/goal** ⚠ 这个目标可能难以客观验证，容易被误判为完成或诱发走捷径。${tip}\n\n_仍按原条件继续。如要改，敲 \`/goal clear\` 后重设。_`,
+                }])
+              }
+            })
+            .catch(() => { /* 质量门是辅助提醒，出错绝不影响主流程 */ })
+        }
+
+        // condition 本身就是 directive —— 直接开跑（runConversation 立即置 isStreaming，
+        // StreamStatus 的「耗时 · token · Threading the cosmos」状态行随即显示）。
         await runConversation(condition, `/goal ${condition}`)
         return
       }
@@ -2415,9 +2417,9 @@ export function App() {
           }
 
           if (entry.role === 'mode_banner') {
-            return (
-              <ModeSwitchBanner key={entry.id} mode={entry.text as SessionMode} />
-            )
+            // 切换模式不再在 scrollback 里展示 "── switched to X ──" 横幅（用户嫌刷屏）。
+            // 当前模式仍由输入框的 ModeInputFrame 边框标签持续可见，足够。
+            return null
           }
           if (entry.role === 'skill_banner') {
             return (
@@ -2701,6 +2703,7 @@ export function App() {
                 </Box>
               )}
               <SlashHint input={inputValue} selectedIndex={slashIndex} />
+              <GoalHint input={inputValue} />
               <Box>
                 <Text bold color={inputFocused && !isStreaming ? INDIGO : pendingQuestion ? 'yellow' : 'gray'}>
                   {pendingQuestion ? '? ' : isStreaming ? '  ' : '✦ '}
