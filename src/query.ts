@@ -51,7 +51,9 @@ import {
   recordGoalEvaluation,
   markGoalAchieved,
   clearGoal,
+  isGoalStalled,
   GOAL_MAX_TURNS,
+  GOAL_MAX_TOKEN_SPEND,
 } from './state/goalState'
 import { evaluateGoal, serializeTranscript } from './services/goal-evaluator'
 
@@ -91,8 +93,8 @@ export type QueryEvent =
   | { type: 'budget_stop'; reason: 'budget_reached' | 'diminishing_returns'; totalTokens: number }
   // /goal Stop-hook：每个 turn 结束后 evaluator 的裁决
   | { type: 'goal_evaluated'; met: boolean; reason: string; condition: string; turns: number }
-  // /goal 达到安全上限被强制停止
-  | { type: 'goal_exhausted'; reason: string; condition: string; maxTurns: number }
+  // /goal 撞安全闸被强制停止。cause 区分原因：turn 上限 / token 天花板 / 停滞。
+  | { type: 'goal_exhausted'; reason: string; condition: string; cause: 'turns' | 'tokens' | 'stall'; maxTurns: number; maxTokens: number }
   // ── 上下文压缩（autocompact）事件 ──
   | { type: 'compact_start'; trigger: 'auto' | 'manual'; preTokens: number }
   | { type: 'compact_progress'; chars: number }
@@ -583,17 +585,27 @@ async function* runQuery(
           turns: turnsSoFar,
         }
 
+        // 撞闸判定：turn 上限（硬）→ token 天花板（成本）→ 停滞（无进展）。
+        const spend = updated?.tokenSpend ?? 0
+        const exhaustCause: 'turns' | 'tokens' | 'stall' | null =
+          turnsSoFar >= GOAL_MAX_TURNS ? 'turns'
+          : spend >= GOAL_MAX_TOKEN_SPEND ? 'tokens'
+          : isGoalStalled() ? 'stall'
+          : null
+
         if (decision.met) {
           // 达成 → 记录"已达成"并清除目标，正常交还控制权
           markGoalAchieved(decision.reason)
-        } else if (turnsSoFar >= GOAL_MAX_TURNS) {
-          // 安全上限 → 强制停止，清除目标，提示用户
+        } else if (exhaustCause) {
+          // 撞安全闸 → 强制停止，清除目标，提示用户（cause 区分原因）
           clearGoal()
           yield {
             type: 'goal_exhausted',
             reason: decision.reason,
             condition: goal.condition,
+            cause: exhaustCause,
             maxTurns: GOAL_MAX_TURNS,
+            maxTokens: GOAL_MAX_TOKEN_SPEND,
           }
         } else {
           // 未达成 → 注入继续指令，再跑一轮（不交还控制权）
@@ -936,6 +948,10 @@ function buildGoalDirective(condition: string, reason: string): string {
       '(run the command, show the result, count the files). Do not ask for confirmation or stop ' +
       'until the condition is demonstrably met in the transcript. If you believe it is already met, ' +
       'state explicitly which evidence in your output proves it.',
+    '',
+    'Meet the condition by fixing the real problem — NEVER by weakening the check: do not comment out, ' +
+      'delete, or skip failing tests, do not loosen assertions, do not disable lint/type rules, and do not ' +
+      'edit the verification command into a weaker one. That will be detected and rejected as not met.',
   ].join('\n')
 }
 

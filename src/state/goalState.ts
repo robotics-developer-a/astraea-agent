@@ -14,6 +14,15 @@
 // evaluator 依据 transcript 判定 —— 这是双重保险。
 export const GOAL_MAX_TURNS = 40
 
+// 成本天花板（④）：turn 上限之外的第二维硬闸。即便没撞 40 turn，一个目标在少数
+// turn 内产出超量输出（跑飞的循环）也会被这里截停。单位 = 自目标设定以来累计的
+// **输出 token**。粗粒度兜底，宁可偏大；condition 自带的精确约束仍由 evaluator 判。
+export const GOAL_MAX_TOKEN_SPEND = 500_000
+
+// 停滞检测窗口（⑤）：连续这么多轮 evaluator 给出"实质相同"的理由（去数字后归一化
+// 相等）→ 判定卡死，提前交还控制权，而非闷头跑满 40 turn。
+export const GOAL_STALL_WINDOW = 3
+
 // condition 最大长度（与文档一致）
 export const GOAL_MAX_CONDITION_LENGTH = 4000
 
@@ -33,6 +42,8 @@ export interface GoalState {
   tokenSpend: number
   /** evaluator 最近一次给出的理由 */
   lastReason: string | null
+  /** 最近若干轮的理由（停滞检测用，保留尾部窗口） */
+  recentReasons: string[]
   status: 'active'
 }
 
@@ -78,6 +89,7 @@ export function setGoal(rawCondition: string): GoalState | null {
     turnsEvaluated: 0,
     tokenSpend: 0,
     lastReason: null,
+    recentReasons: [],
     status: 'active',
   }
   return _active
@@ -92,6 +104,30 @@ export function recordGoalEvaluation(reason: string, tokenSpendCumulative: numbe
   _active.turnsEvaluated += 1
   _active.lastReason = reason
   _active.tokenSpend = tokenSpendCumulative
+  _active.recentReasons.push(reason)
+  // 只保留尾部窗口的两倍，够停滞判定用，避免长跑无限增长。
+  if (_active.recentReasons.length > GOAL_STALL_WINDOW * 2) {
+    _active.recentReasons.shift()
+  }
+}
+
+// 归一化理由：转小写、去掉数字与标点（只留拉丁字母与 CJK），折叠空白。
+// 目的：让"还有 2 个测试失败"与"还有 3 个测试失败"被视为同一类停滞信号。
+function normalizeReason(r: string): string {
+  return r.toLowerCase().replace(/[^a-z一-鿿]+/g, ' ').trim()
+}
+
+/**
+ * 停滞检测（⑤）：最近 GOAL_STALL_WINDOW 轮的理由归一化后全部相等且非空 → 卡死。
+ * 不足一个窗口、或归一化后为空（信息太少）时一律不判停滞，避免误杀。
+ */
+export function isGoalStalled(): boolean {
+  if (!_active) return false
+  const recent = _active.recentReasons
+  if (recent.length < GOAL_STALL_WINDOW) return false
+  const window = recent.slice(-GOAL_STALL_WINDOW).map(normalizeReason)
+  if (window.some(r => !r)) return false
+  return window.every(r => r === window[0])
 }
 
 /** 目标达成：把 active 移入"已达成"记录并清空 active。 */

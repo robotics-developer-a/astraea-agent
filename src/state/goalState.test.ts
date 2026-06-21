@@ -7,6 +7,8 @@ import {
   recordGoalEvaluation,
   markGoalAchieved,
   getLastAchieved,
+  isGoalStalled,
+  GOAL_STALL_WINDOW,
   GOAL_MAX_CONDITION_LENGTH,
 } from './goalState'
 
@@ -77,4 +79,34 @@ test('clearGoal returns the cleared goal and deactivates', () => {
   expect(cleared?.condition).toBe('cond')
   expect(isGoalActive()).toBe(false)
   expect(clearGoal()).toBeNull()
+})
+
+test('isGoalStalled is false before the window fills', () => {
+  setGoal('cond')
+  expect(isGoalStalled()).toBe(false)
+  recordGoalEvaluation('still 2 tests failing', 100)
+  recordGoalEvaluation('still 1 test failing', 200)
+  // 仅 2 条 < 窗口 3 → 不判停滞
+  expect(GOAL_STALL_WINDOW).toBe(3)
+  expect(isGoalStalled()).toBe(false)
+})
+
+test('isGoalStalled triggers when recent reasons are the same modulo numbers', () => {
+  setGoal('cond')
+  recordGoalEvaluation('still 5 tests failing', 100)
+  recordGoalEvaluation('still 5 tests failing', 200)
+  recordGoalEvaluation('still 3 tests failing', 300) // 去数字后归一化相等
+  expect(isGoalStalled()).toBe(true)
+})
+
+test('isGoalStalled stays false when the agent is making varied progress', () => {
+  setGoal('cond')
+  recordGoalEvaluation('5 tests failing', 100)
+  recordGoalEvaluation('compile error in foo.ts', 200)
+  recordGoalEvaluation('lint warnings remain', 300)
+  expect(isGoalStalled()).toBe(false)
+})
+
+test('isGoalStalled is false when no goal is active', () => {
+  expect(isGoalStalled()).toBe(false)
 })

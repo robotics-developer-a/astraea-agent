@@ -84,6 +84,13 @@ const EVALUATOR_SYSTEM = [
   '  actually works and meets the bar — e.g. opened the page in a browser, confirmed no broken assets/404s,',
   '  ran/inspected the output. If the transcript shows only a Write call and a "done" claim with no',
   '  verification step, answer "no" so the agent verifies and polishes before stopping.',
+  '- ANTI-CHEAT (critical): the condition must be met by genuinely doing the work, NOT by weakening the',
+  '  check itself. If the transcript shows the agent moved the goalposts to make the check pass — e.g.',
+  '  commenting out / deleting / skipping (.skip, xit, --passWithNoTests) failing tests, loosening or',
+  '  removing assertions, disabling or downgrading lint/type rules to silence errors, mocking away the very',
+  '  logic under test, or editing the verification command to a weaker one — answer "no". Distinguish',
+  '  "fixed the code under test" (legitimate) from "changed the standard so it passes" (cheating), and in',
+  '  the reason name the specific suspicious edit so the agent can undo it and fix the real problem.',
   '- If the condition includes a turn/time bound (e.g. "or stop after 20 turns"), treat that bound as met',
   '  when the transcript shows the bound was reached.',
   '- Be conservative: when in doubt, answer "no" so the agent keeps working.',
@@ -112,6 +119,58 @@ export async function evaluateGoal(
 
   const raw = await querySmallModel(userPrompt, signal, EVALUATOR_SYSTEM)
   return parseDecision(raw)
+}
+
+// ── set 时的可验证性评估（③）──────────────────────────────────────────────────
+// /goal 设定时跑一次的"质量门"：用小快模型判断条件能否从 transcript 证据客观验证。
+// 非阻断 —— 仅用于在设定时给用户一句提醒 + 改写建议，决定权仍在用户。
+
+export interface VerifiabilityVerdict {
+  /** 条件是否可由"agent 输出的证据"客观判定达成 */
+  verifiable: boolean
+  /** 不可验证时给出的具体改写建议（含验证命令/期望输出），可验证时为 null */
+  suggestion: string | null
+}
+
+const VERIFIABILITY_SYSTEM = [
+  'You judge whether a /goal COMPLETION CONDITION for an autonomous coding agent is OBJECTIVELY VERIFIABLE',
+  'from evidence the agent can put in its own transcript (command output, exit codes, counts, HTTP responses).',
+  '',
+  'verifiable=true when the condition can be proven by a concrete, checkable signal (a test run, a build,',
+  'a type check, a lint count, an endpoint response, a file count).',
+  'verifiable=false when it is subjective or vague ("make it elegant", "works well", "looks good", "is clean")',
+  'with no measurable, machine-checkable bar — such goals get misjudged or invite shortcutting.',
+  '',
+  'If verifiable=false, propose a concrete rewrite that names the verification command and the expected output.',
+  'Respond with ONLY one JSON object, no prose, no code fences:',
+  '{"verifiable": <true|false>, "suggestion": "<concrete rewrite, or empty string if verifiable>"}',
+].join('\n')
+
+/**
+ * 评估条件可验证性。任何异常/解析失败都收敛为 verifiable=true（不打扰用户）——
+ * 这是一道辅助提醒，绝不能因为它出错就拦住用户设定目标。
+ */
+export async function assessGoalVerifiability(
+  condition: string,
+  signal?: AbortSignal,
+): Promise<VerifiabilityVerdict> {
+  try {
+    const raw = await querySmallModel(
+      `COMPLETION CONDITION:\n${condition}\n\nOutput the JSON verdict.`,
+      signal,
+      VERIFIABILITY_SYSTEM,
+    )
+    const match = raw.trim().match(/\{[\s\S]*\}/)
+    if (!match) return { verifiable: true, suggestion: null }
+    const obj = JSON.parse(match[0]) as { verifiable?: unknown; suggestion?: unknown }
+    if (typeof obj.verifiable !== 'boolean') return { verifiable: true, suggestion: null }
+    const suggestion = typeof obj.suggestion === 'string' && obj.suggestion.trim()
+      ? obj.suggestion.trim()
+      : null
+    return { verifiable: obj.verifiable, suggestion: obj.verifiable ? null : suggestion }
+  } catch {
+    return { verifiable: true, suggestion: null }
+  }
 }
 
 /** 健壮解析 —— 容忍模型偶尔包裹代码围栏或夹带说明文字。 */

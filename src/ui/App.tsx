@@ -99,6 +99,8 @@ import { executeReason, persistReason } from '../commands/reason'
 import { ConfirmSelector, CONFIRM_CHOICES } from './ConfirmSelector'
 import { onConfirmRequest, resolveConfirm, type ConfirmRequest } from '../tools/BashTool/permissions/confirmBridge'
 import { VigilPanel, VIGIL_ACTIONS } from './VigilPanel'
+import { GoalPanel } from './GoalPanel'
+import { assessGoalVerifiability } from '../services/goal-evaluator'
 import { SlashHint, allSlashCommands, matchSlashCommands } from './SlashHint'
 import { ModeSwitchBanner, ModeInputFrame } from './ModeBanner'
 import { ToolBatch, type ToolCall } from './ToolBatch'
@@ -162,6 +164,29 @@ function formatDuration(ms: number): string {
   return [h ? `${h}h` : '', m || h ? `${m}m` : '', `${sec}s`].filter(Boolean).join(' ')
 }
 
+// /goal 使用场景提示（①）——通俗版，不放命令样例，只讲"什么样的目标能用"。
+// 核心：标准能否用机器判定对错。模糊目标会被误判，甚至诱发"改靶子"走捷径。
+const GOAL_USECASE_HINT = [
+  '**◎ /goal 怎么用**:你定个"做完的标准"，Astraea 自己反复干到达标才停。',
+  '',
+  '  好用 —— 标准能用命令验证、对错一目了然的活',
+  '          (比如把测试跑通、清掉报错、类型检查通过)',
+  '  别用 —— 标准靠"感觉"、说不清算不算完成的活',
+  '          (比如"写优雅""功能能用") → 容易被误判完成，',
+  '          甚至为了"过关"走捷径，比如把测试注释掉让它"通过"',
+  '',
+  '  诀窍:把"用哪条命令验证、期望看到什么"直接写进目标，越具体越靠谱。',
+].join('\n')
+
+// 预设模板（⑥）：把最常见、最可验证的三类目标做成快捷写法，展开成自带"出示证据"
+// 要求的规范条件，既省事又天然把用户推向可验证的写法。键 = /goal <key>。
+const GOAL_PRESETS: Record<string, string> = {
+  test: "the project's test suite passes with zero failures — run the tests and show the final summary (exit code 0, all passing) as proof",
+  lint: 'the linter reports zero errors — run it and show the final output proving no errors remain (warnings are acceptable)',
+  typecheck: 'the type checker passes with no errors — run it (e.g. tsc --noEmit) and show the clean output as proof',
+  build: 'the project builds successfully — run the build and show it completing with no errors',
+}
+
 // /goal 无参数时的状态文本：优先显示激活目标，否则显示上一条已达成记录。
 function formatGoalStatus(): string {
   const active = getActiveGoal()
@@ -186,9 +211,11 @@ function formatGoalStatus(): string {
       `**Turns:** ${achieved.turns}`,
       `**Token spend:** ${achieved.tokenSpend.toLocaleString()}`,
       `**Why met:** ${achieved.reason}`,
+      '',
+      GOAL_USECASE_HINT,
     ].join('\n')
   }
-  return '◎ **/goal** — no goal active. Set one with `/goal <condition>`.'
+  return `◎ **/goal** — no goal active. Set one with \`/goal <condition>\`.\n\n${GOAL_USECASE_HINT}\n\n_预设快捷:_ \`/goal test\` · \`/goal lint\` · \`/goal typecheck\` · \`/goal build\``
 }
 
 // 创意 done 通知短语池 —— 烹饪/星辰/锻造主题，每轮 clean 收尾时随机抽取
@@ -926,12 +953,16 @@ export function App() {
 
             case 'goal_exhausted': {
               flushAssistant()
+              const why =
+                event.cause === 'tokens' ? `reached token ceiling (${event.maxTokens.toLocaleString()} output tokens)`
+                : event.cause === 'stall' ? 'no progress detected over several turns — likely stuck, handing control back'
+                : `reached safety cap of ${event.maxTurns} turns`
               setHistory(prev => [
                 ...prev,
                 {
                   id: String(entryIdRef.current++),
                   role: 'assistant',
-                  text: `◎ **/goal** stopped — reached safety cap of ${event.maxTurns} turns. Last check: ${event.reason}`,
+                  text: `◎ **/goal** stopped — ${why}. Last check: ${event.reason}`,
                 },
               ])
               setGoalTick(t => t + 1)
@@ -1507,24 +1538,55 @@ export function App() {
           return
         }
 
-        // /goal <condition> → 设定目标并立即以 condition 为指令开跑
-        if (arg.length > GOAL_MAX_CONDITION_LENGTH) {
+        // ⑥ 预设模板：/goal test|lint|typecheck|build → 展开为规范、可验证的条件。
+        const presetKey = arg.toLowerCase()
+        const preset = GOAL_PRESETS[presetKey]
+        const condition = preset ?? arg
+        if (preset) {
           setHistory(prev => [...prev, {
             id: String(entryIdRef.current++),
             role: 'assistant',
-            text: `◎ **/goal** condition too long (${arg.length} > ${GOAL_MAX_CONDITION_LENGTH} chars).`,
+            text: `◎ **/goal** 预设 \`${presetKey}\` 已展开为:\n\n> ${condition}`,
+          }])
+        }
+
+        // /goal <condition> → 设定目标并立即以 condition 为指令开跑
+        if (condition.length > GOAL_MAX_CONDITION_LENGTH) {
+          setHistory(prev => [...prev, {
+            id: String(entryIdRef.current++),
+            role: 'assistant',
+            text: `◎ **/goal** condition too long (${condition.length} > ${GOAL_MAX_CONDITION_LENGTH} chars).`,
           }])
           return
         }
-        setGoal(arg)
+
+        // ③ 质量门（非阻断）：非预设条件先用小快模型判可验证性，模糊则提醒+给改写建议，
+        // 但仍按用户原意继续。任何异常都被 assessGoalVerifiability 吞掉（默认放行）。
+        if (!preset) {
+          try {
+            const verdict = await assessGoalVerifiability(condition)
+            if (!verdict.verifiable) {
+              const tip = verdict.suggestion
+                ? `\n\n  建议改写:${verdict.suggestion}`
+                : ''
+              setHistory(prev => [...prev, {
+                id: String(entryIdRef.current++),
+                role: 'assistant',
+                text: `◎ **/goal** ⚠ 这个目标可能难以客观验证，容易被误判为完成或诱发走捷径。${tip}\n\n_仍按原条件继续。如要改，敲 \`/goal clear\` 后重设。_`,
+              }])
+            }
+          } catch { /* 质量门是辅助提醒，出错绝不拦设定 */ }
+        }
+
+        setGoal(condition)
         setGoalTick(t => t + 1)
         setHistory(prev => [...prev, {
           id: String(entryIdRef.current++),
           role: 'assistant',
-          text: `◎ **/goal** set — working until this holds:\n\n> ${arg}`,
+          text: `◎ **/goal** set — working until this holds:\n\n> ${condition}`,
         }])
         // condition 本身就是 directive —— 直接开跑，无需另发 prompt
-        await runConversation(arg, `/goal ${arg}`)
+        await runConversation(condition, `/goal ${condition}`)
         return
       }
 
@@ -2592,6 +2654,9 @@ export function App() {
           onInlineSubmit={handleVigilInlineAction}
         />
       )}
+
+      {/* /goal 实时进度面板 —— 目标激活期间常驻输入框上方，随 goalTick 每秒刷新。 */}
+      <GoalPanel running={isStreaming} />
 
       {/* 后台子 Agent spinner —— 与 Tasks 一起钉在输入框正上方（即便主 Agent 空闲也显示） */}
       {runningAgents.length > 0 && (
