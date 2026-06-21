@@ -21,6 +21,38 @@ Built from the ground up on [**Bun**](https://bun.com), with a React Ink TUI, mu
 
 ---
 
+## Supported Model Providers
+
+Astraea works with a growing set of model providers. Pick the one that fits your needs — cloud or local, paid or free.
+
+<div align="center" style="display:flex;justify-content:center;gap:48px;flex-wrap:wrap;margin:24px 0;align-items:center;">
+
+<div style="text-align:center;">
+  <img src="./assets/anthropic.svg" height="32" alt="Anthropic" style="filter:invert(0);">
+  <p><strong>Anthropic</strong><br><span style="font-size:0.85em;color:#888;">Claude (recommended)</span></p>
+</div>
+
+<div style="text-align:center;">
+  <img src="./assets/deepseek.svg" height="32" alt="DeepSeek" style="filter:invert(0);">
+  <p><strong>DeepSeek</strong><br><span style="font-size:0.85em;color:#888;">High quality, low cost</span></p>
+</div>
+
+<div style="text-align:center;">
+  <img src="./assets/openai.svg" height="32" alt="OpenAI" style="filter:invert(0);">
+  <p><strong>OpenAI</strong><br><span style="font-size:0.85em;color:#888;">GPT-4o & friends</span></p>
+</div>
+
+<div style="text-align:center;">
+  <img src="./assets/kimi.svg" height="32" alt="Kimi" style="filter:invert(0);">
+  <p><strong>Kimi (Moonshot AI)</strong><br><span style="font-size:0.85em;color:#888;">China-based LLM</span></p>
+</div>
+
+</div>
+
+In addition to the above, Astraea supports **Ollama** for fully local models and any **OpenAI-compatible** endpoint — configure your own base URL, model name, and API key via the `.env` file.
+
+---
+
 ## 1 · Introduction
 
 In Greek mythology, **Astraea** was the goddess of justice and innocence — the last immortal to walk among humans during the Golden Age. When the world fell into chaos, she did not abandon it out of despair; she stayed until the very end, imposing order on disorder. She ascended not because she gave up, but because she had done everything that could be done.
