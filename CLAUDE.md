@@ -1,3 +1,6 @@
+- everytime you made an upgrade / patch-up  /  improvement, please commit and push the remote repository with the correct tag v x.x.x
+
+
 
 Default to using Bun instead of Node.js.
 

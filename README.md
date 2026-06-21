@@ -25,30 +25,25 @@ Built from the ground up on [**Bun**](https://bun.com), with a React Ink TUI, mu
 
 Astraea works with a growing set of model providers. Pick the one that fits your needs — cloud or local, paid or free.
 
-<table align="center">
-  <tr>
-    <td align="center" width="25%">
-      <img src="./assets/anthropic.svg" height="32" alt="Anthropic" style="filter:invert(1)">
-      <br><strong>Anthropic</strong>
-      <br><sub>Claude (recommended)</sub>
-    </td>
-    <td align="center" width="25%">
-      <img src="./assets/deepseek.svg" height="32" alt="DeepSeek" style="filter:invert(1)">
-      <br><strong>DeepSeek</strong>
-      <br><sub>High quality, low cost</sub>
-    </td>
-    <td align="center" width="25%">
-      <img src="./assets/openai.svg" height="32" alt="OpenAI" style="filter:invert(1)">
-      <br><strong>OpenAI</strong>
-      <br><sub>GPT-4o & friends</sub>
-    </td>
-    <td align="center" width="25%">
-      <img src="./assets/kimi.svg" height="32" alt="Kimi" style="filter:invert(1)">
-      <br><strong>Kimi (Moonshot AI)</strong>
-      <br><sub>China-based LLM</sub>
-    </td>
-  </tr>
-</table>
+<br>
+<p align="center">
+  <img src="./assets/anthropic.svg" height="56" alt="Anthropic" style="filter:invert(1)">
+  &emsp;&emsp;&emsp;
+  <img src="./assets/deepseek.svg" height="56" alt="DeepSeek" style="filter:invert(1)">
+  &emsp;&emsp;&emsp;
+  <img src="./assets/openai.svg" height="56" alt="OpenAI" style="filter:invert(1)">
+  &emsp;&emsp;&emsp;
+  <img src="./assets/kimi.svg" height="56" alt="Kimi" style="filter:invert(1)">
+</p>
+<p align="center">
+  <strong>Anthropic</strong> &nbsp;Claude
+  &emsp;&emsp;&emsp;&emsp;
+  <strong>DeepSeek</strong> &nbsp;<sub>High quality, low cost</sub>
+  &emsp;&emsp;&emsp;
+  <strong>OpenAI</strong> &nbsp;<sub>GPT-4o &amp; friends</sub>
+  &emsp;&emsp;&emsp;&emsp;
+  <strong>Kimi (Moonshot AI)</strong>
+</p>
 
 In addition to the above, Astraea supports **Ollama** for fully local models and any **OpenAI-compatible** endpoint — configure your own base URL, model name, and API key via the `.env` file.
 
