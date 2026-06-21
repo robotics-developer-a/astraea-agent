@@ -127,6 +127,29 @@ function sanitizeRecent(recent: ConvMessage[]): ConvMessage[] {
   return out
 }
 
+// ── 方案 C: 防御性截断 —— 单条 tool_result 估算超预算 → 内容换占位符 ──────────
+// 治 §2.3 连锁失效：FLOOR 会保留最近 turn 的原文，若其中含超大 tool_result，压缩摘要请求体
+// 自身也会 400。截断后请求体重新可控。§5-#11: 占位符不承诺「on disk」（除非真落盘）。
+export function truncateOversizedToolResults(
+  messages: ConvMessage[],
+  maxTokensPerResult: number,
+): ConvMessage[] {
+  return messages.map(m => {
+    if (m.role !== 'user' || typeof m.content === 'string') return m
+    let changed = false
+    const content = m.content.map(b => {
+      if (b.type !== 'tool_result') return b
+      const tokens = typeof b.content === 'string'
+        ? estimateTextTokens(b.content)
+        : b.content.reduce((s, x) => s + ('text' in x ? estimateTextTokens(x.text) : 0), 0)
+      if (tokens <= maxTokensPerResult) return b
+      changed = true
+      return { ...b, content: `[tool_result omitted by compaction: ${tokens} tokens, exceeds budget]` }
+    })
+    return changed ? { ...m, content } : m
+  })
+}
+
 /** 按落点预算从尾部选最近消息；底线：至少保留最近若干条（最近 1–2 个 turn）。 */
 export function selectRecentMessages(
   messages: ConvMessage[],
@@ -142,7 +165,8 @@ export function selectRecentMessages(
   }
   // 保证底线条数
   start = Math.min(start, Math.max(0, messages.length - FLOOR))
-  return sanitizeRecent(messages.slice(start))
+  // 方案 C：单条 tool_result 不应超过整个落点预算（超了必是 §2.3 那类毒消息）→ 截断
+  return truncateOversizedToolResults(sanitizeRecent(messages.slice(start)), budgetTokens)
 }
 
 /** 重建压缩后的消息：摘要作首条 user 消息（带标签）+ 最近逐字。 */
