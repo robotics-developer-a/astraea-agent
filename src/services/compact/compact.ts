@@ -26,25 +26,49 @@ const MIN_MESSAGES_TO_COMPACT = 4
 
 // ── token 估算（chars/4）─────────────────────────────────────────────────────
 // 触发判定用的是 API 真值；但"压缩后假想状态"还没发出去拿不到 usage，只能本地估算。
-export function estimateTokens(messages: Message[]): number {
-  let chars = 0
-  for (const m of messages) chars += messageChars(m)
-  return Math.ceil(chars / 4)
+// §5-#1: chars/4 是英文口径，对中文/日文严重低估（真实 ≈ 1~2 token/字）。
+// 按 CJK 字符单独计权（1.5 token/字，偏保守——宁可高估也不让闸门漏水），非 CJK 维持 chars/4。
+const CJK_TOKENS_PER_CHAR = 1.5
+
+function isCjkCodePoint(cp: number): boolean {
+  return (
+    (cp >= 0x2e80 && cp <= 0x9fff) || // CJK 部首 ~ 统一表意（含中日韩、假名、CJK 符号）
+    (cp >= 0xf900 && cp <= 0xfaff) || // CJK 兼容表意
+    (cp >= 0xff00 && cp <= 0xffef) || // 全角/半角形式（含全角标点）
+    (cp >= 0x20000 && cp <= 0x3ffff)  // CJK 扩展 B 及以后
+  )
 }
 
-function messageChars(m: Message): number {
-  if (typeof m.content === 'string') return m.content.length
-  let c = 0
+// 单段文本的 token 估算（CJK 感知）。供 estimateTokens 与 Read 闸门共用同一口径。
+export function estimateTextTokens(text: string): number {
+  let cjk = 0
+  let other = 0
+  for (const ch of text) {
+    if (isCjkCodePoint(ch.codePointAt(0)!)) cjk++
+    else other++
+  }
+  return Math.ceil(cjk * CJK_TOKENS_PER_CHAR + other / 4)
+}
+
+export function estimateTokens(messages: Message[]): number {
+  let tokens = 0
+  for (const m of messages) tokens += messageTokens(m)
+  return tokens
+}
+
+function messageTokens(m: Message): number {
+  if (typeof m.content === 'string') return estimateTextTokens(m.content)
+  let t = 0
   for (const b of m.content) {
-    if (b.type === 'text') c += b.text.length
-    else if (b.type === 'tool_use') c += b.name.length + JSON.stringify(b.input).length
+    if (b.type === 'text') t += estimateTextTokens(b.text)
+    else if (b.type === 'tool_use') t += estimateTextTokens(b.name + JSON.stringify(b.input))
     else if (b.type === 'tool_result') {
-      c += typeof b.content === 'string'
-        ? b.content.length
-        : b.content.reduce((s, x) => s + ('text' in x ? x.text.length : 0), 0)
+      t += typeof b.content === 'string'
+        ? estimateTextTokens(b.content)
+        : b.content.reduce((s, x) => s + ('text' in x ? estimateTextTokens(x.text) : 0), 0)
     }
   }
-  return c
+  return t
 }
 
 // ── 各 provider 溢出错误归一（设计文档 §8）──────────────────────────────────
@@ -112,7 +136,7 @@ export function selectRecentMessages(
   let acc = 0
   let start = messages.length
   for (let i = messages.length - 1; i >= 0; i--) {
-    acc += messageChars(messages[i]!) / 4
+    acc += messageTokens(messages[i]!)
     start = i
     if (acc >= budgetTokens && messages.length - i >= FLOOR) break
   }
