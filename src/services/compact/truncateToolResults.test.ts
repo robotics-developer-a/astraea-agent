@@ -42,7 +42,7 @@ test('§2.3 兜底：最近 turn 的超大 tool_result 经 selectRecentMessages 
     { role: 'user', content: 'q' },
     { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Read', input: {} }] },
     { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: poison }] },
-    { role: 'assistant', content: 'done' },
+    { role: 'assistant', content: [{ type: 'text', text: 'done' }] },
   ]
   const out = selectRecentMessages(msgs, 2_000)
   const tr = out.flatMap(blocks).find(b => b.type === 'tool_result')
