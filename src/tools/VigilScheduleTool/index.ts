@@ -86,7 +86,10 @@ Before calling this tool, always tell the user what you are about to schedule an
     ].join('\n')
 
     const answer = await askOne(confirmMsg, ['Yes', 'No'])
-    if (!answer.trim().toLowerCase().startsWith('y')) {
+    // formatAnswers 回传 "[header] <question>\n→ <选项 label>" 整段，对整串做 startsWith('y')
+    // 永远为 false → Yes 也被误判为取消。只取 "→ " 之后的实选项再判定（与 ExitOrbitMode 一致）。
+    const picked = (answer.split('→').pop() ?? answer).trim().toLowerCase()
+    if (!picked.startsWith('y')) {
       return { output: 'Task scheduling cancelled by user.' }
     }
 

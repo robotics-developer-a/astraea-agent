@@ -66,7 +66,11 @@ CRITICAL — output NOTHING before calling this tool. No "I will schedule", no "
     ].join('\n')
 
     const answer = await askOne(confirmMsg, ['Yes', 'No'])
-    if (!answer.trim().toLowerCase().startsWith('y')) {
+    // formatAnswers 回传的是 "[header] <question>\n→ <选项 label>" 整段，confirmMsg 正文以
+    // "[One-time task…" 开头，对整串做 startsWith('y') 永远为 false → Yes 也被误判为取消。
+    // 只取 "→ " 之后的实选项再判定（与 ExitOrbitMode 一致）。
+    const picked = (answer.split('→').pop() ?? answer).trim().toLowerCase()
+    if (!picked.startsWith('y')) {
       return { output: 'Task scheduling cancelled by user.' }
     }
 
