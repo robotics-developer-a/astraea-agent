@@ -163,4 +163,15 @@ Examples:
     const suffix = truncated ? `\n(truncated at ${appliedLimit} results)` : ''
     return { output: items.join('\n') + suffix }
   },
+
+  renderResult(input, output, isError) {
+    if (isError) return null
+    if (output.startsWith('No matches found')) return ['No matches found']
+    const lines = output.split('\n').filter(Boolean)
+    const truncated = /^\(truncated at /.test(lines.at(-1) ?? '')
+    const n = truncated ? lines.length - 1 : lines.length
+    const mode = (input['output'] as string | undefined) ?? 'files_with_matches'
+    const noun = mode === 'content' ? 'matches' : 'files'
+    return [`Found ${n} ${noun}${truncated ? ' (truncated)' : ''}`]
+  },
 })

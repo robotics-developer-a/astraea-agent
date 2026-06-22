@@ -98,7 +98,9 @@ export default function TextInput({
 
   // 粘贴入口：先过 transformPaste（折叠大段 / 规整拖入路径），再插到光标处。
   const handlePaste = useCallback((raw: string) => {
-    const out = transformPaste ? transformPaste(raw) : raw
+    // 无 transformPaste 的字段（/login、/internet 的 Key 框）：Key 本不含换行，把换行
+    // 折成空格，避免裸 \n 进单行输入框造成同样的错行。主输入框走 transformPaste 折叠。
+    const out = transformPaste ? transformPaste(raw) : raw.replace(/\r?\n/g, ' ')
     if (out) insertText(out)
   }, [insertText, transformPaste])
 
@@ -184,6 +186,15 @@ export default function TextInput({
           nextCursorOffset--
         }
       } else {
+        // 没开 bracketed-paste 的终端（部分 macOS 终端）把整段粘贴当作一次 useInput
+        // 事件、input 里直接带换行/大段文本送进来，绕过了上面的 usePaste 折叠通道。
+        // 若放任它原样插入，裸 \n + 宽字符就进了缓冲区——Ink 按列宽换行、伪光标按
+        // 码点定位，两套坐标对不上，重绘错行、光标看着卡死。识别出来改走 handlePaste，
+        // 经 transformPaste 折叠成 [Pasted text] 占位符再插到光标处。
+        if (input.length > 1 && (input.includes('\n') || input.length > 200)) {
+          handlePaste(input)
+          return
+        }
         nextValue =
           prevValue.slice(0, prevOffset) +
           input +

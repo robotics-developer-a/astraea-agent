@@ -40,6 +40,7 @@ describe('recent updates', () => {
       expect(getRecentUpdates('0.9.27', 'en')).toEqual([
         'high',
         'DeepSeek models are now V4 Flash / Pro. Run /login to sign in again.',
+        'Ambiguous tasks → Counsel automatically. /goal: dynamic graphs, per-step criteria, sourced evidence. Stronger shell, MCP, network safety.',
         'low',
       ])
     } finally {

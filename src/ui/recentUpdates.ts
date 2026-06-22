@@ -11,7 +11,7 @@ export const RECENT_UPDATES: RecentUpdate[] = [
   {
     version: '0.9.28',
     priority: 95,
-    persistent: false,
+    persistent: true,
     messages: {
       en: 'Ambiguous tasks → Counsel automatically. /goal: dynamic graphs, per-step criteria, sourced evidence. Stronger shell, MCP, network safety.',
       zh: '模糊任务 → Counsel；/goal 支持动态图、分步标准和可溯源证据。Shell、MCP、网络安全增强。',

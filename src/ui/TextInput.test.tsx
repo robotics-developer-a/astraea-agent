@@ -84,6 +84,26 @@ test('transformPaste 钩子转换后的文本插到光标处', async () => {
   expect(strip(lastFrame())).toContain('a[token]b')
 })
 
+test('未开 bracketed-paste 时，带换行的整段 chunk 经 transformPaste 折叠，裸 \\n 不进缓冲区', async () => {
+  const { stdin, lastFrame } = render(
+    <PasteControlled transformPaste={() => '[Pasted text]'} />,
+  )
+  // 直接把多行文本作为一次 useInput chunk 送入（模拟无括号粘贴）。
+  stdin.write('你好。我是 Astraea\n任何环节\n直接说。')
+  await tick()
+  const text = strip(lastFrame())
+  expect(text).toContain('[Pasted text]')
+  expect(text).not.toContain('\n你好') // 原始多行没有原样落进缓冲区
+})
+
+test('无 transformPaste 的字段：粘贴里的换行被折成空格', async () => {
+  const { stdin, lastFrame } = render(<PasteControlled />)
+  stdin.write(bracketed('line1\nline2'))
+  await tick()
+  const text = strip(lastFrame())
+  expect(text).toContain('line1 line2')
+})
+
 test('回车触发 onSubmit，带上当前完整值', async () => {
   const box = { value: '' }
   const { stdin } = render(<Controlled onSubmit={(v) => { box.value = v }} />)

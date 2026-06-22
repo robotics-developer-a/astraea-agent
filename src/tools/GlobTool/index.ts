@@ -111,4 +111,13 @@ If results are truncated, use a more specific pattern or narrow the search path.
       return { output: `Glob error: ${err}`, isError: true }
     }
   },
+
+  renderResult(_input, output, isError) {
+    if (isError) return null
+    if (output.startsWith('No files found')) return ['Found 0 files']
+    const m = output.match(/(\d+) files? found/)
+    if (!m) return null
+    const truncated = / \(truncated\)/.test(output)
+    return [`Found ${m[1]} files${truncated ? ' (truncated)' : ''}`]
+  },
 })

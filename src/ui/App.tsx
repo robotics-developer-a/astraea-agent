@@ -106,7 +106,7 @@ import { SlashHint, allSlashCommands, matchSlashCommands } from './SlashHint'
 import { ModeInputFrame } from './ModeBanner'
 import { ToolBatch, type ToolCall } from './ToolBatch'
 import { STATUS_COLOR, splitStatusLine, INDIGO, DEEP, type AgentStatus } from './theme'
-import { TodoPanel } from './TodoPanel'
+import { TodoStatusLine } from './TodoStatusLine'
 import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
@@ -140,7 +140,7 @@ const FOOTER_RESERVE_BASE = 3   // ModeInputFrame 上下框线 + 输入行（恒
 // 并触发 Ink 的 onStaticChange 清空 fullStaticOutput）。对齐 ansi-escapes 的 clearTerminal。
 const CLEAR_TERMINAL = IS_WIN ? '\x1b[2J\x1b[0f' : '\x1b[2J\x1b[3J\x1b[H'
 
-function formatToolArg(name: string, input: Record<string, unknown>): string {
+export function formatToolArg(name: string, input: Record<string, unknown>): string {
   // 工具头一律单行展示，最终交给 wrap='truncate-end' 的 <Text>，名字永不被从中间拆开。
   // 文件类工具显示 cwd 相对路径（cwd 外用绝对），不再把 old_string/new_string 这类长参数
   // 灌进工具头（trace 4：Edit 头里 old_string 被截成 "\n\nA…" 既丑又无信息）。
@@ -156,6 +156,10 @@ function formatToolArg(name: string, input: Record<string, unknown>): string {
     case 'PowerShell':
       // 命令里的换行折叠成空格，避免多行命令把工具头撑成多行。
       arg = String(input['command'] ?? JSON.stringify(input)).replace(/\s*\n\s*/g, ' ')
+      break
+    case 'TodoWrite':
+      // 清单本体随 renderResult 内联展示，工具头只报数量，避免铺一长串 todos JSON。
+      arg = `${Array.isArray(input['todos']) ? (input['todos'] as unknown[]).length : 0} tasks`
       break
     default: {
       const raw = JSON.stringify(input)
@@ -330,7 +334,6 @@ function rebuildHistoryEntries(
           const t = b.text.trim()
           if (t) out.push({ id: nextId(), role: 'assistant', text: t })
         } else if (b.type === 'tool_use') {
-          if (b.name === 'TodoWrite') continue
           const r = resultById.get(b.id)
           const lines = r
             ? buildResultLines(b.name, b.input, r.output, r.isError)
@@ -902,7 +905,6 @@ export function App() {
               break
 
             case 'tool_use': {
-              if (event.name === 'TodoWrite') break
               anyVisibleOutput = true
               // 叙述紧贴其工具调用：先把累积文本落盘，再把这次调用推进在途批。
               // live frame 由「文本」切到「工具行」，不会塌缩为 0 行 → 规避 done-bug 越界擦除。
@@ -930,7 +932,6 @@ export function App() {
             case 'tool_result': {
               setLiveOutput('')
               setActiveTool(null)
-              if (event.name === 'TodoWrite') break
               const lines = buildResultLines(event.name, event.input, event.output, event.isError)
 
               // 结果按 id 回填到在途批对应调用（逐调用配对的核心）。
@@ -2536,8 +2537,7 @@ export function App() {
         // 高度导致 Ink 擦除越界、视口跳到最顶。页脚预留按「当前激活的常驻页脚元素」动态累加
         // （取代写死的 12）：页脚越高，留给 live frame 的预算越小，从根上杜绝越界；一律向上估 +2 余量。
         const goalLines = getActiveGoal() ? 7 : 0            // GoalPanel 带框约 7 行
-        const todoCount = getTodos('main').length
-        const todoLines = todoCount > 0 ? todoCount + 1 : 0   // "Tasks" 头 + 每任务一行
+        const todoLines = getTodos('main').length > 0 ? 1 : 0   // TodoStatusLine 恒高单行
         const agentLines = runningAgents.length               // 已移到输入框下方，但仍占视口高度
         const ctxUsed = getInputTokens()
         const ctxLines = ctxUsed !== null && ctxUsed >= activeThresholds().warning ? 1 : 0
@@ -2727,15 +2727,9 @@ export function App() {
       {/* /goal 实时进度面板 —— 目标激活期间常驻输入框上方，随 goalTick 每秒刷新。 */}
       <GoalPanel running={isStreaming} />
 
-      <TodoPanel
-        idle={!isStreaming}
-        onComplete={(n) =>
-          setHistory(prev => [
-            ...prev,
-            { id: String(entryIdRef.current++), role: 'assistant', text: `✓  ${t('todoAllDoneN', { n })}` },
-          ])
-        }
-      />
+      {/* 恒高单行 todo 摘要（○p ◉i ●c · 当前任务）：永远 1 行或 0 行，不再顶飞输入框。
+          清单本体随 TodoWrite 工具调用内联进 <Static> 滚走（见上方移除的 TodoWrite 跳过）。 */}
+      <TodoStatusLine columns={columns} />
 
       {/* 常驻状态行：流式期间一直显示（轮换短语 + 实时秒数 + token + esc 提示），
           解决"跑到一半停住、不知是否还在运行"的问题。钉在 Tasks 面板下方（eval Item 12：
