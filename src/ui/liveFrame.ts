@@ -1,0 +1,14 @@
+// live 流式帧的渲染判定。
+//
+// 关键：判定**不能**把「是否要打 ✸ Astraea 头」(showHeader) 算进去。turn 起点 showHeader
+// 恒为 true（上一条是 user），若用它兜底，则正文/工具都还没来时就先画一个空的 ✸ Astraea
+// 头，然后干等思考、内容才姗姗冒出——用户视角是「✸ Astraea 先蹦一个、很久后又蹦一个真的」
+// （空头在 live、真头在 Static，超宽还会重影成 ✸ Astraea ✸ Astraea）。所以头只在真有正文/
+// 工具时才画；空窗期交给下方 StreamStatus 思考行表示「在干活」。
+export function hasLiveBody(args: {
+  streamingText: string
+  liveToolCount: number
+  activeTool: string | null
+}): boolean {
+  return args.streamingText.length > 0 || args.liveToolCount > 0 || args.activeTool != null
+}

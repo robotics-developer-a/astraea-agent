@@ -15,6 +15,7 @@ import type { UserMessage, AssistantMessage } from '../types/message'
 import { WelcomePanel } from './WelcomePanel'
 import { AstraeaIntro } from './AstraeaIntro'
 import { StreamStatus } from './ThinkingIndicator'
+import { hasLiveBody } from './liveFrame'
 import { LoginWizard, formatLoginSuccess } from './LoginWizard'
 import type { LoginResult } from './LoginWizard'
 import { InternetWizard, formatInternetSuccess } from './InternetWizard'
@@ -2542,8 +2543,10 @@ export function App() {
         const lastRole = history.length > 0 ? history[history.length - 1]?.role : undefined
         const showHeader = lastRole !== 'assistant' && lastRole !== 'tools'
         // 状态行（StreamStatus）已移到 Tasks 面板下方（eval Item 12），live frame 不再有常驻
-        // 末行兜底。续接态下若既无预览正文又无工具，整个 box 会是空的 → 跳过以免多出一空行。
-        const hasBody = showHeader || !!streamingText || liveTools.length > 0 || activeTool != null
+        // 末行兜底。本帧是否该渲染只看「真有正文/工具」——不把 showHeader 算进去（详见
+        // hasLiveBody 注释）：否则 turn 起点会先画一个空的 ✸ Astraea 头、干等思考、内容才
+        // 姗姗冒出（问题3）。空窗期交给下方 StreamStatus 思考行表示「在干活」。
+        const hasBody = hasLiveBody({ streamingText, liveToolCount: liveTools.length, activeTool })
         if (!hasBody) return null
         // 视口预算：流式预览 + 在途工具批 共享 (终端行数 - 页脚预留)，避免 live frame 超过视口
         // 高度导致 Ink 擦除越界、视口跳到最顶。页脚预留按「当前激活的常驻页脚元素」动态累加
