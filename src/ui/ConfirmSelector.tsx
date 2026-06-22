@@ -12,7 +12,7 @@ export interface ConfirmChoice {
   result: ConfirmResult
 }
 
-// 四个选项与原 y/n/a/d 一一对应
+// Bash/PowerShell：四个选项与原 y/n/a/d 一一对应（Always = 落盘 per-command 规则）
 export const CONFIRM_CHOICES: ConfirmChoice[] = [
   { label: 'Yes',          description: 'run once',              result: { proceed: true,  remember: null } },
   { label: 'No',           description: 'cancel this command',   result: { proceed: false, remember: null } },
@@ -20,17 +20,33 @@ export const CONFIRM_CHOICES: ConfirmChoice[] = [
   { label: 'Always deny',  description: 'save a deny rule',      result: { proceed: false, remember: 'always-deny' } },
 ]
 
+// 文件写（FileWrite/FileEdit）：对齐 CC 的 acceptEdits — 「本会话全允许」即切到 cruise 模式
+// （会话内存，不落盘 per-file 规则；红线敏感路径仍会把 allow 降级回 ask）。
+export const FILE_CONFIRM_CHOICES: ConfirmChoice[] = [
+  { label: 'Yes',                      description: 'write once',                          result: { proceed: true,  remember: null } },
+  { label: 'Yes, all edits (cruise)',  description: 'allow all edits this session → switch to cruise mode', result: { proceed: true,  remember: 'session-cruise' } },
+  { label: 'No',                       description: 'cancel this write',                   result: { proceed: false, remember: null } },
+]
+
+/** 按确认来源返回对应的选项集。'file' → 文件写三选项；其余（含 undefined）→ Bash 四选项。 */
+export function getConfirmChoices(kind?: 'bash' | 'file'): ConfirmChoice[] {
+  return kind === 'file' ? FILE_CONFIRM_CHOICES : CONFIRM_CHOICES
+}
+
 const AMBER = '#D99A2B'
 
 interface ConfirmSelectorProps {
   command: string
   description?: string
   selectedIndex: number
+  kind?: 'bash' | 'file'
 }
 
-export function ConfirmSelector({ command, description, selectedIndex }: ConfirmSelectorProps) {
+export function ConfirmSelector({ command, description, selectedIndex, kind }: ConfirmSelectorProps) {
   // 命令过长时截断显示（真实命令仍按原值执行）
   const shownCommand = command.length > 200 ? command.slice(0, 200) + '…' : command
+  const choices = getConfirmChoices(kind)
+  const labelWidth = Math.max(...choices.map(c => c.label.length)) + 2
   return (
     <Box
       flexDirection="column"
@@ -49,7 +65,7 @@ export function ConfirmSelector({ command, description, selectedIndex }: Confirm
         <Text color="gray" dimColor>↑↓ move  Enter confirm  Esc cancel</Text>
       </Box>
       <Box flexDirection="column" marginTop={1}>
-        {CONFIRM_CHOICES.map((choice, i) => {
+        {choices.map((choice, i) => {
           const isSelected = i === selectedIndex
           return (
             <Box key={choice.label}>
@@ -57,7 +73,7 @@ export function ConfirmSelector({ command, description, selectedIndex }: Confirm
                 {isSelected ? ' ❯ ' : '   '}
               </Text>
               <Text color={isSelected ? AMBER : 'gray'} bold={isSelected}>
-                {choice.label.padEnd(14)}
+                {choice.label.padEnd(labelWidth)}
               </Text>
               <Text color={isSelected ? 'white' : 'gray'} dimColor={!isSelected}>
                 {'— '}{choice.description}

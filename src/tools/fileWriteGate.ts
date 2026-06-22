@@ -9,7 +9,7 @@
 // 判定与阻塞 I/O 解耦：confirmWithUser 仅在 ctx.isInteractive === true 时调用。
 
 import type { ToolContext } from './Tool.js'
-import { fileWriteBehavior } from '../state/sessionMode.js'
+import { fileWriteBehavior, getMode, setMode } from '../state/sessionMode.js'
 import { isSensitivePath } from '../config/redlines.js'
 import { isAnyMemoryPath } from '../memory/paths.js'
 import { confirmWithUser } from './BashTool/permissions/confirm.js'
@@ -20,6 +20,8 @@ export interface WriteGateResult {
   proceed: boolean
   /** 当 proceed=false 时给出的拒绝说明（写回 ToolCallResult.output）。 */
   rejection?: string
+  /** 用户在文件写确认中选了「本会话全允许」，已切到该模式（供 UI 提示）。 */
+  modeSwitch?: 'cruise'
 }
 
 /**
@@ -35,8 +37,12 @@ export async function checkWritePermission(
   // 审计:tool 标签由 action 推导（'edit'→FileEdit，其余→FileWrite）。
   const tool = action === 'edit' ? 'FileEdit' : 'FileWrite'
   const interactive = ctx.isInteractive === true
-  const audit = (behavior: 'allow' | 'deny', reason: DecisionReason): void =>
-    recordDecision({ tool, target: filePath, behavior, reason, mode: ctx.mode, interactive })
+  const audit = (
+    behavior: 'allow' | 'deny',
+    reason: DecisionReason,
+    remember?: 'session-cruise',
+  ): void =>
+    recordDecision({ tool, target: filePath, behavior, reason, mode: ctx.mode, interactive, remember })
 
   // 定稿 #5：记忆子树写豁免，在红线之前评判。只放行 <base>/projects/<slug>/memory/**，
   // 让 channel A（主代理自写记忆）不弹窗、channel B（后台提取、无人在场）不 fail-closed。
@@ -80,11 +86,19 @@ export async function checkWritePermission(
   }
 
   const label = `${action} ${filePath}${sensitive ? '   ⚠ sensitive path (red-line)' : ''}`
-  const confirm = await confirmWithUser(label)
+  const confirm = await confirmWithUser(label, undefined, 'file')
   const userDetail = sensitive ? 'red-line sensitive path' : undefined
   if (!confirm.proceed) {
     audit('deny', { type: 'user', detail: userDetail })
     return { proceed: false, rejection: `File ${action} cancelled by user.` }
+  }
+  // 「本会话全允许」→ 切到 cruise（≈ CC acceptEdits）：会话内存，不落盘 per-file 规则。
+  // 即便当前是红线敏感路径也可安全切 cruise:cruise 下普通写自动放行，但敏感写仍被
+  // 红线降级为 ask 再次询问，故切 cruise 不会绕过红线。
+  if (confirm.remember === 'session-cruise' && getMode() !== 'cruise') {
+    setMode('cruise')
+    audit('allow', { type: 'user', detail: 'switch to cruise (allow all edits this session)' }, 'session-cruise')
+    return { proceed: true, modeSwitch: 'cruise' }
   }
   audit('allow', { type: 'user', detail: userDetail })
   return { proceed: true }

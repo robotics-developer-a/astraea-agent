@@ -97,7 +97,7 @@ import { ModeSelector, MODE_OPTIONS, nextCycleMode } from './ModeSelector'
 import { ReasonSelector, REASON_OPTIONS } from './ReasonSelector'
 import { deepseekEffectiveModel, resolveAppliedEffort, currentEffortStatus } from '../api/reasoningEffort'
 import { executeReason, persistReason } from '../commands/reason'
-import { ConfirmSelector, CONFIRM_CHOICES } from './ConfirmSelector'
+import { ConfirmSelector, getConfirmChoices } from './ConfirmSelector'
 import { onConfirmRequest, resolveConfirm, type ConfirmRequest } from '../tools/BashTool/permissions/confirmBridge'
 import { VigilPanel, VIGIL_ACTIONS } from './VigilPanel'
 import { GoalPanel, GoalHint } from './GoalPanel'
@@ -2033,18 +2033,29 @@ export function App() {
         resolveConfirm({ proceed: false, remember: null }) // Esc = 取消
         return
       }
+      const confirmChoices = getConfirmChoices(pendingConfirm.kind)
       if (key.upArrow) {
-        setConfirmIndex(i => (i - 1 + CONFIRM_CHOICES.length) % CONFIRM_CHOICES.length)
+        setConfirmIndex(i => (i - 1 + confirmChoices.length) % confirmChoices.length)
         return
       }
       if (key.downArrow) {
-        setConfirmIndex(i => (i + 1) % CONFIRM_CHOICES.length)
+        setConfirmIndex(i => (i + 1) % confirmChoices.length)
         return
       }
       if (key.return) {
-        const choice = CONFIRM_CHOICES[confirmIndex]
+        const choice = confirmChoices[confirmIndex]
         setPendingConfirm(null)
         resolveConfirm(choice ? choice.result : { proceed: false, remember: null })
+        // 文件写「本会话全允许」→ 让用户看到模式已切到 cruise。
+        // setMode 由 fileWriteGate 统一负责（兼顾无 UI 的 readline 路径，且保证审计在切模式前读到旧 getMode）；
+        // 这里只同步 React 状态 + 落一条模式横幅，不重复 setMode，避免抢在 gate 审计判定前改写 getMode()。
+        if (choice?.result.remember === 'session-cruise' && getMode() !== 'cruise') {
+          setSessionModeState('cruise')
+          setHistory(prev => [
+            ...prev,
+            { id: String(entryIdRef.current++), role: 'mode_banner' as const, text: 'cruise' },
+          ])
+        }
         return
       }
       return // 吞掉其它按键，确认期间不打字
@@ -2627,6 +2638,7 @@ export function App() {
           command={pendingConfirm.command}
           description={pendingConfirm.description}
           selectedIndex={confirmIndex}
+          kind={pendingConfirm.kind}
         />
       )}
 

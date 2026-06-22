@@ -31,7 +31,7 @@ export interface AuditRecord {
   reason: DecisionReason
   mode: SessionMode // 决策时的会话模式
   interactive: boolean // 是否有交互式用户在场
-  remember?: 'always-allow' | 'always-deny' // 用户是否选择持久化
+  remember?: 'always-allow' | 'always-deny' | 'session-cruise' // 用户持久化/会话级放行选择（session-cruise = 文件写切 cruise）
 }
 
 /** 决策出口构造时提供的部分;ts + sessionId 由 recordDecision 填充。 */

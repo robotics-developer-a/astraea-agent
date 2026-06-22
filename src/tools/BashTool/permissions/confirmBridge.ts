@@ -13,12 +13,23 @@ export interface ConfirmRequest {
   command: string
   /** 可选的人类可读描述 */
   description?: string
+  /**
+   * 确认来源。决定选择器展示哪一组选项：
+   *   'bash'（默认）→ Yes / No / Always allow / Always deny（落盘 per-command 规则）
+   *   'file'        → Yes / Yes, all edits this session（切 cruise）/ No
+   * 文件写不做 per-file 落盘（对齐 CC：acceptEdits 即 Astraea 的 cruise，仅会话内存）。
+   */
+  kind?: 'bash' | 'file'
 }
 
 export interface ConfirmResult {
   proceed: boolean
-  /** 用户选了"永远允许/拒绝"时非 null，调用方负责持久化 */
-  remember: 'always-allow' | 'always-deny' | null
+  /**
+   * 用户选了持久化/会话级放行时非 null：
+   *   'always-allow' / 'always-deny' — Bash 落盘 per-command 规则
+   *   'session-cruise'               — 文件写「本会话全允许」，调用方切 cruise 模式
+   */
+  remember: 'always-allow' | 'always-deny' | 'session-cruise' | null
 }
 
 type Listener = (req: ConfirmRequest) => void

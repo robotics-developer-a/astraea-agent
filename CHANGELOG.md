@@ -8,6 +8,29 @@
 
 > **1.0.0 发布门槛**（达成后才从 0.x 升到 1.0 并打首个 `git tag v1.0.0`）：
 
+## [0.9.21] - 2026-06-22
+
+### 修复 / 改进
+- **文件写「本会话全允许」接通 cruise 模式（对齐 Claude Code 的 acceptEdits）**：此前
+  FileWrite/FileEdit 的确认框沿用 Bash 的四选项（Yes / No / Always allow / Always deny），
+  但 `fileWriteGate` 只读 `confirm.proceed`、**完全无视 `confirm.remember`**，导致 "Always
+  allow / deny" 是**死选项**——选了不持久化、也不改任何行为。根因比"漏读字段"更深：Claude
+  Code 对文件写**根本不提供跨 session 持久化**，它的 "Yes, allow all edits this session" 本质
+  是 `setMode('acceptEdits')`（纯会话内存），而 cruise 正是 Astraea 对 acceptEdits 的命名。
+  - **确认框按来源分流**：`ConfirmRequest` 新增 `kind`（`'bash' | 'file'`）。文件写改用专属
+    三选项 **Yes / Yes, all edits (cruise) / No**，去掉无落盘机制对应的 Always allow/deny；
+    Bash/PowerShell 仍是原四选项。
+  - **选「本会话全允许」→ 切 cruise**：`ConfirmResult.remember` 新增 `'session-cruise'`；
+    `fileWriteGate` 命中后 `setMode('cruise')`（会话内存，不落盘 per-file 规则）。即便当前是
+    红线敏感路径也可安全切——cruise 下普通写自动放行，但敏感写仍被红线降级为 ask 再次询问，
+    切 cruise 不会绕过红线。
+  - **可见反馈**：切换后 App 落一条 `cruise` 模式横幅 + 同步状态行，明确告知用户模式已切换；
+    `setMode` 由 gate 统一负责（兼顾无 UI 的 readline 回退路径），UI 仅做展示，避免抢在审计
+    判定前改写 `getMode()`。
+  - **审计打通**：`AuditRecord.remember` 新增 `'session-cruise'`，该决策记为
+    `user / switch to cruise`，与 DecisionReason 体系一致。
+  - 新增 `fileWriteGate.cruise.test.ts`（切模式 / kind=file / 普通 Yes 不切模式 三例）。
+
 ## [0.9.20] - 2026-06-22
 
 ### 修复
