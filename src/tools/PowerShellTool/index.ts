@@ -4,24 +4,7 @@ import { executePowerShell } from './executor/powershell.js'
 import { matchRule, DEFAULT_RULES, type PermissionRule } from '../BashTool/permissions/permission-rules.js'
 import { confirmWithUser } from '../BashTool/permissions/confirm.js'
 import { loadPermissionRules, appendPermissionRule } from '../../config/permissions.js'
-
-// Patterns that are always blocked regardless of permission rules
-const BLOCKED_PATTERNS = [
-  /Remove-Item\s+.*-Recurse\s+.*-Force\s+['"\/\\]?[cC]:[\/\\]?['"]/i,
-  /Format-Volume/i,
-  /Clear-Disk/i,
-  /Initialize-Disk/i,
-  /\$env:PATH\s*=[^=]/i,
-]
-
-function checkPsSecurity(command: string): { safe: boolean; reason?: string } {
-  for (const pattern of BLOCKED_PATTERNS) {
-    if (pattern.test(command)) {
-      return { safe: false, reason: `Blocked by pattern: ${pattern.source}` }
-    }
-  }
-  return { safe: true }
-}
+import { checkCommandSecurity } from './security/injection-check.js'
 const runtimeRules: PermissionRule[] = []
 
 export function addPsPermissionRule(rule: PermissionRule): void {
@@ -82,10 +65,14 @@ export const PowerShellTool = buildTool({
     const timeout     = input['timeout'] as number | undefined
     const description = input['description'] as string | undefined
 
-    // Safety check
-    const security = checkPsSecurity(command)
-    if (!security.safe) {
-      return { output: `Security check blocked: ${security.reason}`, isError: true }
+    // Safety check (PowerShell injection / dangerous-cmdlet line). Three tiers,
+    // mirroring claude-code's powershellSecurity: block | ask | pass.
+    const security = checkCommandSecurity(command)
+    if (security.behavior === 'block') {
+      return {
+        output: `Security check blocked: ${security.reason} (check #${security.checkId})`,
+        isError: true,
+      }
     }
 
     await ensureConfigLoaded()
@@ -96,7 +83,14 @@ export const PowerShellTool = buildTool({
       return { output: `Command denied by permission rules: \`${command}\``, isError: true }
     }
 
-    if (ruleAction === 'ask') {
+    // A dangerous pattern forces confirmation even when an allow rule matched —
+    // dangerous cmdlets must never be silently auto-allowed (claude-code parity).
+    if (ruleAction === 'ask' || security.behavior === 'ask') {
+      if (security.behavior === 'ask') {
+        process.stderr.write(
+          `[PowerShell] dangerous pattern (check #${security.checkId}): ${security.reason}\n`,
+        )
+      }
       const confirm = await confirmWithUser(command, description)
 
       if (confirm.remember === 'always-deny') {

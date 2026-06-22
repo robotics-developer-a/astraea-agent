@@ -13,6 +13,8 @@ import { fileWriteBehavior } from '../state/sessionMode.js'
 import { isSensitivePath } from '../config/redlines.js'
 import { isAnyMemoryPath } from '../memory/paths.js'
 import { confirmWithUser } from './BashTool/permissions/confirm.js'
+import { recordDecision } from '../audit/record.js'
+import type { DecisionReason } from '../audit/types.js'
 
 export interface WriteGateResult {
   proceed: boolean
@@ -30,20 +32,35 @@ export async function checkWritePermission(
   ctx: ToolContext,
   action: string,
 ): Promise<WriteGateResult> {
+  // 审计:tool 标签由 action 推导（'edit'→FileEdit，其余→FileWrite）。
+  const tool = action === 'edit' ? 'FileEdit' : 'FileWrite'
+  const interactive = ctx.isInteractive === true
+  const audit = (behavior: 'allow' | 'deny', reason: DecisionReason): void =>
+    recordDecision({ tool, target: filePath, behavior, reason, mode: ctx.mode, interactive })
+
   // 定稿 #5：记忆子树写豁免，在红线之前评判。只放行 <base>/projects/<slug>/memory/**，
   // 让 channel A（主代理自写记忆）不弹窗、channel B（后台提取、无人在场）不 fail-closed。
   // settings.json/transcripts/plans 不在此子树，仍走红线，杜绝借记忆通道自我提权。
-  if (isAnyMemoryPath(filePath)) return { proceed: true }
+  if (isAnyMemoryPath(filePath)) {
+    audit('allow', { type: 'memory-exempt' })
+    return { proceed: true }
+  }
 
   const sensitive = isSensitivePath(filePath)
-  let behavior = fileWriteBehavior(ctx.mode)
+  const original = fileWriteBehavior(ctx.mode)
+  let behavior = original
 
   // 红线：敏感路径把 allow 降级为 ask（cruise/forge 也不例外）
-  if (sensitive && behavior === 'allow') behavior = 'ask'
+  const downgraded = sensitive && behavior === 'allow'
+  if (downgraded) behavior = 'ask'
 
-  if (behavior === 'allow') return { proceed: true }
+  if (behavior === 'allow') {
+    audit('allow', { type: 'mode', detail: ctx.mode })
+    return { proceed: true }
+  }
 
   if (behavior === 'deny') {
+    audit('deny', { type: 'mode', detail: `${ctx.mode} mode forbids writes` })
     return {
       proceed: false,
       rejection: `[${ctx.mode} mode] file ${action} blocked — write operations are not allowed in this mode.`,
@@ -51,8 +68,9 @@ export async function checkWritePermission(
   }
 
   // behavior === 'ask'
-  if (ctx.isInteractive !== true) {
-    // 无人在场：fail-closed deny，绝不挂起
+  if (!interactive) {
+    // 无人在场：fail-closed deny，绝不挂起。归因:redline 降级所致记 redline，否则 fail-closed。
+    audit('deny', downgraded ? { type: 'redline', detail: filePath } : { type: 'fail-closed' })
     return {
       proceed: false,
       rejection: `File ${action} requires confirmation, but no interactive user is available (fail-closed deny). ${
@@ -63,8 +81,11 @@ export async function checkWritePermission(
 
   const label = `${action} ${filePath}${sensitive ? '   ⚠ sensitive path (red-line)' : ''}`
   const confirm = await confirmWithUser(label)
+  const userDetail = sensitive ? 'red-line sensitive path' : undefined
   if (!confirm.proceed) {
+    audit('deny', { type: 'user', detail: userDetail })
     return { proceed: false, rejection: `File ${action} cancelled by user.` }
   }
+  audit('allow', { type: 'user', detail: userDetail })
   return { proceed: true }
 }

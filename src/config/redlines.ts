@@ -1,8 +1,9 @@
 // 安全红线 — bypass-immune 的敏感目标（Permission & Safety Technical Spec §5）
 //
 // 设计：连 forge 模式也不能静默放行这些操作。分两层：
-//   1. 命令层 HARD_BLOCK（rm -rf /, mkfs, 控制字符…）→ 见 BashTool/security/injection-check.ts，
-//      在所有模式下先于权限判定执行，永远 deny（本模块不重复）。
+//   1. 命令层 HARD_BLOCK（rm -rf /, mkfs, 控制字符…）→ 见 BashTool/security/injection-check.ts
+//      （zsh/bash）与 PowerShellTool/security/injection-check.ts（PowerShell：Defender 规避 /
+//      下载执行链 / -EncodedCommand 混淆 / 持久化…），在所有模式下先于权限判定执行，永远 deny。
 //   2. 路径红线（写 .git/ .astraea/ shell 启动文件…）→ 本模块。命中时即便 forge/cruise
 //      也把 allow 降级为 ask（无人在场则 fail-closed deny）。
 //

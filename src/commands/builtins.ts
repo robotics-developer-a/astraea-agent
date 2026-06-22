@@ -170,6 +170,18 @@ export function getBuiltinCommands(): Command[] {
       return { type: 'text', value: renderUsage(getUsageStats()) }
     }),
 
+    local('audit', 'review permission allow/deny decisions (with structured reason)',
+      async args => {
+        const { parseAuditArgs, loadSessionAudit, loadProjectAudit, formatAuditTable } = await import('../audit/query')
+        const { getAuditSession } = await import('../audit/record')
+        const { scope, filter } = parseAuditArgs(args)
+        const records = scope === 'project'
+          ? loadProjectAudit(process.cwd(), filter)
+          : loadSessionAudit(process.cwd(), getAuditSession(), filter)
+        return { type: 'text', value: formatAuditTable(records, scope) }
+      },
+      { argumentHint: '[--project] [--allow|--deny] [--reason <type>]' }),
+
     local('help', 'show available commands', async () => {
       const { t } = await import('../i18n')
       const cmds = _commandsForHelp().filter(c => c.userInvocable && !c.hidden)

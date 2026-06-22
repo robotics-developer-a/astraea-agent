@@ -14,9 +14,14 @@ export interface PermissionRule {
  * 如果没有匹配规则，返回 null（调用方决定默认行为）。
  */
 export function matchRule(command: string, rules: PermissionRule[]): RuleAction | null {
+  return findMatchingRule(command, rules)?.action ?? null
+}
+
+/** 同 matchRule，但返回整条规则（含 pattern），供审计记录'是哪条规则'。 */
+export function findMatchingRule(command: string, rules: PermissionRule[]): PermissionRule | null {
   for (const rule of rules) {
     if (commandMatchesPattern(command, rule.pattern)) {
-      return rule.action
+      return rule
     }
   }
   return null

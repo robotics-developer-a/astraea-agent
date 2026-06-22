@@ -4,11 +4,13 @@ import { buildTool } from '../Tool.js'
 import type { Tool, ToolCallResult, ToolContext } from '../Tool.js'
 import { checkCommandSecurity } from './security/injection-check.js'
 import { isReadOnlyCommand } from './security/readonly-check.js'
-import { matchRule, DEFAULT_RULES, type PermissionRule } from './permissions/permission-rules.js'
+import { findMatchingRule, DEFAULT_RULES, type PermissionRule } from './permissions/permission-rules.js'
 import { confirmWithUser } from './permissions/confirm.js'
 import { loadPermissionRules, appendPermissionRule } from '../../config/permissions.js'
 import { shellAskBehavior, type PermissionBehavior } from '../../state/sessionMode.js'
 import { commandTouchesSensitivePath } from '../../config/redlines.js'
+import { recordDecision } from '../../audit/record.js'
+import type { DecisionReason } from '../../audit/types.js'
 import { executeBash, executeStreamingBash } from './executor/shell.js'
 import { syncCwd } from './executor/cwd-tracker.js'
 import { spawnBackground, getTask } from './executor/background-task.js'
@@ -51,25 +53,42 @@ async function resolveShellPermission(
   description: string | undefined,
   ctx: ToolContext,
 ): Promise<ShellPermissionOutcome> {
+  const interactive = ctx.isInteractive === true
+  const audit = (
+    behavior: 'allow' | 'deny',
+    reason: DecisionReason,
+    remember?: 'always-allow' | 'always-deny',
+  ): void =>
+    recordDecision({ tool: 'Bash', target: command, behavior, reason, mode: ctx.mode, interactive, remember })
+
   // 规则优先级：运行时追加 > 配置文件 > 内置默认
   const allRules = [...runtimeRules, ...configRules, ...DEFAULT_RULES]
-  const ruleAction = matchRule(command, allRules)
+  const matched = findMatchingRule(command, allRules)
+  const ruleAction = matched?.action ?? null
 
   // deny 一票否决
   if (ruleAction === 'deny') {
+    audit('deny', { type: 'rule', detail: matched!.pattern })
     return { proceed: false, rejection: `Command denied by permission rules: \`${command}\`` }
   }
 
   // allow 规则 → 放行；ask 规则或未命中(null) → 按模式取向（forge=allow，其余=ask）
   let behavior: PermissionBehavior = ruleAction === 'allow' ? 'allow' : shellAskBehavior(ctx.mode)
 
-  // 红线：非只读命令触碰敏感路径 → 即便 forge 也强制 ask
-  if (behavior === 'allow' && commandTouchesSensitivePath(command)) behavior = 'ask'
+  // 红线：非只读命令触碰敏感路径 → 即便 forge 也强制 ask（记 redline 归因）
+  const downgraded = behavior === 'allow' && commandTouchesSensitivePath(command)
+  if (downgraded) behavior = 'ask'
 
-  if (behavior === 'allow') return { proceed: true }
+  if (behavior === 'allow') {
+    audit('allow', ruleAction === 'allow'
+      ? { type: 'rule', detail: matched!.pattern }
+      : { type: 'mode', detail: ctx.mode })
+    return { proceed: true }
+  }
 
   // behavior === 'ask'：无人在场则 fail-closed deny，绝不挂起
-  if (ctx.isInteractive !== true) {
+  if (!interactive) {
+    audit('deny', downgraded ? { type: 'redline', detail: command } : { type: 'fail-closed' })
     return {
       proceed: false,
       rejection: `Command requires confirmation, but no interactive user is available (fail-closed deny): \`${command}\`. Pre-allow it in .astraea/settings.json, or run interactively.`,
@@ -77,14 +96,17 @@ async function resolveShellPermission(
   }
 
   const confirm = await confirmWithUser(command, description)
+  const userDetail = downgraded ? 'red-line sensitive path' : undefined
 
   if (confirm.remember === 'always-deny') {
+    audit('deny', { type: 'user', detail: userDetail }, 'always-deny')
     await appendPermissionRule(process.cwd(), command, 'deny')
     configRules.unshift({ pattern: command, action: 'deny' })
     return { proceed: false, rejection: `Command denied. Rule saved: deny "${command}"` }
   }
 
   if (!confirm.proceed) {
+    audit('deny', { type: 'user', detail: userDetail })
     return { proceed: false, rejection: 'Command cancelled by user.' }
   }
 
@@ -98,6 +120,7 @@ async function resolveShellPermission(
     }
   }
 
+  audit('allow', { type: 'user', detail: userDetail }, confirm.remember === 'always-allow' ? 'always-allow' : undefined)
   return { proceed: true }
 }
 
@@ -189,6 +212,11 @@ export const BashTool = buildTool({
     // ── 2. 安全检查（硬阻断）────────────────────────────────────────
     const security = checkCommandSecurity(command)
     if (!security.safe) {
+      recordDecision({
+        tool: 'Bash', target: command, behavior: 'deny',
+        reason: { type: 'hard-block', detail: `check #${security.checkId}: ${security.reason}` },
+        mode: ctx.mode, interactive: ctx.isInteractive === true,
+      })
       return {
         output: `Security check blocked: ${security.reason} (check #${security.checkId})`,
         isError: true,
@@ -246,7 +274,14 @@ export const BashTool = buildTool({
     if (!command?.trim()) return { output: 'Error: command is required', isError: true }
 
     const security = checkCommandSecurity(command)
-    if (!security.safe) return { output: `Security check blocked: ${security.reason}`, isError: true }
+    if (!security.safe) {
+      recordDecision({
+        tool: 'Bash', target: command, behavior: 'deny',
+        reason: { type: 'hard-block', detail: `check #${security.checkId}: ${security.reason}` },
+        mode: ctx.mode, interactive: ctx.isInteractive === true,
+      })
+      return { output: `Security check blocked: ${security.reason}`, isError: true }
+    }
 
     if (!isReadOnlyCommand(command)) {
       await ensureConfigLoaded()

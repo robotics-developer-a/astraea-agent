@@ -8,6 +8,49 @@
 
 > **1.0.0 发布门槛**（达成后才从 0.x 升到 1.0 并打首个 `git tag v1.0.0`）：
 
+## [0.9.19] - 2026-06-22
+
+### 新增
+- **结构化权限审计追踪（DecisionReason）**：此前每个权限决定只是 `'allow'|'ask'|'deny'`
+  一个字符串，出安全问题只能翻日志猜「是模式拒的、规则拒的、还是红线降级的」，没有证据链。
+  新增 `src/audit/`，给每条 allow/deny 决定打上**结构化原因**，事后可逐条追查。
+  - **7 种 DecisionReason type**（1:1 映射代码里的真实决策出口）：`hard-block`（injection-check
+    命令层硬拦）、`rule`（config/DEFAULT_RULES 命中，detail 记命中的 pattern）、`redline`
+    （敏感路径把 allow 降级为 ask 所致）、`mode`（forge/cruise 放行、orbit deny 兜底）、
+    `user`（交互式 y/n/a/d 选择）、`fail-closed`（无人在场 ask→deny）、`memory-exempt`
+    （记忆子树写豁免）。
+  - **落盘**：独立 `~/.astraea/projects/<cwd>/<sessionId>.audit.jsonl`，与 transcript 并列、
+    复用 projectDir、沿用 30 天清理。一行一条 JSON：`ts/sessionId/tool/target/behavior/
+    reason{type,detail}/mode/interactive/remember`（target 原文不脱敏，与既有隐私模型一致）。
+  - **fire-and-forget**：写审计失败只 stderr 警告，绝不阻塞工具执行。
+  - **接入**：`BashTool`（resolveShellPermission + 两处 hard-block 出口）与 `fileWriteGate`
+    各自在决策出口构造 reason 汇入单一 `recordDecision()` sink；read-only 短路不入账（避免洪水）。
+  - **查询**：新增 `/audit` 命令——默认列本会话决定，`--project` 扩到本项目所有会话，
+    `--allow|--deny` 与 `--reason <type>` 过滤；`⟦ok⟧/⟦err⟧` 标记区分放行/拒绝。
+  - SOP 见《权限和安全/权限决策审计追踪-DecisionReason与查询SOP.md》；新增 25 条单测。
+- **PowerShell / Windows 安全线**：此前 `PowerShellTool` 只有 5 条内联 `BLOCKED_PATTERNS`，
+  缺少与 Bash 对等的注入/危险 cmdlet 防线。新增 `PowerShellTool/security/injection-check.ts`，
+  **设计参照 Claude Code 的 `powershellSecurity.ts` + `dangerousCmdlets.ts`**（其 24 个
+  AST validator）。Claude Code 走 pwsh AST，本模块为与 Astraea 既有正则版 Bash 检查同构、
+  且不引入 pwsh-parse 硬依赖，改用「正则 + 别名表 + 缩写展开 + 连字符归一」逼近覆盖面（AST 化为后续工作）。
+  - **三档语义**（沿用 Claude Code，关键差异：危险命令默认 `ask` 而非静默放行）：
+    - `block` —— 无合法用途的破坏性操作，永远拒绝：控制字符、Unicode 空白伪装、关闭
+      Defender 实时防护、Defender 排除项、磁盘销毁、递归强删盘符根目录。
+    - `ask` —— 任意代码执行 / 下载执行 / 持久化 / 提权等 **强制用户确认，且不可被 allow
+      规则静默放行**：下载即执行链、`Invoke-Expression`、`-EncodedCommand` 混淆、嵌套 pwsh、
+      远程下载器（含 certutil/bitsadmin LOLBAS）、`Add-Type`、`New-Object`、`Invoke-Item`、
+      计划任务 / 服务 / 注册表持久化、`ForEach-Object -MemberName`、`Start-Process -Verb RunAs`、
+      `-ExecutionPolicy Bypass`、隐藏窗口、进程/服务终止、别名/变量劫持、WMI/CIM 进程派生、
+      模块加载、环境变量篡改、子表达式 `$()`/调用运算符、停止解析符 `--%`、高危 .NET 反射类型。
+    - `pass` —— 放行，交由权限规则裁决。
+  - **逼近 AST 的鲁棒性**：别名表（`iex`/`iwr`/`irm`/`ii`/`%`/`saps`…）、参数缩写展开
+    （`-e`=`-EncodedCommand`、`-v`=`-Verb`、`-w`=`-WindowStyle`、`-m`=`-MemberName`…）、
+    替代连字符归一（en/em-dash、horizontal-bar）。
+  - checkId 段位从 100 起，与 Bash 段位错开，便于日志区分来源。
+- 接入 `PowerShellTool/index.ts`（替换原 `checkPsSecurity`）：`block` 直接报错并带 `check #NNN`；
+  `ask` 即使命中 allow 规则也强制 `confirmWithUser`（危险 cmdlet 永不被静默自动放行，对齐 Claude Code）。
+- 同步更新 `redlines.ts` 分层安全注释；新增 56 条单测覆盖三档语义、别名/缩写/连字符及正常命令放行。
+
 ## [0.9.17] - 2026-06-21
 
 ### 修复

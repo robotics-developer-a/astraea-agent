@@ -64,6 +64,7 @@ import {
   type SessionSummary,
 } from '../services/transcript/transcript'
 import { scheduleHousekeeping } from '../services/transcript/housekeeping'
+import { setAuditSession } from '../audit/record'
 import { resetEclipse } from '../services/eclipse/store'
 import { setLastAssistantTs, resetMicrocompactState } from '../state/microcompactState'
 import { ResumePicker } from './ResumePicker'
@@ -580,6 +581,7 @@ export function App() {
         conversationRef.current = msgs
         loggedLenRef.current = msgs.length
         transcriptRef.current = reopenTranscript(process.cwd(), target.sessionId)
+        setAuditSession(transcriptRef.current.sessionId)
         markTokensUnknown()
         // microcompact：从 transcript 回填最后一条 assistant 时间，让 resume 后首轮也能算 gap。
         { const ts = getLastAssistantTimestamp(target.path); if (ts !== null) setLastAssistantTs(ts) }
@@ -593,6 +595,7 @@ export function App() {
       }
     }
     transcriptRef.current = createTranscript(process.cwd())
+    setAuditSession(transcriptRef.current.sessionId)
     scheduleHousekeeping()
   }, [])
 
@@ -736,6 +739,7 @@ export function App() {
     conversationRef.current = msgs
     loggedLenRef.current = msgs.length
     transcriptRef.current = reopenTranscript(process.cwd(), target.sessionId)
+    setAuditSession(transcriptRef.current.sessionId)
     resetCheckpoints()  // 切到别的会话 → 当前会话的 /rewind 检查点全部作废
     markTokensUnknown()
     // microcompact：从 transcript 回填最后一条 assistant 时间，让 resume 后首轮也能算 gap。
@@ -1355,6 +1359,7 @@ export function App() {
         resetEclipse()                                // 清空 Eclipse 折叠 store（跨会话不残留）
         resetCheckpoints()                            // 清空 /rewind 检查点（新会话无可回滚点）
         transcriptRef.current = createTranscript(process.cwd())  // 新会话 → 新 transcript 文件
+        setAuditSession(transcriptRef.current.sessionId)
         loggedLenRef.current = 0
         for (const ns of getAllNamespaces()) clearTodos(ns)  // 清空所有命名空间的 todo
         const aborted = clearAllTasks()               // 协作式中止子 Agent 并丢弃任务字典
