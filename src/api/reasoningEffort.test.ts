@@ -10,6 +10,11 @@ import {
   deepseekUsesReasoner,
   deepseekEffectiveModel,
   deepseekReasoningDirective,
+  deepseekIsV4,
+  deepseekResolveModel,
+  deepseekThinkingParam,
+  DEEPSEEK_V4_FLASH,
+  DEEPSEEK_V4_PRO,
 } from './reasoningEffort'
 
 const ENV_KEY = 'ASTRAEA_REASONING_EFFORT'
@@ -121,6 +126,40 @@ test('deepseekReasoningDirective: escalates; low/auto inject nothing; max self-v
   expect(max).toContain('校验') // max 档要求自我校验
   // 递进：max 指令比 medium 更长（更重）
   expect(max.length).toBeGreaterThan(deepseekReasoningDirective('medium')!.length)
+})
+
+// ─── DeepSeek V4：同模型 thinking 参数 + high/max 升 pro ──────────────────────
+test('deepseekIsV4: only deepseek-v4-* ids', () => {
+  expect(deepseekIsV4(DEEPSEEK_V4_FLASH)).toBe(true)
+  expect(deepseekIsV4(DEEPSEEK_V4_PRO)).toBe(true)
+  expect(deepseekIsV4('deepseek-v4-flash')).toBe(true)
+  expect(deepseekIsV4('deepseek-chat')).toBe(false) // 旧别名不算 V4
+  expect(deepseekIsV4('deepseek-reasoner')).toBe(false)
+})
+
+test('deepseekResolveModel V4: high/max → pro, medium/low/auto keep configured', () => {
+  expect(deepseekResolveModel(undefined, DEEPSEEK_V4_FLASH)).toBe(DEEPSEEK_V4_FLASH) // auto
+  expect(deepseekResolveModel('low', DEEPSEEK_V4_FLASH)).toBe(DEEPSEEK_V4_FLASH)
+  expect(deepseekResolveModel('medium', DEEPSEEK_V4_FLASH)).toBe(DEEPSEEK_V4_FLASH) // medium 只开 thinking
+  expect(deepseekResolveModel('high', DEEPSEEK_V4_FLASH)).toBe(DEEPSEEK_V4_PRO) // 升 pro
+  expect(deepseekResolveModel('max', DEEPSEEK_V4_FLASH)).toBe(DEEPSEEK_V4_PRO)
+  expect(deepseekResolveModel('high', DEEPSEEK_V4_PRO)).toBe(DEEPSEEK_V4_PRO) // 已是 pro
+})
+
+test('deepseekResolveModel legacy aliases: medium+ → deepseek-reasoner (back-compat)', () => {
+  expect(deepseekResolveModel(undefined, 'deepseek-chat')).toBe('deepseek-chat')
+  expect(deepseekResolveModel('low', 'deepseek-chat')).toBe('deepseek-chat')
+  expect(deepseekResolveModel('medium', 'deepseek-chat')).toBe('deepseek-reasoner')
+  expect(deepseekResolveModel('high', 'deepseek-chat')).toBe('deepseek-reasoner')
+  expect(deepseekResolveModel('max', 'deepseek-chat')).toBe('deepseek-reasoner')
+})
+
+test('deepseekThinkingParam: auto/low disabled; medium/high enabled+high; max enabled+max', () => {
+  expect(deepseekThinkingParam(undefined)).toEqual({ thinking: { type: 'disabled' } })
+  expect(deepseekThinkingParam('low')).toEqual({ thinking: { type: 'disabled' } })
+  expect(deepseekThinkingParam('medium')).toEqual({ thinking: { type: 'enabled' }, reasoning_effort: 'high' })
+  expect(deepseekThinkingParam('high')).toEqual({ thinking: { type: 'enabled' }, reasoning_effort: 'high' })
+  expect(deepseekThinkingParam('max')).toEqual({ thinking: { type: 'enabled' }, reasoning_effort: 'max' })
 })
 
 // ─── 安全兜底：任何组合都不抛错 ──────────────────────────────────────────────

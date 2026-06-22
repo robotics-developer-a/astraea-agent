@@ -7,8 +7,7 @@
 import React from 'react'
 import { Box, Text, useWindowSize } from 'ink'
 import type { SessionMode } from '../state/sessionMode'
-
-const INDIGO = '#6A5ACD'
+import { INDIGO } from './theme'
 
 export const MODE_META: Record<SessionMode, {
   label: string

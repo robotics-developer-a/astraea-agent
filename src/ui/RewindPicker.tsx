@@ -5,8 +5,8 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 import type { Checkpoint } from '../services/rewind/checkpointStore'
+import { AMBER } from './theme'
 
-const AMBER = '#d08770'
 const MAX_VISIBLE = 8
 
 function when(c: Checkpoint): string {

@@ -44,7 +44,13 @@ const PRICING: Record<string, ModelPrice> = {
   'claude-sonnet-4-5': { inputPerMTok: 3,  outputPerMTok: 15 },
   'claude-haiku-4-5':  { inputPerMTok: 1,  outputPerMTok: 5 },
 
-  // ── DeepSeek（公开价目近似，请核对）。cache-hit ≈0.25×，无写入费 ──
+  // ── DeepSeek V4（2026-06 官方价目）。cache-hit 倍率极低，无写入费 ──
+  //   flash: in $0.14 / cache-hit $0.0028（0.02×）/ out $0.28
+  //   pro:   in $0.435 / cache-hit $0.003625（≈0.00833×）/ out $0.87
+  'deepseek-v4-flash': { inputPerMTok: 0.14,  outputPerMTok: 0.28, cacheReadMult: 0.0028 / 0.14,   cacheWriteMult: 0 },
+  'deepseek-v4-pro':   { inputPerMTok: 0.435, outputPerMTok: 0.87, cacheReadMult: 0.003625 / 0.435, cacheWriteMult: 0 },
+
+  // ── DeepSeek 旧别名（2026-07-24 下线，路由到 V4 flash）。cache-hit ≈0.25×，无写入费 ──
   'deepseek-chat':     { inputPerMTok: 0.27, outputPerMTok: 1.10, cacheReadMult: 0.25, cacheWriteMult: 0 },
   'deepseek-reasoner': { inputPerMTok: 0.55, outputPerMTok: 2.19, cacheReadMult: 0.25, cacheWriteMult: 0 },
 

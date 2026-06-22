@@ -4,9 +4,7 @@
 
 import React from 'react'
 import { Box, Text } from 'ink'
-
-const INDIGO = '#6A5ACD'  // brand primary — the wordmark's resting color
-const SILVER = '#C8D8FF'  // star-shimmer — the moving shine highlight
+import { INDIGO, SILVER } from './theme'
 
 // Block-art lines (all glyphs are BMP → String.length === visible columns).
 export const WORDMARK_LINES: string[] = [

@@ -1,6 +1,6 @@
 // DeepSeek 流式适配器 — DeepSeek API 与 OpenAI 完全兼容
 // 使用 OpenAI SDK 指向 https://api.deepseek.com
-// 模型: deepseek-chat (V3/V4 最新), deepseek-reasoner (R1 推理)
+// 模型: deepseek-v4-flash / deepseek-v4-pro（原生 thinking 旋钮）；旧别名 deepseek-chat/reasoner 2026-07-24 前向后兼容
 
 import OpenAI from 'openai'
 import { config } from '../config'
@@ -8,7 +8,13 @@ import type { Message, StreamEvent } from '../types/message'
 import type { StreamOptions } from './anthropic'
 import type { ToolSchema } from '../tools/Tool'
 import { mapDeepSeekUsage } from './usageAccounting'
-import { resolveAppliedEffort, deepseekEffectiveModel, deepseekReasoningDirective } from './reasoningEffort'
+import {
+  resolveAppliedEffort,
+  deepseekResolveModel,
+  deepseekReasoningDirective,
+  deepseekIsV4,
+  deepseekThinkingParam,
+} from './reasoningEffort'
 import { withIdleWatchdog, linkAbort, mapOpenAICompletionToEvents } from './idleWatchdog'
 
 function createClient(): OpenAI {
@@ -24,11 +30,14 @@ export function streamMessageDeepSeek(
 ): AsyncGenerator<StreamEvent> {
   const client = createClient()
 
-  // /reason → DeepSeek 定制：reasoner 档换模型 + 注入动态 prompt 指令（见 reasoningEffort.ts）。
+  // /reason → DeepSeek 定制（见 reasoningEffort.ts）：
+  //   V4   —— 原生 thinking 旋钮：同模型开关思考 + reasoning_effort，high/max 自动升 pro，不注入 prompt。
+  //   旧别名 —— 沿用换模型（medium+ → reasoner）+ 动态 prompt 指令，2026-07-24 前向后兼容。
   const applied = resolveAppliedEffort()
   const configuredModel = options.model ?? config.deepseek.model
-  const effectiveModel = deepseekEffectiveModel(applied, configuredModel)
-  const directive = deepseekReasoningDirective(applied)
+  const isV4 = deepseekIsV4(configuredModel)
+  const effectiveModel = deepseekResolveModel(applied, configuredModel)
+  const directive = isV4 ? undefined : deepseekReasoningDirective(applied)
 
   const chatMessages: OpenAI.Chat.ChatCompletionMessageParam[] = []
 
@@ -87,6 +96,8 @@ export function streamMessageDeepSeek(
     max_tokens: options.maxTokens ?? config.deepseek.maxTokens,
     messages: chatMessages,
     ...(openaiTools?.length ? { tools: openaiTools, tool_choice: 'auto' as const } : {}),
+    // V4 原生思考开关（thinking + reasoning_effort）随顶层透传给 deepseek.com；旧别名不带此字段。
+    ...(isV4 ? deepseekThinkingParam(applied) : {}),
   }
 
   const linked = linkAbort(options.abortSignal)

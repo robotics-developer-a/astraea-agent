@@ -4,6 +4,7 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 import TextInput from './TextInput'
+import { t } from '../i18n'
 
 export interface VigilAction {
   key: string
@@ -52,7 +53,7 @@ export function VigilPanel({ selectedIndex, inlineValues, onInlineChange, onInli
       marginBottom={1}
     >
       <Text bold color="cyan">vigil — scheduled tasks</Text>
-      <Text color="gray" dimColor>↑↓ move  Enter confirm  Esc cancel</Text>
+      <Text color="gray" dimColor>{t('navHint')}</Text>
       <Box flexDirection="column" marginTop={1}>
         {VIGIL_ACTIONS.map((action, i) => {
           const isSelected = i === selectedIndex

@@ -130,11 +130,13 @@ export const config = {
   // DeepSeek — OpenAI-compatible API
   deepseek: {
     apiKey: process.env.DEEPSEEK_API_KEY ?? '',
-    model: process.env.DEEPSEEK_MODEL ?? 'deepseek-chat',
+    // V4 默认 flash（便宜快）；/reason high/max 自动升 deepseek-v4-pro。旧别名 deepseek-chat/reasoner
+    // 2026-07-24 下线，仍可经 DEEPSEEK_MODEL 指定（走向后兼容路径）。
+    model: process.env.DEEPSEEK_MODEL ?? 'deepseek-v4-flash',
     baseUrl: 'https://api.deepseek.com',
-    // deepseek-chat 输出硬上限即 8192。
+    // V4 输出上限 384K（CoT 走独立 reasoning_content，不占此预算）；默认 8192 够 agent 单轮，env 可调高。
     maxTokens: maxTokensFrom('DEEPSEEK_MAX_TOKENS', 8192),
-    contextWindow: contextWindowFrom('DEEPSEEK_CONTEXT_WINDOW', 128_000),
+    contextWindow: contextWindowFrom('DEEPSEEK_CONTEXT_WINDOW', 1_000_000),
   },
 
   // Kimi（Moonshot AI）— OpenAI-compatible API

@@ -4,6 +4,8 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 import type { SessionMode } from '../state/sessionMode'
+import { INDIGO } from './theme'
+import { t } from '../i18n'
 
 export interface ModeOption {
   value: SessionMode
@@ -49,8 +51,6 @@ export function nextCycleMode(current: SessionMode): SessionMode {
   return MODE_CYCLE[(i + 1) % MODE_CYCLE.length]!
 }
 
-const INDIGO = '#6A5ACD'
-
 interface ModeSelectorProps {
   currentMode: SessionMode
   selectedIndex: number
@@ -72,7 +72,7 @@ export function ModeSelector({ currentMode, selectedIndex }: ModeSelectorProps) 
           (current: {currentMode})
         </Text>
       </Text>
-      <Text color="gray" dimColor>↑↓ move  Enter confirm  Esc cancel</Text>
+      <Text color="gray" dimColor>{t('navHint')}</Text>
       <Box flexDirection="column" marginTop={1}>
         {MODE_OPTIONS.map((opt, i) => {
           const isSelected = i === selectedIndex

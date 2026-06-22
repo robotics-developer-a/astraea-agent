@@ -4,10 +4,11 @@
 // Interaction:
 //   ←→    slide between options
 //   Enter confirm selection, Esc cancel
-//   DeepSeek: medium/high/max show inline "→ switches to deepseek-reasoner"
+//   DeepSeek V4: medium enables thinking; high/max also upgrade to deepseek-v4-pro
 
 import React from 'react'
 import { Box, Text } from 'ink'
+import { INDIGO } from './theme'
 
 export interface ReasonOption {
   value: string
@@ -31,23 +32,21 @@ export const REASON_OPTIONS: ReasonOption[] = [
     value: 'medium',
     label: 'medium',
     description: 'balanced reasoning',
-    deepseekNote: '→ switches to deepseek-reasoner',
+    deepseekNote: '→ enables V4 thinking',
   },
   {
     value: 'high',
     label: 'high',
     description: 'strong reasoning',
-    deepseekNote: '→ switches to deepseek-reasoner',
+    deepseekNote: '→ thinking + upgrades to deepseek-v4-pro',
   },
   {
     value: 'max',
     label: 'max',
     description: 'strongest reasoning (this session only — not persisted)',
-    deepseekNote: '→ switches to deepseek-reasoner',
+    deepseekNote: '→ max thinking + deepseek-v4-pro',
   },
 ]
-
-const INDIGO = '#6A5ACD'
 
 interface ReasonSelectorProps {
   selectedIndex: number

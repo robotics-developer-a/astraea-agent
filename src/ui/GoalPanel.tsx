@@ -8,9 +8,8 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 import { getActiveGoal, GOAL_MAX_TURNS, GOAL_MAX_TOKEN_SPEND } from '../state/goalState'
-import { STATUS_COLOR } from './theme'
-
-const INDIGO = '#6A5ACD'
+import { STATUS_COLOR, INDIGO } from './theme'
+import { t } from '../i18n'
 
 // 毫秒 → "1h 2m 3s" / "2m 3s" / "3s"
 function fmtDuration(ms: number): string {
@@ -49,16 +48,16 @@ export function GoalHint({ input }: { input: string }) {
       paddingY={0}
       marginBottom={1}
     >
-      <Text bold color={INDIGO}>◎ /goal：定个"做完的标准"，Astraea 自己反复干到达标才停。</Text>
+      <Text bold color={INDIGO}>{t('goalHintTitle')}</Text>
       <Box>
-        <Text color="#2e7d32">  好用 </Text>
-        <Text color="gray">—— 标准能用命令验证、对错一目了然的活（把测试跑通、清掉报错、类型检查通过）</Text>
+        <Text color={STATUS_COLOR.success}>{'  '}{t('goalHintGoodLabel')} </Text>
+        <Text color="gray">{t('goalHintGood')}</Text>
       </Box>
       <Box>
-        <Text color="#c62828">  别用 </Text>
-        <Text color="gray">—— 靠"感觉"、说不清算不算完成的活（"写优雅""功能能用"）→ 易被误判，甚至走捷径</Text>
+        <Text color={STATUS_COLOR.error}>{'  '}{t('goalHintBadLabel')} </Text>
+        <Text color="gray">{t('goalHintBad')}</Text>
       </Box>
-      <Text color="gray" dimColor>  诀窍：把"用哪条命令验证、期望看到什么"写进目标，越具体越靠谱。</Text>
+      <Text color="gray" dimColor>{'  '}{t('goalHintTip')}</Text>
     </Box>
   )
 }
@@ -89,31 +88,31 @@ export function GoalPanel({ running }: GoalPanelProps) {
       paddingY={0}
       marginBottom={1}
     >
-      <Text bold color={INDIGO}>◎ /goal {running ? '进行中' : '待下一轮'}</Text>
+      <Text bold color={INDIGO}>◎ /goal {running ? t('goalActive') : t('goalNextTurn')}</Text>
 
       <Box>
-        <Text color="gray">目标  </Text>
+        <Text color="gray">{t('goalLabel')}  </Text>
         <Text color="white">{truncate(goal.condition, 64)}</Text>
       </Box>
 
       <Box>
         <Text color={nearTurnCap ? STATUS_COLOR.pending : 'white'}>
-          {running ? `第 ${currentTurn} 轮进行中` : `已评估 ${evaluated} 轮`}
+          {running ? t('goalTurnRunning', { n: currentTurn }) : t('goalTurnsEvaluated', { n: evaluated })}
         </Text>
-        {running && <Text color="gray">  ·  已评估 {evaluated} 轮</Text>}
-        <Text color={nearTurnCap ? STATUS_COLOR.pending : 'gray'}>  ·  上限 {GOAL_MAX_TURNS}</Text>
+        {running && <Text color="gray">  ·  {t('goalTurnsEvaluated', { n: evaluated })}</Text>}
+        <Text color={nearTurnCap ? STATUS_COLOR.pending : 'gray'}>  ·  {t('goalCap', { n: GOAL_MAX_TURNS })}</Text>
       </Box>
 
       <Box>
-        <Text color="gray">已用 </Text>
+        <Text color="gray">{t('goalElapsed')} </Text>
         <Text color="white">{fmtDuration(Date.now() - goal.startedAt)}</Text>
         <Text color="gray">   ·   token </Text>
         <Text color={nearTokenCap ? STATUS_COLOR.pending : 'white'}>{goal.tokenSpend.toLocaleString()}</Text>
       </Box>
 
       <Box>
-        <Text color="gray">上轮判定  </Text>
-        <Text color="gray" dimColor>{goal.lastReason ?? '（待首次评估）'}</Text>
+        <Text color="gray">{t('goalLastVerdict')}  </Text>
+        <Text color="gray" dimColor>{goal.lastReason ?? t('goalAwaitingFirst')}</Text>
       </Box>
     </Box>
   )

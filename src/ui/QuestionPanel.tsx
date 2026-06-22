@@ -13,8 +13,8 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 import type { Question } from '../tools/AskUserQuestionTool/bridge'
+import { INDIGO } from './theme'
 
-const INDIGO = '#7C6FF0'
 const GREEN = '#2e7d32'
 
 export interface QuestionPanelProps {

@@ -8,6 +8,30 @@
 
 > **1.0.0 发布门槛**（达成后才从 0.x 升到 1.0 并打首个 `git tag v1.0.0`）：
 
+## [0.9.26] - 2026-06-22
+
+### 新增
+- **DeepSeek V4 适配（原生 thinking 旋钮）**：DeepSeek V4 取消了独立的 `reasoner` 模型 id，改为
+  同一 model 通过 `thinking.type`（`enabled`/`disabled`）开关思考、`reasoning_effort`（`high`/`max`）
+  调推理深度，CoT 仍走独立 `reasoning_content`（不占 `max_tokens` 预算）。`reasoningEffort.ts` 新增
+  三个纯函数 + 共用解析：
+  - `deepseekIsV4(model)` — 是否 `deepseek-v4-*`，决定走 thinking 参数还是旧的换模型逻辑。
+  - `deepseekResolveModel(effort, configured)` — 本次请求实际 model id，UI 显示与 API 调用共用同一解析。
+    V4 下 `high`/`max` 自动升 `deepseek-v4-pro`，其余保持 configured；旧别名沿用 `medium+ → deepseek-reasoner`。
+  - `deepseekThinkingParam(effort)` — V4 思考控制参数（`auto`/`low` 关思考；`medium`/`high` 开+`high`；`max` 开+`max`）。
+- **默认模型切到 `deepseek-v4-flash`**：便宜快（$0.14/$0.28 per MTok）、1M 上下文。`/reason` 的 `medium`
+  在当前模型开思考，`high`/`max` 自动升 `deepseek-v4-pro`（$0.435/$0.87、深度推理）。
+- **定价登记 V4**：`deepseek-v4-flash` / `deepseek-v4-pro` 加入 `pricing.ts`，cache-hit 倍率极低、无写入费。
+- **LoginWizard 模型选单**新增 V4 flash/pro 两项，旧别名 `deepseek-chat`/`deepseek-reasoner` 标注「2026-07-24 下线」。
+
+### 变更
+- **品牌色集中到 `theme.ts`**：此前 `INDIGO`/`SILVER`/`AMBER`/`DEEP` 散落在 14+ 组件各自 `const … = …`，
+  已出现色偏（`QuestionPanel` 误用 `#7C6FF0`、两处 amber 取值不一）。统一为 `theme.ts` 唯一真相源，
+  各组件改为 `import { … } from './theme'`，改一处即可全局换肤。
+- DeepSeek 默认上下文窗口 128K → 1M（`DEEPSEEK_CONTEXT_WINDOW` 仍可覆盖）。
+- `ReasonSelector` 的 DeepSeek 提示语改为 V4 行为：`medium → enables V4 thinking`，`high`/`max` 追加「upgrades to deepseek-v4-pro」。
+- 旧别名 `deepseek-chat`/`deepseek-reasoner` 在 2026-07-24 前经 `DEEPSEEK_MODEL` 仍可用，走向后兼容路径（保留 `deepseekEffectiveModel` / `deepseekReasoningDirective`）。
+
 ## [0.9.25] - 2026-06-22
 
 ### 新增

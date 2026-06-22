@@ -142,3 +142,52 @@ export function deepseekReasoningDirective(
       return undefined // low / auto：不注入
   }
 }
+
+// ─── DeepSeek V4：原生 thinking 旋钮（取代旧的"换模型"机制）─────────────────────
+// V4 不再有独立 reasoner 模型 id：同一 model 通过 extra_body.thinking 开关思考，
+// reasoning_effort（high/max）调推理深度，CoT 仍走独立 reasoning_content（不占 max_tokens）。
+// 旧别名 deepseek-chat/reasoner 在 2026-07-24 前仍可用，故 deepseekEffectiveModel /
+// deepseekReasoningDirective 保留以向后兼容；新代码统一走 deepseekResolveModel。
+
+export const DEEPSEEK_V4_FLASH = 'deepseek-v4-flash'
+export const DEEPSEEK_V4_PRO = 'deepseek-v4-pro'
+
+/** 配置的是否 V4 系模型（deepseek-v4-*）。决定走 thinking 参数还是旧的换模型逻辑。 */
+export function deepseekIsV4(model: string): boolean {
+  return /^deepseek-v4/i.test(model)
+}
+
+/**
+ * 本次请求实际使用的 model id（UI 显示与 API 调用共用同一解析）。
+ *   V4   —— high/max 升到 deepseek-v4-pro（重推理档），其余保持 configured（medium 只开 thinking）。
+ *   旧别名 —— medium+ → deepseek-reasoner（沿用旧机制，向后兼容）。
+ */
+export function deepseekResolveModel(
+  effort: ReasoningEffort | undefined,
+  configured: string,
+): string {
+  if (deepseekIsV4(configured)) {
+    return effort === 'high' || effort === 'max' ? DEEPSEEK_V4_PRO : configured
+  }
+  return deepseekEffectiveModel(effort, configured)
+}
+
+/** V4 thinking 控制参数（仅对 V4 模型下发）。auto/low → 关思考；medium/high → 开+high；max → 开+max。 */
+export interface DeepSeekThinkingParam {
+  thinking: { type: 'enabled' | 'disabled' }
+  reasoning_effort?: 'high' | 'max' // V4 仅接受 high/max（低档映射到 high）
+}
+
+export function deepseekThinkingParam(
+  effort: ReasoningEffort | undefined,
+): DeepSeekThinkingParam {
+  switch (effort) {
+    case 'medium':
+    case 'high':
+      return { thinking: { type: 'enabled' }, reasoning_effort: 'high' }
+    case 'max':
+      return { thinking: { type: 'enabled' }, reasoning_effort: 'max' }
+    default: // auto / low：关思考，保持快速、可预测、低成本
+      return { thinking: { type: 'disabled' } }
+  }
+}

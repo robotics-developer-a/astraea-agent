@@ -4,8 +4,8 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 import type { SessionSummary } from '../services/transcript/transcript'
+import { INDIGO } from './theme'
 
-const INDIGO = '#6A5ACD'
 const MAX_VISIBLE = 8
 
 function when(s: SessionSummary): string {

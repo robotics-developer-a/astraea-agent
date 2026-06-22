@@ -52,6 +52,18 @@ export function splitStatusLine(text: string): { marker: string; keyword: string
   return { marker: m[1] ?? '', keyword: m[2] ?? '', rest: m[3] ?? '' }
 }
 
+// ── 品牌强调色（Brand Palette）──────────────────────────────────────────────
+// Astraea 的视觉基调色。与上方语义状态色同源、同样集中于此 → 全局唯一真相源。
+// 此前这几个色散落在 14+ 组件里各自 `const INDIGO = …`，已出现色偏（QuestionPanel
+// 误用了另一支靛蓝 #7C6FF0、两处 amber 取值不一）。改一处即可全局换肤。
+//
+// 与语义色的分工：状态/结论用 STATUS_COLOR / VERDICT_COLOR（绿黄红，表"安全/进行/出错"）；
+// 品牌装饰用下面这组（表"这是 Astraea"，不承载状态语义）。两者职责不同，勿混。
+export const INDIGO = '#6A5ACD' // 品牌主色：女神字标、✦ Astraea 头、面板边框
+export const SILVER = '#C8D8FF' // 星辉高光：闪烁星符、欢迎页副色
+export const AMBER  = '#D99A2B' // 交互强调：权限确认 / 回滚选择器（非 pending 状态色）
+export const DEEP   = '#1A0F40' // 用户消息底色（与 AstraeaGoddess 同款深品牌色）
+
 // 折叠组的聚合颜色：任一失败 → 红；否则任一在跑 → 黄；全部完成 → 绿。
 export function aggregateStatusColor(
   statuses: Array<'running' | 'done' | 'error'>,

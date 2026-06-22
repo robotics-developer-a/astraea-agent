@@ -4,9 +4,8 @@ import { Box, Text, useInput } from 'ink'
 import TextInput from './TextInput'
 import type { Provider } from '../config'
 import { t } from '../i18n'
+import { INDIGO, SILVER } from './theme'
 
-const INDIGO = '#6A5ACD'
-const SILVER = '#C8D8FF'
 const DIM = '#7A8AAA'
 const GREEN = '#5AF78E'
 
@@ -35,6 +34,8 @@ const MODELS: Record<Exclude<Provider, 'ollama'>, ModelOption[]> = {
     { label: 'claude-haiku-4-5', value: 'claude-haiku-4-5-20251001', hint: 'mFast' },
   ],
   deepseek: [
+    { label: 'deepseek-v4-flash', value: 'deepseek-v4-flash', hint: 'mDsFlash' },
+    { label: 'deepseek-v4-pro', value: 'deepseek-v4-pro', hint: 'mDsPro' },
     { label: 'deepseek-chat', value: 'deepseek-chat', hint: 'mDsChat' },
     { label: 'deepseek-reasoner', value: 'deepseek-reasoner', hint: 'mDsReasoner' },
   ],

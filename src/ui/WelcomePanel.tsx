@@ -3,9 +3,8 @@ import { Box, Text, useStdout } from 'ink'
 import { AstraeaWordmark, WORDMARK_WIDTH } from './AstraeaWordmark'
 import { AstraeaGoddess, GODDESS_WIDTH } from './AstraeaGoddess'
 import { t } from '../i18n'
+import { INDIGO, SILVER } from './theme'
 
-const INDIGO = '#6A5ACD'
-const SILVER = '#C8D8FF'
 const DIM = '#7A8AAA'
 
 interface Props {

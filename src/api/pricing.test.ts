@@ -71,6 +71,34 @@ test('OpenAI & DeepSeek cache-WRITE (creation) costs $0 (no write surcharge)', (
   expect(deepseek.usd).toBeCloseTo(0, 6)
 })
 
+// ── DeepSeek V4: flash / pro 定价 ──
+
+test('DeepSeek V4 flash priced at $0.14/$0.28 per MTok', () => {
+  const { usd, local } = computeCost('deepseek-v4-flash', 'deepseek', {
+    input: 1_000_000, output: 1_000_000, cacheRead: 0, cacheCreation: 0,
+  })
+  expect(local).toBe(false)
+  expect(usd).toBeCloseTo(0.14 + 0.28, 6)
+})
+
+test('DeepSeek V4 pro priced at $0.435/$0.87 per MTok', () => {
+  const { usd } = computeCost('deepseek-v4-pro', 'deepseek', {
+    input: 1_000_000, output: 1_000_000, cacheRead: 0, cacheCreation: 0,
+  })
+  expect(usd).toBeCloseTo(0.435 + 0.87, 6)
+})
+
+test('DeepSeek V4 cache-hit: flash $0.0028/MTok, pro $0.003625/MTok; no write surcharge', () => {
+  const flash = computeCost('deepseek-v4-flash', 'deepseek', {
+    input: 0, output: 0, cacheRead: 1_000_000, cacheCreation: 1_000_000,
+  })
+  expect(flash.usd).toBeCloseTo(0.0028, 6) // cacheRead 命中价，写入 $0
+  const pro = computeCost('deepseek-v4-pro', 'deepseek', {
+    input: 0, output: 0, cacheRead: 1_000_000, cacheCreation: 1_000_000,
+  })
+  expect(pro.usd).toBeCloseTo(0.003625, 6)
+})
+
 test('Anthropic cache multipliers unchanged (0.1 read / 1.25 write) via per-model defaults', () => {
   // Anthropic entries omit cacheReadMult/cacheWriteMult → fall back to module constants.
   const { usd } = computeCost('claude-opus-4-8', 'anthropic', {

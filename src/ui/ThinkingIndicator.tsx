@@ -6,9 +6,7 @@
 
 import React, { useEffect, useState } from 'react'
 import { Text } from 'ink'
-
-const INDIGO = '#6A5ACD'
-const SILVER = '#C8D8FF'
+import { INDIGO, SILVER } from './theme'
 
 // 星之女神（掌管星辰与正义）主题的"工作中"短语 —— 思考时轮换，避免静态感。
 const PHRASES: string[] = [

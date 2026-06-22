@@ -5,6 +5,8 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 import type { ConfirmResult } from '../tools/BashTool/permissions/confirmBridge'
+import { AMBER } from './theme'
+import { t } from '../i18n'
 
 export interface ConfirmChoice {
   label: string
@@ -33,8 +35,6 @@ export function getConfirmChoices(kind?: 'bash' | 'file'): ConfirmChoice[] {
   return kind === 'file' ? FILE_CONFIRM_CHOICES : CONFIRM_CHOICES
 }
 
-const AMBER = '#D99A2B'
-
 interface ConfirmSelectorProps {
   command: string
   description?: string
@@ -62,7 +62,7 @@ export function ConfirmSelector({ command, description, selectedIndex, kind }: C
         <Text color="gray" dimColor>{description}</Text>
       )}
       <Box marginTop={1}>
-        <Text color="gray" dimColor>↑↓ move  Enter confirm  Esc cancel</Text>
+        <Text color="gray" dimColor>{t('navHint')}</Text>
       </Box>
       <Box flexDirection="column" marginTop={1}>
         {choices.map((choice, i) => {

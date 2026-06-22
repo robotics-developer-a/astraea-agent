@@ -4,9 +4,8 @@ import React, { useState } from 'react'
 import { Box, Text, useInput } from 'ink'
 import { LOCALES, getLocale, t } from '../i18n'
 import type { Locale } from '../i18n'
+import { INDIGO, SILVER } from './theme'
 
-const INDIGO = '#6A5ACD'
-const SILVER = '#C8D8FF'
 const DIM = '#7A8AAA'
 
 interface Props {

@@ -35,7 +35,7 @@ import { startUDSServer } from '../services/uds-server'
 import { getState, clearAllTasks, killAllRunningAgents } from '../services/agent-state'
 import { enqueueInterject, clearInterjects } from '../services/interject-queue'
 import type { AgentTaskState } from '../services/agent-state'
-import { clearTodos, getAllNamespaces } from '../services/todo-state'
+import { clearTodos, getAllNamespaces, getTodos } from '../services/todo-state'
 import { renderMarkdown } from '../utils/markdown'
 import { normalizeDraggedPath } from '../utils/dragPath'
 import { clampLineWidth, safeWinPreview } from '../utils/termWidth'
@@ -95,7 +95,7 @@ import {
 } from '../state/goalState'
 import { ModeSelector, MODE_OPTIONS, nextCycleMode } from './ModeSelector'
 import { ReasonSelector, REASON_OPTIONS } from './ReasonSelector'
-import { deepseekEffectiveModel, resolveAppliedEffort, currentEffortStatus } from '../api/reasoningEffort'
+import { deepseekResolveModel, resolveAppliedEffort, currentEffortStatus } from '../api/reasoningEffort'
 import { executeReason, persistReason } from '../commands/reason'
 import { ConfirmSelector, getConfirmChoices } from './ConfirmSelector'
 import { onConfirmRequest, resolveConfirm, type ConfirmRequest } from '../tools/BashTool/permissions/confirmBridge'
@@ -105,7 +105,7 @@ import { assessGoalVerifiability } from '../services/goal-evaluator'
 import { SlashHint, allSlashCommands, matchSlashCommands } from './SlashHint'
 import { ModeInputFrame } from './ModeBanner'
 import { ToolBatch, type ToolCall } from './ToolBatch'
-import { STATUS_COLOR, splitStatusLine, type AgentStatus } from './theme'
+import { STATUS_COLOR, splitStatusLine, INDIGO, DEEP, type AgentStatus } from './theme'
 import { TodoPanel } from './TodoPanel'
 import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { homedir, platform } from 'node:os'
@@ -115,11 +115,9 @@ import { abortWechatRead, WechatReadTool } from '../tools/WechatReadTool'
 
 const VIGIL_RESULT_DIR = join(homedir(), '.astraea', 'task-results')
 
-const INDIGO = '#6A5ACD'
 // Astraea 的前导星 —— turn 头与工具前叙述句共用，单点可换形/换大小。
 // 备选（由小到大/由细到粗）：✦ ✶ ✷ ✸ ✹ ✺ ❂ ★
 const STAR = '✸'
-const DEEP = '#1A0F40'   // dark navy-purple —— 用户消息底色（与 AstraeaGoddess 同款品牌色）
 const VERSION = pkg.version   // 单一来源：版本号只在 package.json 维护，UI 自动跟随
 
 const IS_WIN = platform() === 'win32'
@@ -127,9 +125,13 @@ const IS_WIN = platform() === 'win32'
 // live frame（非 <Static> 的「进行中」帧）封顶预算。流式期间这一帧每出一个 token 都重绘，
 // 一旦它比终端还高，Ink 的逐行擦除会越界——把 <Static> 里已落地的内容顶飞、视口猛地跳到
 // 缓冲区最顶（用户报告：Astraea 输出时往回滚，repl 跳到最开始）。给页脚（输入框 + 状态行 +
-// 各指示器）保留 FOOTER_RESERVE 行后，把「流式预览 + 在途工具批」的总高压在剩余预算内：
+// 各指示器）保留足够行数后，把「流式预览 + 在途工具批」的总高压在剩余预算内：
 // 工具批只保留最近若干次调用（更早的会在本轮结束统一落进 <Static>，不丢信息）。
-const FOOTER_RESERVE = 12
+//
+// 页脚高度不是常量：GoalPanel(~7) / Tasks(n+1) / 子 Agent(n) / context·compacting 条都会动态增减。
+// 旧实现写死 12，一旦真实页脚超过 12 行就会重新越界。现改为渲染时按当前激活的页脚元素逐块
+// 累加（见 live frame 内的 footerReserve），下面只保留恒定基底；宁可高估，绝不少算。
+const FOOTER_RESERVE_BASE = 3   // ModeInputFrame 上下框线 + 输入行（恒定基底）
 
 // 整屏清除序列（含滚动回溯缓冲）。Ink 的 <Static> 是 append-only：内部用 index 记下
 // 已打印条数，每帧只渲染 items.slice(index)，已落盘的行永不擦除。一旦 history 被整体
@@ -1342,7 +1344,7 @@ export function App() {
             '**Current model**',
             '',
             `  Provider     ${p}`,
-            `  Model        ${config.provider === 'deepseek' ? deepseekEffectiveModel(resolveAppliedEffort(), config.deepseek.model) : modelId}`,
+            `  Model        ${config.provider === 'deepseek' ? deepseekResolveModel(resolveAppliedEffort(), config.deepseek.model) : modelId}`,
             `  Endpoint     ${baseUrl}`,
             `  Max tokens   ${maxTokens}`,
             '',
@@ -2399,7 +2401,7 @@ export function App() {
       : config.provider === 'openai'
         ? config.openai.model
         : config.provider === 'deepseek'
-          ? deepseekEffectiveModel(resolveAppliedEffort(), config.deepseek?.model ?? '')
+          ? deepseekResolveModel(resolveAppliedEffort(), config.deepseek?.model ?? '')
           : config.provider === 'kimi'
             ? config.kimi?.model ?? ''
             : config.anthropic.model
@@ -2531,8 +2533,19 @@ export function App() {
         const hasBody = showHeader || !!streamingText || liveTools.length > 0 || activeTool != null
         if (!hasBody) return null
         // 视口预算：流式预览 + 在途工具批 共享 (终端行数 - 页脚预留)，避免 live frame 超过视口
-        // 高度导致 Ink 擦除越界、视口跳到最顶（见 FOOTER_RESERVE 注释）。
-        const liveBudget = Math.max(8, (rows ?? 24) - FOOTER_RESERVE)
+        // 高度导致 Ink 擦除越界、视口跳到最顶。页脚预留按「当前激活的常驻页脚元素」动态累加
+        // （取代写死的 12）：页脚越高，留给 live frame 的预算越小，从根上杜绝越界；一律向上估 +2 余量。
+        const goalLines = getActiveGoal() ? 7 : 0            // GoalPanel 带框约 7 行
+        const todoCount = getTodos('main').length
+        const todoLines = todoCount > 0 ? todoCount + 1 : 0   // "Tasks" 头 + 每任务一行
+        const agentLines = runningAgents.length               // 已移到输入框下方，但仍占视口高度
+        const ctxUsed = getInputTokens()
+        const ctxLines = ctxUsed !== null && ctxUsed >= activeThresholds().warning ? 1 : 0
+        const compactLines = isCompacting ? 1 : 0
+        const footerReserve =
+          FOOTER_RESERVE_BASE + 1 /* StreamStatus 常驻 */ +
+          goalLines + todoLines + agentLines + ctxLines + compactLines + 2 /* 安全余量 */
+        const liveBudget = Math.max(8, (rows ?? 24) - footerReserve)
         // 有工具批时预览收窄（只留个"还在写"的尾巴），把更多预算让给工具行；纯文本时给足。
         const previewMax = liveTools.length > 0
           ? Math.max(4, Math.floor(liveBudget * 0.35))
@@ -2607,19 +2620,8 @@ export function App() {
         )
       })()}
 
-      {/* ◎ /goal active 指示器 —— goalTick 驱动每秒刷新 */}
-      {(() => {
-        void goalTick
-        const g = getActiveGoal()
-        if (!g) return null
-        return (
-          <Box marginBottom={1}>
-            <Text color={INDIGO}>
-              ◎ /goal active · {formatDuration(Date.now() - g.startedAt)} · {g.turnsEvaluated} turns
-            </Text>
-          </Box>
-        )
-      })()}
+      {/* ◎ /goal 进度统一交给下方常驻 GoalPanel（此前这里另有一行 inline ◎ /goal active，
+          与 GoalPanel 信息重复、徒占一行，已移除——单一真相源见 <GoalPanel/>）。 */}
 
       {/* ◌ 压缩进度条（设计文档 §9）—— 摘要流式生成驱动 */}
       {isCompacting && (() => {
@@ -2725,17 +2727,6 @@ export function App() {
       {/* /goal 实时进度面板 —— 目标激活期间常驻输入框上方，随 goalTick 每秒刷新。 */}
       <GoalPanel running={isStreaming} />
 
-      {/* 后台子 Agent spinner —— 与 Tasks 一起钉在输入框正上方（即便主 Agent 空闲也显示） */}
-      {runningAgents.length > 0 && (
-        <Box flexDirection="column" marginBottom={1}>
-          {runningAgents.map(agent => (
-            <Box key={agent.id}>
-              <Text color="cyan">⟳  [{agent.id}] {agent.description}</Text>
-            </Box>
-          ))}
-        </Box>
-      )}
-
       <TodoPanel
         idle={!isStreaming}
         onComplete={(n) =>
@@ -2789,6 +2780,18 @@ export function App() {
             </>
           )}
         </ModeInputFrame>
+      )}
+
+      {/* 后台子 Agent spinner —— 移到输入框下方（此前在输入框上方，与 GoalPanel/Tasks 一起把
+          输入框越顶越低）。即便主 Agent 空闲也显示；高度已计入上方 footerReserve。 */}
+      {runningAgents.length > 0 && (
+        <Box flexDirection="column" marginTop={1}>
+          {runningAgents.map(agent => (
+            <Box key={agent.id}>
+              <Text color="cyan">⟳  [{agent.id}] {agent.description}</Text>
+            </Box>
+          ))}
+        </Box>
       )}
     </Box>
   )

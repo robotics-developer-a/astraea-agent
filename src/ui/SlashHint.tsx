@@ -12,6 +12,7 @@
 
 import React from 'react'
 import { Box, Text, useWindowSize } from 'ink'
+import { INDIGO } from './theme'
 
 export interface SlashCommand {
   name: string         // '/mode'
@@ -130,8 +131,6 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   },
 ]
 
-const INDIGO = '#6A5ACD'
-
 // 从统一命令表派生 slash 候选（实现文档 §1.2），覆盖两类：
 //   · 用户/项目/插件 skill（prompt 类）——本就不在上方硬编码表里；
 //   · 内置 local 命令（如 /usage /reason）——避免"新增内置忘了同步硬编码表"这个坑。
@@ -209,7 +208,7 @@ export function SlashHint({ input, selectedIndex }: SlashHintProps) {
         )
       })}
       <Text color="gray" dimColor>
-        {'   '}↑↓ navigate · Enter select · Tab complete
+        {'   '}↑↓ move · Enter select · Tab complete
       </Text>
     </Box>
   )
