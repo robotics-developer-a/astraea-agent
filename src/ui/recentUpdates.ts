@@ -13,12 +13,12 @@ export const RECENT_UPDATES: RecentUpdate[] = [
     priority: 95,
     persistent: false,
     messages: {
-      en: 'Ambiguous tasks now enter Counsel automatically. /goal supports dynamic task graphs, per-step acceptance criteria, and source-backed evidence. Stronger shell, MCP, and network safety.',
-      zh: '模糊任务现在会自动进入 Counsel；/goal 支持动态任务图、逐步验收标准和带来源的证据记录。Shell、MCP 和网络安全也得到加强。',
-      de: 'Unklare Aufgaben wechseln jetzt automatisch in Counsel. /goal unterstützt dynamische Aufgabengraphen, Abnahmekriterien pro Schritt und belegte Nachweise. Verbesserter Shell-, MCP- und Netzwerkschutz.',
-      fr: 'Les tâches ambiguës passent désormais automatiquement en mode Counsel. /goal prend en charge les graphes de tâches dynamiques, les critères par étape et les preuves sourcées. Sécurité Shell, MCP et réseau renforcée.',
-      es: 'Las tareas ambiguas ahora entran automáticamente en Counsel. /goal admite grafos de tareas dinámicos, criterios por paso y evidencias con fuente. Seguridad mejorada para Shell, MCP y red.',
-      ko: '모호한 작업은 이제 자동으로 Counsel에 진입합니다. /goal은 동적 작업 그래프, 단계별 승인 기준, 출처가 있는 증거를 지원합니다. Shell, MCP, 네트워크 보안이 강화되었습니다.',
+      en: 'Ambiguous tasks → Counsel automatically. /goal: dynamic graphs, per-step criteria, sourced evidence. Stronger shell, MCP, network safety.',
+      zh: '模糊任务 → Counsel；/goal 支持动态图、分步标准和可溯源证据。Shell、MCP、网络安全增强。',
+      de: 'Unklare Aufgaben → Counsel. /goal: dynamische Graphen, Kriterien pro Schritt, belegte Nachweise. Verbesserter Shell-, MCP- und Netzwerkschutz.',
+      fr: 'Tâches ambiguës → Counsel. /goal: graphes dynamiques, critères par étape, preuves sourcées. Sécurité Shell, MCP, réseau renforcée.',
+      es: 'Tareas ambiguas → Counsel. /goal: grafos dinámicos, criterios por paso, evidencias con fuente. Seguridad Shell, MCP, red mejorada.',
+      ko: '모호한 작업 → Counsel. /goal: 동적 그래프, 단계별 기준, 출처 증거. Shell, MCP, 네트워크 보안 강화.',
     },
   },
   {

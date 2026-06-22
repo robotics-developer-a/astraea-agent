@@ -105,12 +105,18 @@ export function WelcomePanel({ version, cwd, model, tools, columns: columnsProp 
           <Box flexDirection="column" width="100%" marginTop={1}>
             <Text color={INDIGO}>{t('wRecentUpdates')}</Text>
             {recentUpdates.map((message, index) => {
-              const [beforeLogin, afterLogin] = message.split('/login')
+              // 任意 /command 染琥珀黄，其余正文正常色。
+              const parts = message.split(/(\/[a-z]+)/g)
               return (
                 <Text key={`${index}-${message}`} color={SILVER}>
-                  {'• '}{beforeLogin}
-                  <Text color={AMBER}>{'/login'}</Text>
-                  {afterLogin}
+                  {'• '}
+                  {parts.map((part, i) =>
+                    part.startsWith('/') ? (
+                      <Text key={i} color={AMBER}>{part}</Text>
+                    ) : (
+                      <React.Fragment key={i}>{part}</React.Fragment>
+                    ),
+                  )}
                 </Text>
               )
             })}

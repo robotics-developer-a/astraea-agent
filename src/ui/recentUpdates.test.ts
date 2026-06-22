@@ -52,7 +52,7 @@ describe('recent updates', () => {
   })
 
   test('/goal task-accuracy update is the second welcome notice', () => {
-    const updates = getRecentUpdates('0.9.29', 'en')
+    const updates = getRecentUpdates(pkg.version, 'en')
     expect(updates[1]).toContain('/goal')
   })
 })
