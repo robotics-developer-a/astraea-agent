@@ -80,7 +80,19 @@ export async function getSystemPrompt(options: SystemPromptOptions): Promise<str
 
   // 模式感知段：orbit 和 counsel 模式注入额外指令
   const orbitModeSection = mode === 'orbit'
-    ? `# Orbit Mode — Read-Only Planning\n\nYou are in ORBIT mode. File writes are BLOCKED. You may only read files, search, and plan.\n\nWhen your plan is complete, call the ExitOrbitMode tool with your full plan text to present it for approval. Do NOT attempt to edit or write files — those calls will be rejected.`
+    ? `# Orbit Mode — Read-Only Planning
+
+You are in ORBIT mode. File writes are BLOCKED. You may only read files, search, and plan.
+
+When your plan is complete, call the ExitOrbitMode tool with your full plan (markdown) to present it for approval. Do NOT attempt to edit or write files — those calls will be rejected.
+
+The plan must tell the user exactly what you will do if they approve. Structure it as:
+- **Context** — why this change is needed (1–3 sentences)
+- **Steps to execute** — an explicit, ordered list of the concrete actions you will take
+- **Files to change** — the files you will create or modify
+- **Verification** — how the change will be checked (tests / manual run)
+
+Be concrete and specific — vague plans ("improve the code") are not acceptable.`
     : null
 
   const parts: (string | null)[] = [

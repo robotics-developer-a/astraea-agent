@@ -8,6 +8,34 @@
 
 > **1.0.0 发布门槛**（达成后才从 0.x 升到 1.0 并打首个 `git tag v1.0.0`）：
 
+## [0.9.20] - 2026-06-22
+
+### 修复
+- **Orbit 模式计划展示与审批的四个缺陷**：用户在一次纯只读调查里误触 Orbit 模式，暴露出
+  计划呈现/审批流程的四个真实问题。根因都指向同一处设计——`ExitOrbitMode` 复用通用的
+  AskUserQuestion 通道（`askOne`），把 25 行的计划**纯文本**预览塞进 `Question.question`
+  字段。
+  - **① 计划不以 Markdown 渲染**：计划预览经 `QuestionPanel` 用纯 `<Text>{q.question}>` 输出，
+    没有走 markdown。**修复**：`Question` 新增可选 `planBody`；`ExitOrbitMode` 改用 `ask` 携带
+    完整计划，App 的 `onQuestion` 订阅在收到带 `planBody` 的问题时，先把计划正文作为一条
+    持久化的 assistant 历史条目落进 `<Static>`——assistant 条目本就走 `renderMarkdown`，于是
+    计划以格式化 markdown 呈现。
+  - **② 按 ESC 计划整个消失**：ESC 关闭待答问题时只 `setPendingQuestion(null)+answer('')`，而
+    审批面板是计划在屏幕上的**唯一**副本，于是计划凭空消失（文件其实已存盘）。**修复**：因为
+    计划已先落进永久的 `<Static>` 历史，无论面板被 Enter 提交还是 ESC 关掉，计划都留在屏幕上；
+    ESC 路径无需改动，`answer('')` 仍正确地让会话留在 Orbit 以便修订。
+  - **③ 计划没讲清要执行什么**：工具描述与 orbit 系统提示段都未要求「要执行的步骤」。**修复**：
+    `ExitOrbitMode` 描述与 `builder.ts` 的 `orbitModeSection` 均要求计划按
+    Context → Steps to execute → Files to change → Verification 结构化，明确告知用户批准后会发生什么。
+  - **④ 误入 Orbit 模式**：`EnterOrbitMode` 描述只说「探索并设计方案」，未排除只读场景，导致
+    模型连「检查一下 X」这类纯问答也进 Orbit。**修复**：描述加上明确的「只读问题/调查/解释类
+    请求直接作答、不要进 Orbit」约束。
+  - **顺带修掉一个潜伏 bug**：审批判定 `answer.includes('approve')` 会因问题正文本身含
+    "Approve" 而对两个选项都判为通过；改为只解析 `→` 之后真正选中的选项 label。
+  - 涉及文件：`src/tools/AskUserQuestionTool/bridge.ts`、`src/tools/ExitOrbitModeTool/index.ts`、
+    `src/tools/EnterOrbitModeTool/index.ts`、`src/ui/App.tsx`、`src/ui/QuestionPanel.tsx`、
+    `src/context/systemPrompt/builder.ts`。
+
 ## [0.9.19] - 2026-06-22
 
 ### 新增

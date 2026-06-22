@@ -59,6 +59,9 @@ export function QuestionPanel({ questions, qIndex, optCursor, selections, freeTe
         Astraea asks{questions.length > 1 ? ` (${qIndex + 1}/${questions.length})` : ''}:
       </Text>
       <Text>{q.question}</Text>
+      {/* planBody（如计划审批）已作为持久 markdown 历史条目在面板上方渲染，这里只提示，
+          不再重复正文，保持面板精简。 */}
+      {q.planBody && <Text color="gray" dimColor>↑ full plan shown above</Text>}
       {q.multiSelect && <Text color="gray" dimColor>multiple choice — Space to toggle</Text>}
 
       <Box flexDirection="column" marginTop={1}>

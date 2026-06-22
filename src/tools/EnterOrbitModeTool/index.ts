@@ -9,7 +9,13 @@ export const EnterOrbitModeTool = buildTool({
   name: 'EnterOrbitMode',
   description: `Enter orbit mode: a read-only planning phase where file writes are blocked.
 
-Call this tool when you need to explore the codebase and design a plan BEFORE making changes.
+Call this tool ONLY when the user wants you to IMPLEMENT changes on a non-trivial task and
+you want to explore the codebase and design a plan BEFORE editing files.
+
+Do NOT enter orbit mode for read-only work. If the user is asking a question, requesting an
+explanation, asking you to investigate / review / "check whether X", or otherwise only wants
+an answer (not file changes), just do the research and answer directly — entering orbit mode
+there is a mistake (it forces a needless plan-approval round-trip).
 
 In orbit mode:
 - Read, Glob, Grep, Bash (read-only commands) — allowed

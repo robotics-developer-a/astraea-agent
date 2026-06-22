@@ -698,6 +698,16 @@ export function App() {
   // Subscribe to AskUserQuestion bridge
   useEffect(() => {
     const unsubscribe = onQuestion(q => {
+      // 携带 planBody 的问题（ExitOrbitMode 的计划审批）：先把计划正文作为一条持久化的
+      // assistant markdown 历史条目落进 <Static>。这样计划以 markdown 渲染（issue #1），
+      // 且无论审批面板被 Enter 提交还是 ESC 关掉，计划都留在屏幕上不会消失（issue #2）。
+      const planBody = q.questions[0]?.planBody
+      if (planBody?.trim()) {
+        setHistory(prev => [
+          ...prev,
+          { id: String(entryIdRef.current++), role: 'assistant', text: planBody },
+        ])
+      }
       setPendingQuestion(q)
       setInputValue('')
     })

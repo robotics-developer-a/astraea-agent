@@ -26,6 +26,12 @@ export interface Question {
   multiSelect?: boolean
   /** 选项列表（≥2） */
   options: QuestionOption[]
+  /**
+   * 可选的 Markdown 正文（如 ExitOrbitMode 的完整计划）。携带时 UI 会把它作为一条
+   * 持久化的 markdown 历史条目落盘，问题面板本身只保留精简提示——这样计划即便面板被
+   * ESC 关掉也不会从屏幕消失，且以 markdown 渲染而非纯文本。
+   */
+  planBody?: string
 }
 
 export interface PendingQuestion {
