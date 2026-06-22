@@ -74,7 +74,7 @@ function ListRow({ label, hint, active }: { label: string; hint: string; active:
   return (
     <Box>
       <Text color={active ? INDIGO : DIM}>{active ? '❯ ' : '  '}</Text>
-      <Text color={active ? SILVER : DIM} bold={active}>{label.padEnd(22)}</Text>
+      <Text color={active ? SILVER : DIM} bold={active}>{label.padEnd(18)}</Text>
       <Text color={DIM}>{hint}</Text>
     </Box>
   )
