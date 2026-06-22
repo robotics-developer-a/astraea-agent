@@ -1,0 +1,159 @@
+// 流式空闲看门狗 — 给所有 provider 适配器加一层 chunk 到达监控。
+//
+// 为什么需要：SDK 的请求超时只覆盖初始 fetch()，不覆盖流式 body。一旦中转代理把连接
+// 悄悄掐断（半开连接），裸 `for await` 会无限挂起；唯一中断来源是外部 abortSignal（ESC），
+// headless / -p 模式下无人按 ESC 即永久卡死。看门狗在每个 chunk 之间起一个 setTimeout：
+// 超过 STREAM_IDLE_TIMEOUT_MS 没收到新事件 → 主动 abort 流式请求 → 非流式重试一次（fallback）。
+//
+// 关键语义：外部 ESC 与看门狗超时都能 abort SDK 流，但只有看门狗超时路径才触发 fallback。
+// 外部 abort 走 SDK 流抛 AbortError → 透传给 query.ts 现有 AbortError 分支，不进 fallback。
+
+import type { Message as SDKMessage } from '@anthropic-ai/sdk/resources/messages'
+import type OpenAI from 'openai'
+import { config } from '../config'
+import type { StreamEvent, StopReason } from '../types/message'
+
+/**
+ * 把外部 AbortSignal 桥接到一个内部 AbortController：
+ *  - 返回的 signal 传给 SDK（.stream(..., { signal })）；
+ *  - 外部 signal 触发（ESC）→ 转发 abort 到内部（SDK 流抛 AbortError，透传上层）；
+ *  - 看门狗超时 → 调用返回的 abort()（同样 abort SDK 流，但由看门狗接管走 fallback）。
+ */
+export function linkAbort(external?: AbortSignal): { signal: AbortSignal; abort: () => void } {
+  const controller = new AbortController()
+  if (external) {
+    if (external.aborted) controller.abort()
+    else external.addEventListener('abort', () => controller.abort(), { once: true })
+  }
+  return { signal: controller.signal, abort: () => controller.abort() }
+}
+
+interface WatchdogOpts {
+  /** 内层真实流式生成器（用 linkAbort 的 signal 建 SDK 流）。 */
+  stream: AsyncGenerator<StreamEvent>
+  /** 看门狗超时时调用，abort 内层流式请求。 */
+  abort: () => void
+  /** 看门狗超时后的非流式兜底，产出与正常流式同构的事件序列。只跑一次。 */
+  fallback: () => AsyncGenerator<StreamEvent> | Promise<StreamEvent[]>
+  /** 空闲阈值（ms）。缺省取 config.streamIdleTimeoutMs。 */
+  idleMs?: number
+}
+
+/**
+ * 包裹一个 StreamEvent 生成器，做逐 chunk 空闲监控。
+ * 命中 chunk → 透传并重置计时；命中空闲超时 → abort + 非流式 fallback（一次）。
+ */
+export async function* withIdleWatchdog(opts: WatchdogOpts): AsyncGenerator<StreamEvent> {
+  const idleMs = opts.idleMs ?? config.streamIdleTimeoutMs
+  const it = opts.stream[Symbol.asyncIterator]()
+
+  while (true) {
+    const IDLE = Symbol('idle')
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const idle = new Promise<typeof IDLE>((resolve) => {
+      timer = setTimeout(() => resolve(IDLE), idleMs)
+    })
+
+    const next = it.next()
+    let winner: IteratorResult<StreamEvent> | typeof IDLE
+    try {
+      winner = await Promise.race([next, idle])
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+
+    if (winner === IDLE) {
+      // 连接被悄悄掐断：abort 内层流式请求（被遗弃的 next 会拒绝，吞掉防未处理拒绝），
+      // 然后跑一次非流式 fallback 把结果吐出去。fallback 自身报错/再挂起 → 作为普通错误向上抛。
+      opts.abort()
+      void next.catch(() => {})
+      const result = await opts.fallback()
+      if (Array.isArray(result)) {
+        for (const e of result) yield e
+      } else {
+        for await (const e of result) yield e
+      }
+      return
+    }
+
+    if (winner.done) return
+    yield winner.value
+  }
+}
+
+// ───────────────────────── 非流式响应 → StreamEvent 映射 ─────────────────────────
+
+/** Anthropic 非流式 Message → StreamEvent[]（与流式同构：text / tool_use / message_stop）。 */
+export function mapAnthropicMessageToEvents(msg: SDKMessage): StreamEvent[] {
+  const events: StreamEvent[] = []
+  for (const block of msg.content) {
+    if (block.type === 'text') {
+      events.push({ type: 'text', text: block.text })
+    } else if (block.type === 'tool_use') {
+      // 非流式返回的 input 已是完整对象，不存在「累积中途被截断」→ incomplete: false。
+      events.push({
+        type: 'tool_use',
+        id: block.id,
+        name: block.name,
+        input: (block.input ?? {}) as Record<string, unknown>,
+        incomplete: false,
+      })
+    }
+  }
+  events.push({
+    type: 'message_stop',
+    usage: {
+      input_tokens: msg.usage.input_tokens,
+      output_tokens: msg.usage.output_tokens,
+      cache_read_input_tokens: msg.usage.cache_read_input_tokens ?? 0,
+      cache_creation_input_tokens: msg.usage.cache_creation_input_tokens ?? 0,
+    },
+    stopReason: msg.stop_reason === 'max_tokens' ? 'max_tokens'
+      : msg.stop_reason === 'tool_use' ? 'tool_use'
+      : msg.stop_reason === 'end_turn' ? 'end_turn'
+      : msg.stop_reason === 'stop_sequence' ? 'stop_sequence'
+      : 'other',
+  })
+  return events
+}
+
+/**
+ * OpenAI 兼容非流式 ChatCompletion → StreamEvent[]。
+ * usage 由各 provider 自行映射后传入（口径差异见 usageAccounting），ollama 无缓存概念省略 cacheRead。
+ */
+export function mapOpenAICompletionToEvents(
+  resp: OpenAI.Chat.ChatCompletion,
+  usage: { input_tokens: number; output_tokens: number; cache_read_input_tokens?: number },
+): StreamEvent[] {
+  const events: StreamEvent[] = []
+  const choice = resp.choices[0]
+  const finishReason = choice?.finish_reason ?? null
+  const truncated = finishReason === 'length'
+
+  if (choice?.message.content) {
+    events.push({ type: 'text', text: choice.message.content })
+  }
+  for (const tc of choice?.message.tool_calls ?? []) {
+    if (tc.type !== 'function') continue
+    let input: Record<string, unknown> = {}
+    let incomplete = false
+    try { input = JSON.parse(tc.function.arguments) } catch { incomplete = true }
+    events.push({ type: 'tool_use', id: tc.id, name: tc.function.name, input, incomplete: incomplete || truncated })
+  }
+
+  const stopReason: StopReason = truncated ? 'max_tokens'
+    : finishReason === 'tool_calls' ? 'tool_use'
+    : finishReason === 'stop' ? 'end_turn'
+    : 'other'
+
+  events.push({
+    type: 'message_stop',
+    usage: {
+      input_tokens: usage.input_tokens,
+      output_tokens: usage.output_tokens,
+      cache_read_input_tokens: usage.cache_read_input_tokens ?? 0,
+    },
+    stopReason,
+  })
+  return events
+}

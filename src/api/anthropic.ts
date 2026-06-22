@@ -1,7 +1,7 @@
 // Anthropic 流式适配器
 // 参考源码: claude-code-main/src/services/api/claude.ts
 
-import type { Message as SDKMessage, RawMessageStreamEvent } from '@anthropic-ai/sdk/resources/messages'
+import type { Message as SDKMessage, RawMessageStreamEvent, MessageCreateParamsNonStreaming } from '@anthropic-ai/sdk/resources/messages'
 import { config } from '../config'
 import type { Message, StreamEvent } from '../types/message'
 import { toAPIMessage } from '../types/message'
@@ -9,6 +9,7 @@ import type { ToolSchema } from '../tools/Tool'
 import { normalizeMessagesForAPI } from '../utils/messages'
 import { getClient } from './client'
 import { resolveAppliedEffort, anthropicThinkingParam } from './reasoningEffort'
+import { withIdleWatchdog, linkAbort, mapAnthropicMessageToEvents } from './idleWatchdog'
 
 export interface StreamOptions {
   system?: string
@@ -21,7 +22,7 @@ export interface StreamOptions {
   model?: string
 }
 
-export async function* streamMessageAnthropic(
+export function streamMessageAnthropic(
   messages: Message[],
   options: StreamOptions = {},
 ): AsyncGenerator<StreamEvent> {
@@ -42,7 +43,8 @@ export async function* streamMessageAnthropic(
   const effMaxTokens = options.maxTokens ?? config.anthropic.maxTokens
   const thinkingParam = anthropicThinkingParam(effModel, resolveAppliedEffort(), effMaxTokens)
 
-  const stream = client.messages.stream({
+  // 流式与非流式 fallback 共用同一份请求参数（fallback 仅追加 stream:false / 去掉无关项）。
+  const params = {
     model: effModel,
     max_tokens: effMaxTokens,
     system: system as string | undefined,
@@ -54,7 +56,32 @@ export async function* streamMessageAnthropic(
           tool_choice: { type: 'auto' as const },
         }
       : {}),
-  }, { signal: options.abortSignal })
+  }
+
+  // 看门狗超时后的非流式兜底：同参数走 messages.create，整条响应映射成等价事件。
+  async function* fallback(signal: AbortSignal): AsyncGenerator<StreamEvent> {
+    const msg = await client.messages.create(
+      params as MessageCreateParamsNonStreaming,
+      { signal },
+    )
+    for (const e of mapAnthropicMessageToEvents(msg)) yield e
+  }
+
+  const linked = linkAbort(options.abortSignal)
+  return withIdleWatchdog({
+    stream: streamRawAnthropic(client, params, linked.signal),
+    abort: linked.abort,
+    fallback: () => fallback(linked.signal),
+  })
+}
+
+// 内层真实流式：用 linkAbort 的 signal 建 SDK 流并 yield 精简事件（原 streamMessageAnthropic 主体）。
+async function* streamRawAnthropic(
+  client: ReturnType<typeof getClient>,
+  params: Parameters<typeof client.messages.stream>[0],
+  signal: AbortSignal,
+): AsyncGenerator<StreamEvent> {
+  const stream = client.messages.stream(params, { signal })
 
   let currentToolId = ''
   let currentToolName = ''

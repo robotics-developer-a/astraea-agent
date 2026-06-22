@@ -7,6 +7,7 @@ import { config } from '../config'
 import type { Message, StreamEvent } from '../types/message'
 import type { StreamOptions } from './anthropic'
 import type { ToolSchema } from '../tools/Tool'
+import { withIdleWatchdog, linkAbort, mapOpenAICompletionToEvents } from './idleWatchdog'
 
 let _ollamaClient: OpenAI | null = null
 
@@ -20,7 +21,7 @@ function getOllamaClient(): OpenAI {
   return _ollamaClient
 }
 
-export async function* streamMessageOllama(
+export function streamMessageOllama(
   messages: Message[],
   options: StreamOptions = {},
 ): AsyncGenerator<StreamEvent> {
@@ -73,14 +74,6 @@ export async function* streamMessageOllama(
     }
   }
 
-  // 收集 tool_calls 的 arguments 分片（与 Anthropic 的 input_json_delta 类似）
-  const toolCallBuffers = new Map<number, { id: string; name: string; args: string }>()
-
-  let inputTokens = 0
-  let outputTokens = 0
-  let truncated = false
-  let finishReason: string | null = null
-
   // 把 ToolSchema（Anthropic 格式）转成 OpenAI function tool 格式
   const openaiTools: OpenAI.Chat.ChatCompletionTool[] | undefined =
     options.tools?.map((t: ToolSchema) => ({
@@ -105,14 +98,58 @@ export async function* streamMessageOllama(
     console.error(`[DEBUG ollama] tools: ${openaiTools.map(t => (t as any).function.name).join(', ')}`)
   }
 
-  const stream = await client.chat.completions.create({
+  // 流式与非流式 fallback 共用同一份基础参数。
+  const baseParams = {
     model: options.model ?? config.ollama.model,
     max_tokens: options.maxTokens ?? config.ollama.maxTokens,
     messages: chatMessages,
-    stream: true,
-    ...(openaiTools?.length ? { tools: openaiTools, tool_choice: 'auto' } : {}),
-    // stream_options.include_usage 并非所有 Ollama 版本都支持，省略以保持兼容
-  }, { signal: options.abortSignal })
+    ...(openaiTools?.length ? { tools: openaiTools, tool_choice: 'auto' as const } : {}),
+  }
+
+  const linked = linkAbort(options.abortSignal)
+  return withIdleWatchdog({
+    stream: streamRawOllama(client, baseParams, linked.signal),
+    abort: linked.abort,
+    fallback: () => fallbackOllama(client, baseParams, linked.signal),
+  })
+}
+
+// 看门狗超时后的非流式兜底：同参数走 stream:false，整条响应映射成等价事件。
+// Ollama 无缓存概念，usage 直接取 prompt_tokens / completion_tokens。
+async function* fallbackOllama(
+  client: OpenAI,
+  baseParams: Record<string, unknown>,
+  signal: AbortSignal,
+): AsyncGenerator<StreamEvent> {
+  const resp = await client.chat.completions.create(
+    { ...baseParams, stream: false } as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming,
+    { signal },
+  )
+  for (const e of mapOpenAICompletionToEvents(resp, {
+    input_tokens: resp.usage?.prompt_tokens ?? 0,
+    output_tokens: resp.usage?.completion_tokens ?? 0,
+  })) yield e
+}
+
+// 内层真实流式：用 linkAbort 的 signal 建 SDK 流并 yield 精简事件。
+async function* streamRawOllama(
+  client: OpenAI,
+  baseParams: Record<string, unknown>,
+  signal: AbortSignal,
+): AsyncGenerator<StreamEvent> {
+  // stream_options.include_usage 并非所有 Ollama 版本都支持，省略以保持兼容
+  const stream = await client.chat.completions.create(
+    { ...baseParams, stream: true } as OpenAI.Chat.ChatCompletionCreateParamsStreaming,
+    { signal },
+  )
+
+  // 收集 tool_calls 的 arguments 分片（与 Anthropic 的 input_json_delta 类似）
+  const toolCallBuffers = new Map<number, { id: string; name: string; args: string }>()
+
+  let inputTokens = 0
+  let outputTokens = 0
+  let truncated = false
+  let finishReason: string | null = null
 
   for await (const chunk of stream) {
     const choice = chunk.choices[0]

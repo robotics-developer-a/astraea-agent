@@ -8,6 +8,7 @@ import type { StreamOptions } from './anthropic'
 import type { ToolSchema } from '../tools/Tool'
 import { resolveAppliedEffort, openaiReasoningParam } from './reasoningEffort'
 import { mapOpenAIUsage } from './usageAccounting'
+import { withIdleWatchdog, linkAbort, mapOpenAICompletionToEvents } from './idleWatchdog'
 
 let _openaiClient: OpenAI | null = null
 
@@ -37,7 +38,7 @@ export function resetOpenAIClient(): void {
   _openaiClient = null
 }
 
-export async function* streamMessageOpenAI(
+export function streamMessageOpenAI(
   messages: Message[],
   options: StreamOptions = {},
 ): AsyncGenerator<StreamEvent> {
@@ -88,13 +89,6 @@ export async function* streamMessageOpenAI(
     }
   }
 
-  const toolCallBuffers = new Map<number, { id: string; name: string; args: string }>()
-  let inputTokens = 0
-  let outputTokens = 0
-  let cacheReadTokens = 0   // prompt_tokens 含命中缓存，需拆出按缓存价计（见 usageAccounting）
-  let truncated = false   // finish_reason === 'length' → 撞输出上限被截断
-  let finishReason: string | null = null
-
   const openaiTools: OpenAI.Chat.ChatCompletionTool[] | undefined =
     options.tools?.map((t: ToolSchema) => ({
       type: 'function' as const,
@@ -122,15 +116,58 @@ export async function* streamMessageOpenAI(
       ? { reasoning_effort: config.openai.reasoningEffort as 'low' | 'medium' | 'high' }
       : {}
 
-  const stream = await client.chat.completions.create({
+  // 流式与非流式 fallback 共用同一份基础参数（仅 stream/stream_options 不同）。
+  const baseParams = {
     model: effectiveModel,
     ...tokenLimit,
     ...reasoningParam,
     messages: chatMessages,
-    stream: true,
-    stream_options: { include_usage: true },
-    ...(openaiTools?.length ? { tools: openaiTools, tool_choice: 'auto' } : {}),
-  }, { signal: options.abortSignal })
+    ...(openaiTools?.length ? { tools: openaiTools, tool_choice: 'auto' as const } : {}),
+  }
+
+  const linked = linkAbort(options.abortSignal)
+  return withIdleWatchdog({
+    stream: streamRawOpenAI(client, baseParams, linked.signal),
+    abort: linked.abort,
+    fallback: () => fallbackOpenAI(client, baseParams, linked.signal),
+  })
+}
+
+// 看门狗超时后的非流式兜底：同参数走 stream:false，整条响应映射成等价事件。
+async function* fallbackOpenAI(
+  client: OpenAI,
+  baseParams: Record<string, unknown>,
+  signal: AbortSignal,
+): AsyncGenerator<StreamEvent> {
+  const resp = await client.chat.completions.create(
+    { ...baseParams, stream: false } as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming,
+    { signal },
+  )
+  const m = resp.usage ? mapOpenAIUsage(resp.usage) : { input: 0, output: 0, cacheRead: 0 }
+  for (const e of mapOpenAICompletionToEvents(resp, {
+    input_tokens: m.input,
+    output_tokens: m.output,
+    cache_read_input_tokens: m.cacheRead,
+  })) yield e
+}
+
+// 内层真实流式：用 linkAbort 的 signal 建 SDK 流并 yield 精简事件。
+async function* streamRawOpenAI(
+  client: OpenAI,
+  baseParams: Record<string, unknown>,
+  signal: AbortSignal,
+): AsyncGenerator<StreamEvent> {
+  const stream = await client.chat.completions.create(
+    { ...baseParams, stream: true, stream_options: { include_usage: true } } as OpenAI.Chat.ChatCompletionCreateParamsStreaming,
+    { signal },
+  )
+
+  const toolCallBuffers = new Map<number, { id: string; name: string; args: string }>()
+  let inputTokens = 0
+  let outputTokens = 0
+  let cacheReadTokens = 0   // prompt_tokens 含命中缓存，需拆出按缓存价计（见 usageAccounting）
+  let truncated = false   // finish_reason === 'length' → 撞输出上限被截断
+  let finishReason: string | null = null
 
   for await (const chunk of stream) {
     const choice = chunk.choices[0]

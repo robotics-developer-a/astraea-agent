@@ -8,6 +8,21 @@
 
 > **1.0.0 发布门槛**（达成后才从 0.x 升到 1.0 并打首个 `git tag v1.0.0`）：
 
+## [0.9.25] - 2026-06-22
+
+### 新增
+- **流式空闲看门狗（Stream Idle Watchdog）+ 非流式 fallback**：SDK 的请求超时只覆盖初始
+  `fetch()`，不覆盖流式 body——一旦中转代理把连接悄悄掐断（半开连接），裸 `for await` 会无限
+  挂起，headless / `-p` 模式下无人按 ESC 即永久卡死。新增 `src/api/idleWatchdog.ts`：在每个
+  chunk 之间起 `setTimeout`，超过 `ASTRAEA_STREAM_IDLE_TIMEOUT_MS`（默认 90s）没收到新事件即
+  主动 abort 流式请求，并用同参数非流式重试一次（`messages.create` / `chat.completions.create`
+  `stream:false`），把整条响应映射成等价 `StreamEvent`。覆盖全部 5 个 provider（anthropic /
+  openai / deepseek / kimi / ollama）。
+  - 关键语义：外部 ESC 与看门狗超时都能 abort SDK 流，但**只有看门狗超时路径触发 fallback**；
+    外部 abort 仍走 `query.ts` 既有 `AbortError` 分支，不进 fallback。
+  - 各适配器统一拆成 `streamRaw*`（内层真实流式）+ `fallback*`（非流式兜底），共用同一份请求参数。
+  - `src/config.ts` 新增 `streamIdleTimeoutMs`（`ASTRAEA_STREAM_IDLE_TIMEOUT_MS` 覆盖，默认 90000）。
+
 ## [0.9.24] - 2026-06-22
 
 ### 修复 / 改进

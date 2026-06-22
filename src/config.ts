@@ -77,6 +77,14 @@ function contextWindowFrom(envKey: string, fallback: number): number {
   return Number.isFinite(raw) && raw > 0 ? raw : fallback
 }
 
+// 流式空闲看门狗超时（ms）— 两个 chunk 之间超过此时长没收到新事件，判定连接被悄悄掐断，
+// 主动 abort 流式请求并非流式重试一次。SDK 的请求超时只覆盖初始 fetch()，不覆盖流式 body，
+// 半开连接会无限挂起，headless 下无人按 ESC 即永久卡死。默认 90s，ASTRAEA_STREAM_IDLE_TIMEOUT_MS 覆盖。
+function streamIdleTimeoutFrom(): number {
+  const raw = Number(process.env.ASTRAEA_STREAM_IDLE_TIMEOUT_MS)
+  return Number.isFinite(raw) && raw > 0 ? raw : 90_000
+}
+
 // autocompact 总开关：默认开；ASTRAEA_AUTOCOMPACT 设为 0/false/off/no → 关闭。
 // 关闭时不自动压缩，改走 0.98 硬阻塞，强制用户手动 /compact（设计文档 §4/§9）。
 function autocompactEnabledFrom(): boolean {
@@ -106,6 +114,9 @@ export const config = {
   // ctx-agent 可选模型覆盖：默认用 querySmallModel 的 per-provider 小模型；
   // 设了就用它（如想用更强模型提升折叠摘要保真度，不影响 WebFetch 等其它小模型调用方）。
   ctxAgentModel: process.env.CTX_AGENT_MODEL?.trim() || undefined,
+
+  // 流式空闲看门狗超时（ms）。见 streamIdleTimeoutFrom 注释。
+  streamIdleTimeoutMs: streamIdleTimeoutFrom(),
 
   anthropic: {
     apiKey: process.env.ANTHROPIC_API_KEY ?? '',
