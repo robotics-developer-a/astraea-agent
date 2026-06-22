@@ -53,6 +53,20 @@ export function replyLanguageName(): string {
   return LOCALES.find(l => l.id === _locale)?.replyName ?? 'English'
 }
 
+// ─── /language 命令解析 ──────────────────────────────────────────────────────
+// 把一条已 trim 的输入解析成 /language 的动作意图（流式/非流式两处共用，避免逻辑漂移）：
+//   '/language'          → { kind: 'wizard' }                弹向导
+//   '/language en'       → { kind: 'switch', locale: 'en' }  直接切（大小写不敏感、容忍空白）
+//   '/language xx'       → { kind: 'wizard' }                未知码 → 退回向导
+//   其它（非 /language） → null
+export type LanguageCommand = { kind: 'wizard' } | { kind: 'switch'; locale: Locale }
+export function resolveLanguageCommand(trimmed: string): LanguageCommand | null {
+  if (trimmed !== '/language' && !trimmed.startsWith('/language ')) return null
+  const arg = trimmed.slice('/language'.length).trim().toLowerCase()
+  const target = LOCALES.find(l => l.id === arg)
+  return target ? { kind: 'switch', locale: target.id } : { kind: 'wizard' }
+}
+
 // ─── 字符串目录 ────────────────────────────────────────────────────────────────
 // key 为稳定标识；缺失时回退英文，再回退 key 本身。{name} 占位由 t() 第二参替换。
 type Dict = Record<string, string>

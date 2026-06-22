@@ -22,7 +22,7 @@ import type { InternetResult } from './InternetWizard'
 import { LanguageWizard, formatLanguageSuccess } from './LanguageWizard'
 import { config, updateProviderConfig, saveConfigToEnv, saveSearchProviderKey, hasValidConfig } from '../config'
 import { resetAdapter as resetSearchAdapter } from '../tools/WebSearchTool/index'
-import { setLocale, LOCALES, t } from '../i18n'
+import { setLocale, t, resolveLanguageCommand } from '../i18n'
 import type { Locale } from '../i18n'
 import { resetAllApiClients } from '../api/stream'
 import { getSystemPrompt } from '../context/systemPrompt/builder'
@@ -1238,6 +1238,7 @@ export function App() {
           return
         }
         const liveModeMatch = trimmed.match(/^\/mode\s+(default|orbit|cruise|forge|counsel)$/)
+        const langCmd = resolveLanguageCommand(trimmed)
         if (liveModeMatch) {
           const newMode = liveModeMatch[1] as SessionMode
           setInputValue('')
@@ -1254,6 +1255,13 @@ export function App() {
           const currentIdx = MODE_OPTIONS.findIndex(o => o.value === getMode())
           setModeSelectorIndex(currentIdx >= 0 ? currentIdx : 0)
           setPendingModeSelect(true)
+        } else if (langCmd) {
+          // /language 在执行中也放行：切 locale / 弹向导都是纯本地 UI 操作，不碰在飞的流，
+          // 与 /mode 同理（此前被「其它斜杠命令忽略」吞掉 → 输出时敲 /language 无反应）。
+          setInputValue('')
+          historyIndexRef.current = -1
+          if (langCmd.kind === 'switch') void handleLanguageDone(langCmd.locale)
+          else setShowLanguage(true)
         } else if (!trimmed.startsWith('/')) {
           // ── interject ───────────────────────────────────────────────────────
           // 执行中的非斜杠输入 = 插队指令：入队，query.ts 在下一轮工具批/纯文本轮末尾
@@ -1267,7 +1275,7 @@ export function App() {
             { id: String(entryIdRef.current++), role: 'user', text: trimmed },
           ])
         }
-        // 其它斜杠命令在执行中忽略（仅 /mode、/stop 生效），保留已输入文本供稍后提交
+        // 其它斜杠命令在执行中忽略（仅 /mode、/language、/stop 生效），保留已输入文本供稍后提交
         return
       }
       if (!systemPrompt) return  // still loading
@@ -1315,13 +1323,12 @@ export function App() {
         return
       }
 
-      // /language — 选择界面与回复语言。带参（/language en）直接切，无参弹向导。
-      if (trimmed === '/language' || trimmed.startsWith('/language ')) {
+      // /language — 选择界面语言。带参（/language en）直接切，无参或未知码弹向导。
+      const langCmdIdle = resolveLanguageCommand(trimmed)
+      if (langCmdIdle) {
         setInputValue('')
         historyIndexRef.current = -1
-        const arg = trimmed.slice('/language'.length).trim().toLowerCase()
-        const target = LOCALES.find(l => l.id === arg)
-        if (target) void handleLanguageDone(target.id)
+        if (langCmdIdle.kind === 'switch') void handleLanguageDone(langCmdIdle.locale)
         else setShowLanguage(true)
         return
       }

@@ -8,6 +8,16 @@
 
 > **1.0.0 发布门槛**（达成后才从 0.x 升到 1.0 并打首个 `git tag v1.0.0`）：
 
+## [0.9.34] - 2026-06-23
+
+### 修复
+- **Astraea 输出时 `/language` 被吞掉**：流式执行中只放行 `/stop` 和 `/mode`，其余斜杠命令一律
+  在「其它斜杠命令忽略」处 `return` 掉，导致用户在 Astraea 正在回复时敲 `/language` + Enter
+  毫无反应。把 `/language` 加进流式白名单（与 `/mode` 同理——切 locale / 弹向导都是纯本地 UI
+  操作，不碰在飞的查询）。同时把流式与非流式两处重复的 `/language` 解析逻辑抽成纯函数
+  `resolveLanguageCommand`（`src/i18n/index.ts`），避免两处逻辑漂移，并补单测覆盖
+  `/language` / `/language <code>`（大小写不敏感）/ 未知码退回向导 / 非命令返回 null。
+
 ## [0.9.33] - 2026-06-22
 
 ### 修复
