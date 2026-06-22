@@ -5,6 +5,7 @@
 // 让 LLM 可以理解限制并引导用户使用 WebFetch 替代。
 import { buildTool } from '../Tool.js'
 import type { Tool, ToolCallResult } from '../Tool.js'
+import { confirmWithUser } from '../BashTool/permissions/confirm.js'
 
 type BrowserAction = 'navigate' | 'screenshot' | 'click' | 'type' | 'scroll'
 
@@ -45,8 +46,8 @@ export const WebBrowserTool = buildTool({
 
 Use for JavaScript-heavy SPAs, authenticated pages, or UI interaction testing.
 NOTE: Requires browser runtime. If unavailable, use WebFetch for static content instead.`,
-  isReadOnly: () => true,
-  isConcurrencySafe: () => true,
+  isReadOnly: input => !['click', 'type'].includes(String(input['action'] ?? 'navigate')),
+  isConcurrencySafe: input => !['click', 'type'].includes(String(input['action'] ?? 'navigate')),
   inputSchema: {
     type: 'object',
     properties: {
@@ -71,11 +72,15 @@ NOTE: Requires browser runtime. If unavailable, use WebFetch for static content 
     required: ['url'],
   },
 
-  async call(input, _ctx: import("../Tool.js").ToolContext): Promise<ToolCallResult> {
+  async call(input, ctx: import("../Tool.js").ToolContext): Promise<ToolCallResult> {
     const url = input['url'] as string
     const action = (input['action'] as BrowserAction | undefined) ?? 'navigate'
     const selector = input['selector'] as string | undefined
     const text = input['text'] as string | undefined
+
+    if (action === 'click' && !selector) return { output: 'Error: click 操作需要提供 selector', isError: true }
+    if (action === 'type' && !selector) return { output: 'Error: type 操作需要提供 selector', isError: true }
+    if (action === 'type' && text === undefined) return { output: 'Error: type 操作需要提供 text', isError: true }
 
     await lazyInit()
 
@@ -94,6 +99,18 @@ NOTE: Requires browser runtime. If unavailable, use WebFetch for static content 
       }
     }
 
+    if ((action === 'click' || action === 'type') && ctx.mode !== 'forge') {
+      if (ctx.isInteractive !== true) {
+        return { output: `Browser ${action} requires confirmation, but no interactive user is available.`, isError: true }
+      }
+      const confirmation = await confirmWithUser(
+        `WebBrowser ${action}: ${selector}`,
+        `External web action on ${url}`,
+        'action',
+      )
+      if (!confirmation.proceed) return { output: `Browser ${action} cancelled by user.`, isError: true }
+    }
+
     try {
       switch (action) {
         case 'navigate': {
@@ -105,14 +122,11 @@ NOTE: Requires browser runtime. If unavailable, use WebFetch for static content 
           return { output: `[WebBrowser] screenshot 完成（Base64 PNG，${base64.length} 字符）\n${base64}` }
         }
         case 'click': {
-          if (!selector) return { output: 'Error: click 操作需要提供 selector', isError: true }
-          const state = await driver.click(selector)
+          const state = await driver.click(selector!)
           return { output: `[WebBrowser] click "${selector}" → ${state.url}\n${state.content}` }
         }
         case 'type': {
-          if (!selector) return { output: 'Error: type 操作需要提供 selector', isError: true }
-          if (text === undefined) return { output: 'Error: type 操作需要提供 text', isError: true }
-          const state = await driver.type(selector, text)
+          const state = await driver.type(selector!, text!)
           return { output: `[WebBrowser] type "${text}" into "${selector}" 完成\n${state.content}` }
         }
         case 'scroll': {

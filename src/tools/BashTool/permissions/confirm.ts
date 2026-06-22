@@ -17,7 +17,7 @@ export type { ConfirmResult }
 export async function confirmWithUser(
   command: string,
   description?: string,
-  kind: 'bash' | 'file' = 'bash',
+  kind: 'bash' | 'file' | 'action' = 'bash',
 ): Promise<ConfirmResult> {
   // 首选方向键选择器（有 Ink UI 时）
   if (hasConfirmUI()) {
@@ -35,7 +35,7 @@ const BOLD   = '\x1b[1m'
 async function readlineConfirm(
   command: string,
   description?: string,
-  kind: 'bash' | 'file' = 'bash',
+  kind: 'bash' | 'file' | 'action' = 'bash',
 ): Promise<ConfirmResult> {
   const stdin = process.stdin as NodeJS.ReadStream & { isRaw?: boolean }
   const isTTY  = stdin.isTTY ?? false
@@ -52,7 +52,7 @@ async function readlineConfirm(
   }
 }
 
-function readConfirmation(command: string, description?: string, kind: 'bash' | 'file' = 'bash'): Promise<ConfirmResult> {
+function readConfirmation(command: string, description?: string, kind: 'bash' | 'file' | 'action' = 'bash'): Promise<ConfirmResult> {
   return new Promise((resolve) => {
     const rl = createInterface({ input: process.stdin, output: process.stdout })
 
@@ -60,6 +60,8 @@ function readConfirmation(command: string, description?: string, kind: 'bash' | 
     // 文件写：Yes / 本会话全允许（切 cruise）/ No；Bash：Yes / No / Always allow / Always deny
     const optionLine = kind === 'file'
       ? `│  ${BOLD}[y]${RESET} Yes   ${BOLD}[s]${RESET} Yes, all edits this session → cruise   ${BOLD}[n]${RESET} No\n`
+      : kind === 'action'
+        ? `│  ${BOLD}[y]${RESET} Yes   ${BOLD}[n]${RESET} No\n`
       : `│  ${BOLD}[y]${RESET} Yes   ${BOLD}[n]${RESET} No   ${BOLD}[a]${RESET} Always allow   ${BOLD}[d]${RESET} Always deny\n`
     process.stdout.write(
       `\n${BOLD}┌─ Astraea wants to run:${RESET}\n` +
@@ -81,7 +83,7 @@ function readConfirmation(command: string, description?: string, kind: 'bash' | 
   })
 }
 
-function parseAnswer(key: string, kind: 'bash' | 'file' = 'bash'): ConfirmResult {
+function parseAnswer(key: string, kind: 'bash' | 'file' | 'action' = 'bash'): ConfirmResult {
   if (kind === 'file') {
     switch (key) {
       case 'y':
@@ -92,6 +94,9 @@ function parseAnswer(key: string, kind: 'bash' | 'file' = 'bash'): ConfirmResult
       default: // n, no, 回车, 其他
         return { proceed: false, remember: null }
     }
+  }
+  if (kind === 'action') {
+    return { proceed: key === 'y' || key === 'yes', remember: null }
   }
   switch (key) {
     case 'y':

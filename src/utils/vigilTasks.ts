@@ -1,7 +1,8 @@
 // vigil 任务持久化 — 读写 ~/.astraea/scheduled_tasks.json
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdirSync, readFileSync, existsSync } from 'node:fs'
+import { writePrivateFile } from './privateFile'
 
 export interface VigilTask {
   id: string
@@ -41,7 +42,7 @@ export function readTasks(): VigilTask[] {
 }
 
 export function writeTasks(tasks: VigilTask[]): void {
-  writeFileSync(getTasksFilePath(), JSON.stringify(tasks, null, 2), 'utf-8')
+  writePrivateFile(getTasksFilePath(), JSON.stringify(tasks, null, 2))
 }
 
 export function addTask(task: VigilTask): void {

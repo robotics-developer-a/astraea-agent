@@ -2,7 +2,7 @@
 import React, { useState } from 'react'
 import { Box, Text, useInput } from 'ink'
 import TextInput from './TextInput'
-import type { Provider } from '../config'
+import { config, type Provider } from '../config'
 import { t } from '../i18n'
 import { INDIGO, SILVER } from './theme'
 
@@ -66,7 +66,7 @@ interface Props {
   onDone: (result: LoginResult | null) => void
 }
 
-type Step = 'provider' | 'model' | 'apikey'
+type Step = 'provider' | 'model' | 'credential' | 'apikey'
 
 // ─── 子组件：列表选择行 ────────────────────────────────────────────────────────
 
@@ -86,12 +86,15 @@ export function LoginWizard({ onDone }: Props): React.ReactNode {
   const [step, setStep] = useState<Step>('provider')
   const [providerIdx, setProviderIdx] = useState(0)
   const [modelIdx, setModelIdx] = useState(0)
+  const [credentialIdx, setCredentialIdx] = useState(0)
   const [provider, setProvider] = useState<Exclude<Provider, 'ollama'>>('anthropic')
   const [model, setModel] = useState('')
   const [apiKey, setApiKey] = useState('')
 
   const models = MODELS[provider]
   const providerLabel = PROVIDERS.find(p => p.value === provider)?.label ?? provider
+  // INTENT: Credential reuse is provider-scoped, so switching models never borrows another provider's secret.
+  const existingApiKey = config[provider].apiKey
 
   useInput((_, key) => {
     // ESC 始终取消
@@ -105,10 +108,12 @@ export function LoginWizard({ onDone }: Props): React.ReactNode {
 
     if (key.upArrow) {
       if (step === 'provider') setProviderIdx(i => Math.max(0, i - 1))
-      else setModelIdx(i => Math.max(0, i - 1))
+      else if (step === 'model') setModelIdx(i => Math.max(0, i - 1))
+      else setCredentialIdx(i => Math.max(0, i - 1))
     } else if (key.downArrow) {
       if (step === 'provider') setProviderIdx(i => Math.min(PROVIDERS.length - 1, i + 1))
-      else setModelIdx(i => Math.min(models.length - 1, i + 1))
+      else if (step === 'model') setModelIdx(i => Math.min(models.length - 1, i + 1))
+      else setCredentialIdx(i => Math.min(1, i + 1))
     } else if (key.return) {
       if (step === 'provider') {
         const chosen = PROVIDERS[providerIdx]!
@@ -117,7 +122,11 @@ export function LoginWizard({ onDone }: Props): React.ReactNode {
         setStep('model')
       } else if (step === 'model') {
         setModel(models[modelIdx]!.value)
-        setStep('apikey')
+        setCredentialIdx(0)
+        setStep(existingApiKey ? 'credential' : 'apikey')
+      } else if (step === 'credential') {
+        if (credentialIdx === 0) onDone({ provider, model, apiKey: existingApiKey })
+        else setStep('apikey')
       }
     }
   })
@@ -169,7 +178,27 @@ export function LoginWizard({ onDone }: Props): React.ReactNode {
         </>
       )}
 
-      {/* Step 3: 输入 API Key */}
+      {/* Step 3: 已配置该 Provider 时选择复用或替换凭据 */}
+      {step === 'credential' && (
+        <>
+          <Box>
+            <Text color={DIM}>{t('labelProvider')} </Text>
+            <Text color={SILVER}>{providerLabel}</Text>
+          </Box>
+          <Box marginBottom={1}>
+            <Text color={DIM}>{t('labelModel')} </Text>
+            <Text color={SILVER}>{model}</Text>
+          </Box>
+          <Text color={SILVER}>{t('loginSelectCredential')}</Text>
+          <Box flexDirection="column" marginY={1}>
+            <ListRow label={t('loginReuseApiKey')} hint={t('loginReuseApiKeyHint')} active={credentialIdx === 0} />
+            <ListRow label={t('loginNewApiKey')} hint={t('loginNewApiKeyHint')} active={credentialIdx === 1} />
+          </Box>
+          <Text color={DIM}>{t('navHint')}</Text>
+        </>
+      )}
+
+      {/* Step 4: 输入 API Key */}
       {step === 'apikey' && (
         <>
           <Box>

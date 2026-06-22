@@ -50,4 +50,9 @@ describe('recent updates', () => {
   test('developer-maintained eligible notices never exceed three', () => {
     expect(getRecentUpdates(pkg.version, 'en').length).toBeLessThanOrEqual(3)
   })
+
+  test('/goal task-accuracy update is the second welcome notice', () => {
+    const updates = getRecentUpdates('0.9.29', 'en')
+    expect(updates[1]).toContain('/goal')
+  })
 })

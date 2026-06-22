@@ -6,6 +6,7 @@ import { buildTool } from '../Tool.js'
 import type { Tool, ToolCallResult } from '../Tool.js'
 import { generateTaskId, setState, getState } from '../../services/agent-state.js'
 import type { TaskRecordState } from '../../services/agent-state.js'
+import { normalizeCriteria, reconcileTaskGraph, validateDependencies } from '../../services/task-graph.js'
 
 export const TaskCreateTool = buildTool({
   name: 'TaskCreate',
@@ -32,38 +33,63 @@ This is different from Agent — TaskCreate is a progress-tracking record, not a
       },
       status: {
         type: 'string',
-        enum: ['pending', 'in_progress'],
-        description: 'Initial status (default: pending).',
+        enum: ['pending'],
+        description: 'Initial status. Dependencies determine whether it becomes blocked.',
+      },
+      dependencies: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Task IDs that must be completed before this task can start.',
+      },
+      acceptanceCriteria: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Concrete, independently checkable conditions required before completion.',
       },
     },
-    required: ['subject'],
+    required: ['subject', 'acceptanceCriteria'],
   },
 
   async call(input, _ctx: import("../Tool.js").ToolContext): Promise<ToolCallResult> {
     const subject = input['subject'] as string
     const description = input['description'] as string | undefined
-    const status = (input['status'] as TaskRecordState['status'] | undefined) ?? 'pending'
+    const dependencies = (input['dependencies'] as string[] | undefined) ?? []
+    const acceptanceCriteria = normalizeCriteria((input['acceptanceCriteria'] as string[] | undefined) ?? [])
+
+    if (!subject?.trim()) return { output: 'Task subject is required.', isError: true }
+    if (acceptanceCriteria.length === 0) {
+      return { output: 'At least one acceptance criterion is required.', isError: true }
+    }
 
     const taskId = generateTaskId()
+    const dependencyError = validateDependencies(getState().tasks, taskId, dependencies)
+    if (dependencyError) return { output: dependencyError, isError: true }
     const now = new Date()
 
     const task: TaskRecordState = {
       id: taskId,
       kind: 'task',
-      subject,
+      subject: subject.trim(),
       description,
-      status,
+      status: 'pending',
+      dependencies,
+      acceptanceCriteria,
+      evidence: [],
+      notes: [],
       createdAt: now,
       updatedAt: now,
     }
 
-    setState(prev => ({ ...prev, tasks: { ...prev.tasks, [taskId]: task } }))
+    setState(prev => ({ ...prev, tasks: reconcileTaskGraph({ ...prev.tasks, [taskId]: task }) }))
+    const stored = getState().tasks[taskId] as TaskRecordState
 
     return {
       output: JSON.stringify({
         taskId,
-        subject,
-        status,
+        subject: stored.subject,
+        status: stored.status,
+        dependencies: stored.dependencies,
+        acceptanceCriteria: stored.acceptanceCriteria,
         message: `Task created. Use TaskUpdate("${taskId}", "in_progress") to start it.`,
       }),
     }

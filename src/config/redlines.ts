@@ -10,6 +10,9 @@
 // 理由：写这些路径可改变权限系统本身（.astraea/settings.json）或污染用户环境（.zshrc），
 // 是 prompt-injection 攻击的首要目标，因此不可被任何模式或 "Always allow" 学习路径打开。
 
+import { existsSync, realpathSync } from 'node:fs'
+import { basename, dirname, join, resolve } from 'node:path'
+
 // 写入即触红线的敏感路径
 const SENSITIVE_PATH_REGEXES: RegExp[] = [
   /(^|\/)\.git(\/|$)/, // .git/ 仓库内部
@@ -22,8 +25,24 @@ const SENSITIVE_PATH_REGEXES: RegExp[] = [
 /** 写入该路径是否触碰红线（用于 FileWrite/FileEdit 的目标路径）。 */
 export function isSensitivePath(path: string): boolean {
   if (!path) return false
-  const p = path.replace(/\\/g, '/')
+  const p = resolveThroughExistingAncestors(path).replace(/\\/g, '/')
   return SENSITIVE_PATH_REGEXES.some((re) => re.test(p))
+}
+
+function resolveThroughExistingAncestors(input: string): string {
+  let current = resolve(input)
+  const missing: string[] = []
+  while (!existsSync(current)) {
+    const parent = dirname(current)
+    if (parent === current) return resolve(input)
+    missing.unshift(basename(current))
+    current = parent
+  }
+  try {
+    return join(realpathSync.native(current), ...missing)
+  } catch {
+    return resolve(input)
+  }
 }
 
 // 命令串中出现这些标记即保守视为"触碰敏感路径"。

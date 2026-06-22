@@ -29,7 +29,7 @@ import { getSystemPrompt } from '../context/systemPrompt/builder'
 import { onQuestion, answer } from '../tools/AskUserQuestionTool/bridge'
 import type { PendingQuestion, Question } from '../tools/AskUserQuestionTool/bridge'
 import { QuestionPanel } from './QuestionPanel'
-import { detectLongTask } from '../utils/detectLongTask'
+import { detectCounselTask } from '../utils/detectLongTask'
 import { setSessionSystemPrompt } from '../services/session-context'
 import { startUDSServer } from '../services/uds-server'
 import { getState, clearAllTasks, killAllRunningAgents } from '../services/agent-state'
@@ -1864,9 +1864,9 @@ export function App() {
         }
       }
 
-      // 长任务自动切入 counsel：仅在 default 模式下触发（不覆盖用户显式选的 orbit/cruise/forge）。
+      // 长任务或缺少可验收目标的模糊任务自动切入 counsel。
       // 切入后由 query.ts 双闸强制先问后做；模型仍可自行决定问几道题（trivial 任务可只问一道）。
-      if (getMode() === 'default' && detectLongTask(trimmed).long) {
+      if (getMode() === 'default' && detectCounselTask(trimmed).counsel) {
         setMode('counsel')
         setSessionModeState('counsel')
         setHistory(prev => [...prev, { id: String(entryIdRef.current++), role: 'mode_banner' as const, text: 'counsel' }])

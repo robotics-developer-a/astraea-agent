@@ -4,7 +4,21 @@
 import crypto from 'crypto'
 
 export type AgentStatus = 'running' | 'completed' | 'failed' | 'killed'
-export type TaskRecordStatus = 'pending' | 'in_progress' | 'completed' | 'failed'
+export type TaskRecordStatus = 'pending' | 'blocked' | 'in_progress' | 'completed' | 'failed' | 'invalidated'
+
+export interface AcceptanceCriterion {
+  id: string
+  description: string
+}
+
+export interface TaskEvidence {
+  criterionId: string
+  claim: string
+  source: string
+  confidence: 'low' | 'medium' | 'high'
+  assumptions: string[]
+  recordedAt: Date
+}
 
 const OUTPUT_RING_MAX = 1000
 
@@ -30,6 +44,10 @@ export interface TaskRecordState {
   subject: string
   description?: string
   status: TaskRecordStatus
+  dependencies: string[]
+  acceptanceCriteria: AcceptanceCriterion[]
+  evidence: TaskEvidence[]
+  notes: string[]
   createdAt: Date
   updatedAt: Date
 }

@@ -8,9 +8,12 @@ import { buildTool } from '../Tool.js'
 import type { Tool, ToolCallResult } from '../Tool.js'
 import TurndownService from 'turndown'
 import { querySmallModel } from '../../api/query-model.js'
+import { lookup } from 'node:dns/promises'
+import { isIP } from 'node:net'
 
 const FETCH_TIMEOUT_MS = 30_000
 const MAX_CONTENT_CHARS = 50_000
+const MAX_REDIRECTS = 5
 
 // 懒加载单例：Turndown 实例构建有一定开销（15 条规则对象），
 // 首次抓取 HTML 时才初始化，之后复用同一实例。
@@ -36,7 +39,60 @@ function validateUrl(raw: string): { ok: true; url: URL } | { ok: false; reason:
   if (url.hostname.split('.').length < 2) {
     return { ok: false, reason: '不支持访问本地或私有主机' }
   }
+  if (isPrivateAddress(url.hostname)) {
+    return { ok: false, reason: '不支持访问私有或本地网络' }
+  }
   return { ok: true, url }
+}
+
+function isPrivateAddress(hostname: string): boolean {
+  const host = hostname.replace(/^\[|\]$/g, '').split('%')[0]!.toLowerCase()
+  const family = isIP(host)
+  if (family === 4) {
+    const [a, b] = host.split('.').map(Number)
+    return a === 0 || a === 10 || a === 127 || a! >= 224
+      || (a === 100 && b! >= 64 && b! <= 127)
+      || (a === 169 && b === 254)
+      || (a === 172 && b! >= 16 && b! <= 31)
+      || (a === 192 && (b === 0 || b === 168))
+      || (a === 198 && (b === 18 || b === 19))
+  }
+  if (family === 6) {
+    if (host === '::' || host === '::1' || host.startsWith('fc') || host.startsWith('fd')) return true
+    if (/^fe[89ab]/.test(host)) return true
+    if (host.startsWith('::ffff:')) return isPrivateAddress(host.slice(7))
+  }
+  return false
+}
+
+async function validateResolvedHost(url: URL): Promise<string | null> {
+  if (isIP(url.hostname.replace(/^\[|\]$/g, ''))) return null
+  try {
+    const addresses = await lookup(url.hostname, { all: true, verbatim: true })
+    return addresses.some(a => isPrivateAddress(a.address)) ? '不支持访问私有或本地网络' : null
+  } catch (err) {
+    return `无法解析主机：${err instanceof Error ? err.message : String(err)}`
+  }
+}
+
+async function fetchPublicUrl(initial: URL, signal: AbortSignal): Promise<{ response: Response; url: URL }> {
+  let current = initial
+  for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects++) {
+    const resolvedError = await validateResolvedHost(current)
+    if (resolvedError) throw new Error(resolvedError)
+    const response = await fetch(current, {
+      signal,
+      redirect: 'manual',
+      headers: { 'User-Agent': 'Astraea/1.0 (AI Assistant)' },
+    })
+    if (![301, 302, 303, 307, 308].includes(response.status)) return { response, url: current }
+    const location = response.headers.get('location')
+    if (!location) return { response, url: current }
+    const next = validateUrl(new URL(location, current).toString())
+    if (!next.ok) throw new Error(next.reason)
+    current = next.url
+  }
+  throw new Error(`Too many redirects (>${MAX_REDIRECTS})`)
 }
 // ─── HTML → Markdown ─────────────────────────────────────────────────────────
 
@@ -96,18 +152,16 @@ IMPORTANT: Will fail for pages that require login or authentication.`,
     }
 
     // http → https 自动升级
-    const targetUrl = validation.url.protocol === 'http:'
-      ? raw.replace('http://', 'https://')
-      : raw
+    const target = new URL(validation.url)
+    if (target.protocol === 'http:') target.protocol = 'https:'
 
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
 
     try {
-      const response = await fetch(targetUrl, {
-        signal: controller.signal,
-        headers: { 'User-Agent': 'Astraea/1.0 (AI Assistant)' },
-      })
+      const fetched = await fetchPublicUrl(target, controller.signal)
+      const response = fetched.response
+      const targetUrl = fetched.url.toString()
 
       if (!response.ok) {
         return {
@@ -145,7 +199,7 @@ IMPORTANT: Will fail for pages that require login or authentication.`,
       return { output: header + truncated }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
-      return { output: `Error fetching ${targetUrl}: ${msg}`, isError: true }
+      return { output: `Error fetching ${target.toString()}: ${msg}`, isError: true }
     } finally {
       clearTimeout(timer)
     }

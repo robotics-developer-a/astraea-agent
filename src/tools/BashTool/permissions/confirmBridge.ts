@@ -19,7 +19,7 @@ export interface ConfirmRequest {
    *   'file'        → Yes / Yes, all edits this session（切 cruise）/ No
    * 文件写不做 per-file 落盘（对齐 CC：acceptEdits 即 Astraea 的 cruise，仅会话内存）。
    */
-  kind?: 'bash' | 'file'
+  kind?: 'bash' | 'file' | 'action'
 }
 
 export interface ConfirmResult {

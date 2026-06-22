@@ -8,6 +8,38 @@
 
 > **1.0.0 发布门槛**（达成后才从 0.x 升到 1.0 并打首个 `git tag v1.0.0`）：
 
+## [0.9.28] - 2026-06-22
+
+### 新增
+- **模糊任务自动进入 Counsel**：在原有长任务检测之上，识别“把 UI 设计得美观一些”、
+  “优化一下这个页面”等缺少可验收目标的请求，自动切入先问后做的 Counsel 双闸流程；
+  信息查询和目标具体的修复任务不误触发。
+- **/goal 动态任务图与逐步验收（Task Graph）**：TaskCreate / TaskUpdate 支持声明依赖、
+  验收标准（acceptanceCriteria）和带来源的证据（evidence）。上游失败或证据失效时，
+  只沿依赖边传播 `invalidated`，独立任务不受影响。添加 `blocked` / `invalidated` 状态，
+  循环依赖就地拒绝、验收标准更改时清空旧证据。
+- **证据与目标双轨验收**：每步的证据包含 criterionId、claim、source、confidence、
+  assumptions 五项——完成闸门逐条检查，缺失则保持原状态并返回原因。
+  `/goal` 负责整体终验，Task Graph 负责逐步验收。
+
+### 安全
+- **Shell 只读分类收紧**：`curl` / `wget` / `find` / `awk` / `env` / `command` / `git fetch` /
+  `git stash` 及命令替换不再绕过权限确认，阻止本地文件外传和隐式写入。
+- **项目与插件 MCP 不再静默自启动**：避免打开不可信仓库时直接执行 `.mcp.json`
+  里的 stdio 命令。明确信任时可设置 `ASTRAEA_TRUST_PROJECT_MCP=1`。
+- **凭据改为全局私有存储**：`/login` 不再把 Provider Key 写入项目 `.env`，改写
+  `~/.astraea/.env`；secrets、MCP 本地配置、权限配置、transcript、审计日志和调度任务
+  统一强制 `0600`。
+- **网络与外部动作防护**：WebFetch 在初始请求和每次重定向前拒绝回环、私网、
+  link-local 与云元数据 IP；WebBrowser `click` / `type` 改为外部副作用，非 Forge 需一次性
+  确认，无人值守时 fail-closed。
+- **路径与审计防护**：写入红线检查会沿现存父目录解析 symlink，防止通过普通别名修改
+  `.git` / `.astraea` / shell 启动文件；审计落盘前脱敏 API Key、Bearer 与 token 参数。
+
+### 测试
+- 新增模糊任务判定、Shell 外传/隐式写入、MCP 启动信任、secrets 文件权限、
+  SSRF 私网拦截、浏览器副作用、symlink 红线和审计脱敏回归覆盖。
+
 ## [0.9.27] - 2026-06-22
 
 ### 新增

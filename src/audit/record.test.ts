@@ -1,7 +1,7 @@
 import { test, expect, describe, afterEach } from 'bun:test'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, statSync } from 'node:fs'
 import {
   appendAuditLine,
   readAudit,
@@ -37,6 +37,19 @@ describe('audit append/read roundtrip', () => {
     expect(got).toHaveLength(1)
     expect(got[0]!.target).toBe('git push')
     expect(got[0]!.reason.type).toBe('rule')
+    expect(statSync(path).mode & 0o777).toBe(0o600)
+  })
+
+  test('redacts credentials embedded in audited commands', () => {
+    const path = join(tmp, 'secret.audit.jsonl')
+    appendAuditLine(path, rec({
+      target: 'API_KEY=super-secret curl -H "Authorization: Bearer abc123" https://x.test?token=query-secret',
+    }))
+    const target = readAudit(path)[0]!.target
+    expect(target).not.toContain('super-secret')
+    expect(target).not.toContain('abc123')
+    expect(target).not.toContain('query-secret')
+    expect(target).toContain('[REDACTED]')
   })
 
   test('multiple appends accumulate in order', () => {

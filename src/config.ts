@@ -5,7 +5,7 @@
 //   2. <project>/.env            — 项目级覆盖（开发调试用，勿提交 key）
 //   3. ~/.astraea/settings.json 的 env 块 — 行为开关（如 PHOENIX_ENABLED）
 //   4. shell 环境变量             — 最高优先级
-import { readFileSync } from 'fs'
+import { chmodSync, mkdirSync, readFileSync } from 'fs'
 import { join, dirname } from 'path'
 import { homedir } from 'os'
 import { fileURLToPath } from 'url'
@@ -305,7 +305,9 @@ async function mergeEnvFile(path: string, updates: Record<string, string>): Prom
     return line
   })
   for (const [k, v] of Object.entries(remaining)) out.push(`${k}=${v}`)
+  mkdirSync(dirname(path), { recursive: true })
   await Bun.write(path, out.join('\n'))
+  chmodSync(path, 0o600)
 }
 
 // 保存搜索 provider 的 Key 到 ~/.astraea/.env（全局 secrets，一次配置所有项目生效），
@@ -321,7 +323,7 @@ export async function saveSearchProviderKey(providerId: string, apiKey: string):
   })
 }
 
-export async function saveConfigToEnv(): Promise<void> {
+export async function saveConfigToEnv(destination: string = globalEnvPath): Promise<void> {
   const content = [
     '# ─── Provider 选择 ───────────────────────────────────────',
     `PROVIDER=${config.provider}`,
@@ -349,5 +351,7 @@ export async function saveConfigToEnv(): Promise<void> {
     `OPENAI_BASE_URL=${config.openai.baseUrl}`,
     '',
   ].join('\n')
-  await Bun.write(envPath, content)
+  mkdirSync(dirname(destination), { recursive: true })
+  await Bun.write(destination, content)
+  chmodSync(destination, 0o600)
 }

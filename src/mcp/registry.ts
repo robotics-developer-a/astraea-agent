@@ -25,7 +25,10 @@ let _initialized = false
 /** 启动期连接全部已配置 server。幂等：重复调用先断开旧连接再重连。 */
 export async function initMcp(cwd: string = process.cwd()): Promise<void> {
   await disconnectMcp()
-  const configs = loadMcpServers(cwd)
+  // Project and plugin configs may launch arbitrary stdio commands. Require an explicit
+  // operator opt-in instead of executing repository-controlled code on startup.
+  const trustProjectSources = process.env.ASTRAEA_TRUST_PROJECT_MCP === '1'
+  const configs = loadMcpServers(cwd, { trustProjectSources })
   const status: McpStatus[] = []
   const connected: ConnectedMcpClient[] = []
 

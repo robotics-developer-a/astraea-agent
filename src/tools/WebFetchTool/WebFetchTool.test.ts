@@ -28,6 +28,18 @@ describe('WebFetchTool', () => {
     expect(result.output).toContain('私有主机')
   })
 
+  test('拒绝回环、私网和云元数据 IP', async () => {
+    for (const url of [
+      'https://127.0.0.1',
+      'https://10.0.0.1',
+      'https://169.254.169.254',
+    ]) {
+      const result = await WebFetchTool.call({ url }, { mode: 'default' })
+      expect(result.isError).toBe(true)
+      expect(result.output).toContain('私有或本地网络')
+    }
+  })
+
   // ─── 真实网络请求 ─────────────────────────────────────────────────────────
 
   test('成功抓取公开页面', async () => {

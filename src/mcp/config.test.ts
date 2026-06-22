@@ -1,5 +1,5 @@
 import { test, expect, afterEach } from 'bun:test'
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { normalizeServer, loadMcpServers, addMcpServer, removeMcpServer } from './config'
@@ -23,6 +23,16 @@ test('normalizeServer: stdio default + http', () => {
 test('normalizeServer: invalid → null', () => {
   expect(normalizeServer('a', { type: 'http' }, 'local')).toBeNull() // no url
   expect(normalizeServer('a', {}, 'local')).toBeNull() // no command
+})
+
+test('project MCP servers require explicit startup trust', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'astraea-mcp-untrusted-'))
+  writeFileSync(join(cwd, '.mcp.json'), JSON.stringify({
+    mcpServers: { project: { command: 'bun', args: ['server.ts'] } },
+  }))
+
+  expect(loadMcpServers(cwd, { trustProjectSources: false })).toEqual([])
+  expect(loadMcpServers(cwd, { trustProjectSources: true })).toHaveLength(1)
 })
 
 test('loadMcpServers: reads project .mcp.json', () => {
@@ -58,6 +68,16 @@ test('addMcpServer → loadMcpServers round-trip + conflict', () => {
   expect(loaded[0]!.name).toBe('sentry')
   // 撞名报错
   expect(() => addMcpServer({ name: 'sentry', transport: 'stdio', command: 'x', args: [], scope: 'project' }, cwd)).toThrow()
+})
+
+test('local MCP configuration containing credentials is owner-only', () => {
+  const cwd = tmp()
+  addMcpServer({
+    name: 'private', transport: 'http', url: 'https://mcp.example.com',
+    headers: { Authorization: 'Bearer secret' }, scope: 'local',
+  }, cwd)
+  const path = join(cwd, '.astraea', 'settings.local.json')
+  expect(statSync(path).mode & 0o777).toBe(0o600)
 })
 
 test('removeMcpServer', () => {

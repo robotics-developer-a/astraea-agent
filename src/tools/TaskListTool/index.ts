@@ -21,7 +21,7 @@ For full details on a specific task, use TaskGet.`,
     properties: {
       statusFilter: {
         type: 'string',
-        enum: ['all', 'running', 'completed', 'failed', 'killed', 'pending', 'in_progress'],
+        enum: ['all', 'running', 'completed', 'failed', 'killed', 'pending', 'blocked', 'in_progress', 'invalidated'],
         description: 'Filter by status (default: all).',
       },
     },
@@ -56,6 +56,9 @@ For full details on a specific task, use TaskGet.`,
         kind: 'task',
         subject: t.subject,
         status: t.status,
+        dependencies: t.dependencies,
+        criteria: t.acceptanceCriteria.length,
+        evidence: t.evidence.length,
         updatedAt: t.updatedAt.toISOString(),
       }
     })

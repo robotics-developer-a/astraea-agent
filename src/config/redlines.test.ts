@@ -1,6 +1,9 @@
 // 安全红线 + 模式权限矩阵 单元测试（Permission & Safety Technical Spec §1.3 / §5）
 
 import { test, expect, describe } from 'bun:test'
+import { mkdtempSync, mkdirSync, symlinkSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { isSensitivePath, commandTouchesSensitivePath } from './redlines'
 import {
   fileWriteBehavior,
@@ -25,6 +28,14 @@ describe('isSensitivePath', () => {
     expect(isSensitivePath('/proj/README.md')).toBe(false)
     // a file literally named gitignore is fine (not inside .git/)
     expect(isSensitivePath('/proj/.gitignore')).toBe(false)
+  })
+  test('resolves symlinks before checking a write target', () => {
+    const root = mkdtempSync(join(tmpdir(), 'astraea-redline-'))
+    const sensitive = join(root, '.astraea')
+    const alias = join(root, 'ordinary-dir')
+    mkdirSync(sensitive)
+    symlinkSync(sensitive, alias)
+    expect(isSensitivePath(join(alias, 'settings.json'))).toBe(true)
   })
 })
 

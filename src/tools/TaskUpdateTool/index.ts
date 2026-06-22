@@ -4,7 +4,15 @@
 import { buildTool } from '../Tool.js'
 import type { Tool, ToolCallResult } from '../Tool.js'
 import { getState, setState } from '../../services/agent-state.js'
-import type { TaskRecordStatus } from '../../services/agent-state.js'
+import type { TaskEvidence, TaskRecordState, TaskRecordStatus } from '../../services/agent-state.js'
+import {
+  incompleteDependencies,
+  mergeEvidence,
+  missingEvidence,
+  normalizeCriteria,
+  reconcileTaskGraph,
+  validateDependencies,
+} from '../../services/task-graph.js'
 
 export const TaskUpdateTool = buildTool({
   name: 'TaskUpdate',
@@ -12,6 +20,7 @@ export const TaskUpdateTool = buildTool({
 
 Valid transitions:
   pending → in_progress → completed | failed
+  completed → invalidated → in_progress (repair)
 
 Call this to:
 - Mark a task as started before beginning work
@@ -30,20 +39,45 @@ Agent task status is updated automatically via their execution lifecycle.`,
       },
       status: {
         type: 'string',
-        enum: ['in_progress', 'completed', 'failed'],
-        description: 'New status to set.',
+        enum: ['in_progress', 'completed', 'failed', 'invalidated'],
+        description: 'Optional new status. Omit when only revising dependencies or acceptance criteria.',
       },
       notes: {
         type: 'string',
         description: 'Optional notes to attach to this status update.',
       },
+      dependencies: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Optional replacement dependency list. Cycles are rejected.',
+      },
+      acceptanceCriteria: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Optional replacement criteria. Replacing them clears stale evidence.',
+      },
+      evidence: {
+        type: 'array',
+        description: 'Evidence proving criteria: criterionId, claim, source, confidence, assumptions.',
+        items: {
+          type: 'object',
+          properties: {
+            criterionId: { type: 'string' },
+            claim: { type: 'string' },
+            source: { type: 'string' },
+            confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
+            assumptions: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['criterionId', 'claim', 'source', 'confidence', 'assumptions'],
+        },
+      },
     },
-    required: ['taskId', 'status'],
+    required: ['taskId'],
   },
 
   async call(input, _ctx: import("../Tool.js").ToolContext): Promise<ToolCallResult> {
     const taskId = input['taskId'] as string
-    const status = input['status'] as TaskRecordStatus
+    const requestedStatus = input['status'] as TaskRecordStatus | undefined
 
     const task = getState().tasks[taskId]
     if (!task) return { output: `Task "${taskId}" not found.`, isError: true }
@@ -53,26 +87,94 @@ Agent task status is updated automatically via their execution lifecycle.`,
         isError: true,
       }
     }
+    const status = requestedStatus ?? task.status
 
-    // Guard against backwards transitions from terminal states
-    if (task.status === 'completed' || task.status === 'failed') {
+    const dependencies = input['dependencies'] === undefined
+      ? task.dependencies
+      : input['dependencies'] as string[]
+    const dependencyError = validateDependencies(getState().tasks, taskId, dependencies)
+    if (dependencyError) return { output: dependencyError, isError: true }
+
+    const criteriaChanged = input['acceptanceCriteria'] !== undefined
+    const acceptanceCriteria = criteriaChanged
+      ? normalizeCriteria(input['acceptanceCriteria'] as string[])
+      : task.acceptanceCriteria
+    if (acceptanceCriteria.length === 0) {
+      return { output: 'At least one acceptance criterion is required.', isError: true }
+    }
+
+    const rawEvidence = (input['evidence'] as Array<Record<string, unknown>> | undefined) ?? []
+    const incomingEvidence: TaskEvidence[] = []
+    for (const item of rawEvidence) {
+      const criterionId = String(item['criterionId'] ?? '')
+      const confidence = item['confidence']
+      if (!acceptanceCriteria.some(criterion => criterion.id === criterionId)) {
+        return { output: `Unknown acceptance criterion "${criterionId}".`, isError: true }
+      }
+      if (!['low', 'medium', 'high'].includes(String(confidence))) {
+        return { output: `Invalid confidence for "${criterionId}".`, isError: true }
+      }
+      const claim = String(item['claim'] ?? '').trim()
+      const source = String(item['source'] ?? '').trim()
+      const assumptions = Array.isArray(item['assumptions'])
+        ? item['assumptions'].map(String).map(value => value.trim()).filter(Boolean)
+        : []
+      if (!claim || !source) {
+        return { output: `Evidence for "${criterionId}" requires a claim and source.`, isError: true }
+      }
+      incomingEvidence.push({
+        criterionId,
+        claim,
+        source,
+        confidence: confidence as TaskEvidence['confidence'],
+        assumptions,
+        recordedAt: new Date(),
+      })
+    }
+
+    const evidence = mergeEvidence(criteriaChanged ? [] : task.evidence, incomingEvidence)
+    const candidate: TaskRecordState = {
+      ...task,
+      dependencies,
+      acceptanceCriteria,
+      evidence,
+      notes: input['notes'] ? [...task.notes, String(input['notes'])] : task.notes,
+      updatedAt: new Date(),
+    }
+    const graphWithCandidate = { ...getState().tasks, [taskId]: candidate }
+
+    if (status === 'in_progress' && incompleteDependencies(graphWithCandidate, candidate).length > 0) {
+      return { output: 'Task cannot start while a dependency is incomplete.', isError: true }
+    }
+    if (status === 'completed') {
+      const missing = missingEvidence(acceptanceCriteria, evidence)
+      if (missing.length > 0) {
+        return { output: `Cannot complete task; missing evidence for: ${missing.join(', ')}.`, isError: true }
+      }
+    }
+
+    const validTransition =
+      task.status === status ||
+      (['pending', 'blocked'].includes(task.status) && status === 'in_progress') ||
+      (task.status === 'in_progress' && ['completed', 'failed'].includes(status)) ||
+      (task.status === 'completed' && status === 'invalidated') ||
+      (['failed', 'invalidated'].includes(task.status) && status === 'in_progress')
+    if (!validTransition) {
       return {
-        output: `Task "${taskId}" is already in terminal state "${task.status}". Cannot update.`,
+        output: `Invalid task transition: ${task.status} → ${status}.`,
         isError: true,
       }
     }
 
     setState(prev => {
-      const t = prev.tasks[taskId]
-      if (!t || t.kind !== 'task') return prev
-      return {
-        ...prev,
-        tasks: { ...prev.tasks, [taskId]: { ...t, status, updatedAt: new Date() } },
-      }
+      const updated = { ...candidate, status, updatedAt: new Date() }
+      return { ...prev, tasks: reconcileTaskGraph({ ...prev.tasks, [taskId]: updated }) }
     })
 
+    const stored = getState().tasks[taskId] as TaskRecordState
+
     return {
-      output: JSON.stringify({ taskId, status, updated: true }),
+      output: JSON.stringify({ taskId, status: stored.status, updated: true }),
     }
   },
 })

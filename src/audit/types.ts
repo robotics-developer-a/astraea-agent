@@ -26,7 +26,7 @@ export interface AuditRecord {
   ts: string // ISO 时间戳
   sessionId: string
   tool: string // 'Bash' | 'FileWrite' | 'FileEdit' | …
-  target: string // 命令串或文件路径（原文，不脱敏，与 transcript 隐私模型一致）
+  target: string // 命令串或文件路径（常见凭据在落盘前脱敏）
   behavior: 'allow' | 'deny' // 最终结果（ask 已解析为 allow/deny）
   reason: DecisionReason
   mode: SessionMode // 决策时的会话模式

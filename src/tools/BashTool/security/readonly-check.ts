@@ -6,22 +6,22 @@ const READONLY_COMMANDS = new Set([
   // 文件查看
   'cat', 'less', 'more', 'head', 'tail', 'bat',
   // 目录列举
-  'ls', 'la', 'dir', 'find', 'tree', 'du', 'fd',
+  'ls', 'la', 'dir', 'tree', 'du', 'fd',
   // 文本处理（只读模式）
   'grep', 'egrep', 'fgrep', 'rg', 'ag',
-  'awk', 'cut', 'sort', 'uniq', 'wc', 'tr',
+  'cut', 'sort', 'uniq', 'wc', 'tr',
   // 系统信息
   'ps', 'pstree', 'top', 'htop', 'df', 'free',
   'lsof', 'netstat', 'ss', 'ip', 'ifconfig',
   'uname', 'hostname', 'uptime', 'who', 'w',
   // 工具
   'echo', 'printf', 'pwd', 'date', 'cal',
-  'which', 'whereis', 'type', 'command',
-  'env', 'printenv', 'set',
+  'which', 'whereis', 'type',
+  'printenv',
   // JSON/文本处理（无文件写入）
   'jq', 'yq', 'xmllint',
-  // 网络查询（只读）
-  'curl', 'wget', 'dig', 'nslookup', 'ping', 'traceroute',
+  // 纯 DNS / 网络状态查询；HTTP 工具可上传本地数据，不属于只读。
+  'dig', 'nslookup', 'ping', 'traceroute',
   // 代码搜索
   'ripgrep', 'ack',
   // 帮助
@@ -34,8 +34,8 @@ const READONLY_COMMANDS = new Set([
 // git 的只读子命令
 const GIT_READONLY_SUBCOMMANDS = new Set([
   'log', 'diff', 'show', 'status', 'branch', 'tag',
-  'remote', 'fetch', 'ls-files', 'ls-tree', 'describe',
-  'shortlog', 'rev-parse', 'cat-file', 'blame', 'stash',
+  'ls-files', 'ls-tree', 'describe',
+  'shortlog', 'rev-parse', 'cat-file', 'blame',
   'config --list', 'config --get',
 ])
 
@@ -66,8 +66,8 @@ function hasWriteFlag(args: string[]): boolean {
 export function isReadOnlyCommand(command: string): boolean {
   const trimmed = command.trim()
 
-  // 拒绝含有管道/重定向/分号/后台符的复合命令（太复杂，保守处理）
-  if (/[|>&;]/.test(trimmed)) return false
+  // 拒绝复合执行和 shell 求值：基础命令即使只读，子命令也可以写入或外传数据。
+  if (/[|>&;\r\n]/.test(trimmed) || /\$\(|`|<\(|>\(/.test(trimmed)) return false
 
   const parts = trimmed.split(/\s+/)
   const cmd = parts[0] ?? ''

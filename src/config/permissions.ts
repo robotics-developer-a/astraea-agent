@@ -19,6 +19,7 @@ import { homedir } from 'os'
 import { mkdirSync } from 'fs'
 import type { PermissionRule } from '../tools/BashTool/permissions/permission-rules.js'
 import { commandTouchesSensitivePath } from './redlines.js'
+import { writePrivateFile } from '../utils/privateFile.js'
 
 interface PermissionsSection {
   allow?: string[]
@@ -135,5 +136,5 @@ export async function appendPermissionRule(
   // global 落在 ~/.astraea，需确保其目录存在
   if (destination === 'global') mkdirSync(join(homedir(), CONFIG_DIR), { recursive: true })
 
-  await Bun.write(path, JSON.stringify(existing, null, 2) + '\n')
+  writePrivateFile(path, JSON.stringify(existing, null, 2) + '\n')
 }

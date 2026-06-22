@@ -30,16 +30,21 @@ export const FILE_CONFIRM_CHOICES: ConfirmChoice[] = [
   { label: 'No',                       description: 'cancel this write',                   result: { proceed: false, remember: null } },
 ]
 
+export const ACTION_CONFIRM_CHOICES: ConfirmChoice[] = [
+  { label: 'Yes', description: 'perform this external action once', result: { proceed: true, remember: null } },
+  { label: 'No', description: 'cancel this external action', result: { proceed: false, remember: null } },
+]
+
 /** 按确认来源返回对应的选项集。'file' → 文件写三选项；其余（含 undefined）→ Bash 四选项。 */
-export function getConfirmChoices(kind?: 'bash' | 'file'): ConfirmChoice[] {
-  return kind === 'file' ? FILE_CONFIRM_CHOICES : CONFIRM_CHOICES
+export function getConfirmChoices(kind?: 'bash' | 'file' | 'action'): ConfirmChoice[] {
+  return kind === 'file' ? FILE_CONFIRM_CHOICES : kind === 'action' ? ACTION_CONFIRM_CHOICES : CONFIRM_CHOICES
 }
 
 interface ConfirmSelectorProps {
   command: string
   description?: string
   selectedIndex: number
-  kind?: 'bash' | 'file'
+  kind?: 'bash' | 'file' | 'action'
 }
 
 export function ConfirmSelector({ command, description, selectedIndex, kind }: ConfirmSelectorProps) {

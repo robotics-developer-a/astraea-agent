@@ -26,7 +26,13 @@ export function getToolRulesSection(enabledTools: Set<string>): string {
     : null
 
   const taskGuidance = hasTask
-    ? ` - Break down work with TaskCreate. Mark each task in_progress before starting, completed immediately when done — do not batch completions.`
+    ? [
+        ` - Break down complex work with TaskCreate as a dynamic task graph, not a fixed script.`,
+        `   - Declare dependencies so an upstream failure blocks only affected work; revise dependencies when reality changes.`,
+        `   - Give every task concrete acceptance criteria before starting. A task cannot be completed until every criterion has evidence.`,
+        `   - Evidence must record the criterion, claim, real source/tool output, confidence, and assumptions. Never use your own unsupported statement as evidence.`,
+        `   - Mark one ready task in_progress at a time. If evidence later becomes false, mark its task invalidated so dependent results are invalidated locally and can be repaired.`,
+      ].join('\n')
     : null
 
   const askGuidance = hasAskUser

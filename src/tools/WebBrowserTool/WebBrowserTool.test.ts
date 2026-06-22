@@ -56,7 +56,12 @@ describe('WebBrowserTool — 运行时不可用', () => {
 
   test('任何 action 在无驱动时都返回说明', async () => {
     for (const action of ['navigate', 'screenshot', 'click', 'type', 'scroll'] as const) {
-      const result = await WebBrowserTool.call({ url: 'https://example.com', action }, { mode: "default" })
+      const result = await WebBrowserTool.call({
+        url: 'https://example.com',
+        action,
+        ...(action === 'click' || action === 'type' ? { selector: '#target' } : {}),
+        ...(action === 'type' ? { text: 'value' } : {}),
+      }, { mode: "default" })
       expect(result.isError).toBeFalsy()
       expect(result.output).toContain('不可用')
     }
@@ -112,7 +117,7 @@ describe('WebBrowserTool — click & type', () => {
       url: 'https://example.com',
       action: 'click',
       selector: 'button[type="submit"]',
-    }, { mode: 'default' })
+    }, { mode: 'forge' })
     expect(result.isError).toBeFalsy()
     expect(result.output).toContain('Clicked')
     expect(result.output).toContain('button[type="submit"]')
@@ -132,7 +137,7 @@ describe('WebBrowserTool — click & type', () => {
       action: 'type',
       selector: '#username',
       text: 'admin',
-    }, { mode: 'default' })
+    }, { mode: 'forge' })
     expect(result.isError).toBeFalsy()
     expect(result.output).toContain('admin')
     expect(result.output).toContain('#username')
@@ -162,7 +167,22 @@ describe('WebBrowserTool — 依赖注入验证', () => {
 
 describe('WebBrowserTool — 工具元数据', () => {
   test('工具名称正确', () => expect(WebBrowserTool.name).toBe('WebBrowser'))
-  test('isReadOnly 为 true', () => expect(WebBrowserTool.isReadOnly({})).toBe(true))
+  test('只有无外部副作用的浏览器动作属于只读', () => {
+    expect(WebBrowserTool.isReadOnly({ action: 'navigate' })).toBe(true)
+    expect(WebBrowserTool.isReadOnly({ action: 'screenshot' })).toBe(true)
+    expect(WebBrowserTool.isReadOnly({ action: 'scroll' })).toBe(true)
+    expect(WebBrowserTool.isReadOnly({ action: 'click' })).toBe(false)
+    expect(WebBrowserTool.isReadOnly({ action: 'type' })).toBe(false)
+  })
+  test('无人值守时拒绝 click/type', async () => {
+    injectBrowserDriver(new MockBrowserDriver())
+    const result = await WebBrowserTool.call({
+      url: 'https://example.com', action: 'click', selector: '#submit',
+    }, { mode: 'default', isInteractive: false })
+    expect(result.isError).toBe(true)
+    expect(result.output).toContain('confirmation')
+    resetBrowserDriver()
+  })
   test('inputSchema 包含 url 和 action', () => {
     expect(WebBrowserTool.inputSchema.required).toContain('url')
     expect(WebBrowserTool.inputSchema.properties).toHaveProperty('action')

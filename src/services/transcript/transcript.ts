@@ -7,7 +7,6 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import {
-  appendFileSync,
   mkdirSync,
   existsSync,
   readFileSync,
@@ -18,6 +17,7 @@ import { randomUUID } from 'node:crypto'
 import { config } from '../../config'
 import { getSettings } from '../../settings'
 import type { UserMessage, AssistantMessage } from '../../types/message'
+import { appendPrivateFile } from '../../utils/privateFile'
 
 type ConvMessage = UserMessage | AssistantMessage
 
@@ -116,7 +116,7 @@ function activeModel(): string {
 
 function writeLine(path: string, line: TranscriptLine): void {
   try {
-    appendFileSync(path, JSON.stringify(line) + '\n')
+    appendPrivateFile(path, JSON.stringify(line) + '\n')
   } catch {
     // 落盘失败不影响主流程（transcript 是旁路）
   }

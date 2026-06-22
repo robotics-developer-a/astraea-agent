@@ -11,9 +11,10 @@
 
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { existsSync, readFileSync, mkdirSync } from 'node:fs'
 import type { McpServerConfig, McpScope, McpTransport } from './types'
 import { mcpServerSignature } from './types'
+import { writePrivateFile } from '../utils/privateFile'
 
 // ─── 路径 ──────────────────────────────────────────────────────────────────
 export function projectMcpPath(cwd: string): string {
@@ -86,7 +87,15 @@ export function _setPluginMcpSource(fn: (cwd: string) => McpServerConfig[]) {
  * 合并三 scope + plugin，返回去重后的最终 server 列表。
  * 顺序：local → project → user → plugin；撞名或撞签名先到先得（manual 全部先于 plugin）。
  */
-export function loadMcpServers(cwd: string = process.cwd()): McpServerConfig[] {
+export interface LoadMcpOptions {
+  /** Project and plugin configs can execute local programs. Only startup should set this false. */
+  trustProjectSources?: boolean
+}
+
+export function loadMcpServers(
+  cwd: string = process.cwd(),
+  options: LoadMcpOptions = {},
+): McpServerConfig[] {
   const collect = (scope: Exclude<McpScope, 'plugin'>): McpServerConfig[] => {
     const { path } = scopeFile(scope, cwd)
     const raw = readMcpServersFrom(path)
@@ -101,7 +110,10 @@ export function loadMcpServers(cwd: string = process.cwd()): McpServerConfig[] {
   const out: McpServerConfig[] = []
   const seenName = new Set<string>()
   const seenSig = new Set<string>()
-  for (const c of [...manual, ...plugin]) {
+  const candidates = [...manual, ...plugin].filter(c =>
+    options.trustProjectSources !== false || (c.scope !== 'project' && c.scope !== 'plugin'),
+  )
+  for (const c of candidates) {
     const sig = mcpServerSignature(c)
     if (seenName.has(c.name) || seenSig.has(sig)) continue
     seenName.add(c.name)
@@ -134,7 +146,7 @@ export function addMcpServer(config: McpServerConfig, cwd: string = process.cwd(
   obj[key] = servers
   const dir = path.slice(0, path.lastIndexOf('/'))
   if (dir) mkdirSync(dir, { recursive: true })
-  writeFileSync(path, JSON.stringify(obj, null, 2) + '\n')
+  writePrivateFile(path, JSON.stringify(obj, null, 2) + '\n')
 }
 
 /** 删除一条 server（遍历三 scope，删到第一个匹配）。返回是否删除。 */
@@ -146,7 +158,7 @@ export function removeMcpServer(name: string, cwd: string = process.cwd()): bool
     if (servers[name]) {
       delete servers[name]
       obj[key] = servers
-      writeFileSync(path, JSON.stringify(obj, null, 2) + '\n')
+      writePrivateFile(path, JSON.stringify(obj, null, 2) + '\n')
       return true
     }
   }

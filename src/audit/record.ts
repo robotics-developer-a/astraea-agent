@@ -7,9 +7,10 @@
 // 保留期:沿用 transcript 的清理策略（housekeeping 扫 .audit.jsonl，见 isPersistenceEnabled）。
 
 import { join } from 'node:path'
-import { appendFileSync, existsSync, readFileSync, mkdirSync } from 'node:fs'
+import { existsSync, readFileSync, mkdirSync } from 'node:fs'
 import { projectDir, isPersistenceEnabled } from '../services/transcript/transcript.js'
 import type { AuditRecord, DecisionInput, DecisionReasonType } from './types.js'
+import { appendPrivateFile } from '../utils/privateFile.js'
 
 // ── 进程级活动会话单例（镜像 sessionMode 的写法）─────────────────────────────
 // ToolContext 不携带 sessionId，transcript 又只活在 App.tsx 的 ref 里，故用单例。
@@ -30,7 +31,25 @@ export function auditPath(cwd: string, sessionId: string): string {
 
 /** 追加一条记录（同步）。供 sink 与测试使用。 */
 export function appendAuditLine(path: string, record: AuditRecord): void {
-  appendFileSync(path, JSON.stringify(record) + '\n')
+  appendPrivateFile(path, JSON.stringify(redactAuditRecord(record)) + '\n')
+}
+
+function redactAuditRecord(record: AuditRecord): AuditRecord {
+  return {
+    ...record,
+    target: redactSecrets(record.target),
+    reason: record.reason.detail
+      ? { ...record.reason, detail: redactSecrets(record.reason.detail) }
+      : record.reason,
+  }
+}
+
+function redactSecrets(value: string): string {
+  return value
+    .replace(/\b([A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD))=([^\s]+)/gi, '$1=[REDACTED]')
+    .replace(/(\b(?:Authorization|Proxy-Authorization):\s*(?:Bearer|Basic)\s+)[^"'\s]+/gi, '$1[REDACTED]')
+    .replace(/([?&](?:api[_-]?key|token|access_token|key)=)[^&\s"']+/gi, '$1[REDACTED]')
+    .replace(/(--?(?:api[_-]?key|token|password|secret)\s+)[^\s"']+/gi, '$1[REDACTED]')
 }
 
 /** 读取并解析一个 audit 文件;缺失返回 []，损坏行跳过。 */
