@@ -22,7 +22,7 @@ import type { InternetResult } from './InternetWizard'
 import { LanguageWizard, formatLanguageSuccess } from './LanguageWizard'
 import { config, updateProviderConfig, saveConfigToEnv, saveSearchProviderKey, hasValidConfig } from '../config'
 import { resetAdapter as resetSearchAdapter } from '../tools/WebSearchTool/index'
-import { setLocale, replyLanguageName, LOCALES, t } from '../i18n'
+import { setLocale, LOCALES, t } from '../i18n'
 import type { Locale } from '../i18n'
 import { resetAllApiClients } from '../api/stream'
 import { getSystemPrompt } from '../context/systemPrompt/builder'
@@ -661,7 +661,7 @@ export function App() {
     // 交互对话不暴露微信工具（仅 /wechat、/vigil wechat 可触发），故系统提示里也不列出。
     const tools = getInteractiveTools()
     const enabledTools = new Set(tools.map(t => t.name))
-    getSystemPrompt({ modelId, enabledTools, mode: sessionMode, language: replyLanguageName() }).then(prompt => {
+    getSystemPrompt({ modelId, enabledTools, mode: sessionMode }).then(prompt => {
       setSystemPrompt(prompt)
       setSessionSystemPrompt(prompt)
     }).catch(() => {

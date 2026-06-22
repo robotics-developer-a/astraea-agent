@@ -39,23 +39,17 @@ export const DYNAMIC_BOUNDARY = '__ASTRAEA_PROMPT_DYNAMIC_BOUNDARY__'
 export interface SystemPromptOptions {
   modelId: string
   enabledTools: Set<string>
-  language?: string
   cwd?: string
   mcpClients?: readonly MCPServerConnection[]
   mode?: SessionMode
 }
 
 export async function getSystemPrompt(options: SystemPromptOptions): Promise<string> {
-  const { modelId, enabledTools, language, mode = 'default' } = options
+  const { modelId, enabledTools, mode = 'default' } = options
   const cwd = options.cwd ?? process.cwd()
 
   const dynamicSections = [
     systemPromptSection('env_info', () => computeEnvInfo(modelId)),
-    systemPromptSection('language', () =>
-      language
-        ? `# Language\nAlways respond in ${language}. Technical terms and code identifiers remain in their original form.`
-        : null,
-    ),
     // 记忆「行为指令」段（类型规范/怎么存/防漂移/边界）—— 定稿 #10：稳定进缓存前缀。
     // 不含 MEMORY.md 索引/记忆正文（索引走 reminder 块，召回正文走用户消息尾部）。
     // 会话级缓存（/clear 失效）。指令静态，永远非空。

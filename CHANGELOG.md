@@ -8,6 +8,18 @@
 
 > **1.0.0 发布门槛**（达成后才从 0.x 升到 1.0 并打首个 `git tag v1.0.0`）：
 
+## [0.9.23] - 2026-06-22
+
+### 修复 / 改进
+- **清理 `/language` 残留的 Language 系统提示段**：`getSystemPrompt()` 此前接受 `language`
+  参数并往动态段里注入一条 "Always respond in {language}" 指令。实测模型已能准确匹配用户输入
+  语言回复，无需额外指令干预；撤掉后系统提示减少 ~20 行变易段，缓存前缀稍收缩。
+- **移除 App.tsx 无用的 `replyLanguageName()` 调用**：该函数仍在 `titleSummary.ts` 使用，
+  App 这边调用它的结果却从未用过（`language` 参数不再传），删除残余调用。
+- **voiceTone 措辞微调**：`Pick the language` → `Always respond in the language`，直指行为。
+- **`.gitignore` 排除 Cursor 框架文件**：`.agents/`、`.codex/`、`AGENTS.md` 含 API key 等
+  敏感配置，防止误提交。
+
 ## [0.9.22] - 2026-06-22
 
 ### 修复 / 改进
