@@ -71,6 +71,27 @@ export interface AstraeaSettings {
    * 优先级：shell > settings.json > 项目 .env > 全局 .env（不覆盖 shell 已设的值）。
    */
   env?: Record<string, string>
+  /** 任务完成/出错时的终端通知（Dock 弹跳 / 任务栏闪 / 通知中心横幅）。见 terminalNotify.ts。 */
+  notify?: NotifySettings
+}
+
+/** 终端完成通知配置。全部可选，缺省即「auto 通道、每次完成都响、无额外蜂鸣」。 */
+export interface NotifySettings {
+  /** 总开关，默认 true。 */
+  enabled?: boolean
+  /**
+   * 通知通道：
+   *   auto    - 按终端自动选（iTerm2/WezTerm→OSC9、kitty→OSC99、ghostty→OSC777、其余→响铃）
+   *   bell    - 纯终端响铃 BEL（最通用，触发 Dock 角标 / 任务栏闪）
+   *   iterm2 | kitty | ghostty - 强制指定富通知
+   *   off     - 关闭
+   * 默认 'auto'。
+   */
+  channel?: 'auto' | 'bell' | 'iterm2' | 'kitty' | 'ghostty' | 'off'
+  /** 仅当本轮耗时 ≥ 此毫秒数才通知（过滤掉「秒回」的短任务）。默认 0。 */
+  minDurationMs?: number
+  /** 富通知通道是否额外补一声响铃（Dock 弹跳 + 横幅同时要）。默认 false。 */
+  sound?: boolean
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

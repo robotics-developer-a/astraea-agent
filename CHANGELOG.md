@@ -8,6 +8,21 @@
 
 > **1.0.0 发布门槛**（达成后才从 0.x 升到 1.0 并打首个 `git tag v1.0.0`）：
 
+## [0.9.32] - 2026-06-23
+
+### 新增
+- **任务完成终端通知（Dock 弹跳 / 任务栏闪 / 通知中心横幅）**：参考 claude-code 的 notifier，
+  本轮任务干净收尾或报错时向真终端 `/dev/tty` 写一声响铃 `BEL`(\x07) 外加各家终端的原生富通知
+  OSC，提示用户「去看一眼」。机制天然不打扰——macOS 只在终端**不在前台**时才把 Dock 图标点亮成
+  红色角标「1」，Windows Terminal 也只在后台闪任务栏；用户正盯着看时几乎无感。
+  - `auto` 通道按终端自动选：iTerm2/WezTerm→OSC 9、kitty→OSC 99、ghostty→OSC 777、
+    Apple Terminal 及其余→纯响铃 `BEL`；Windows 统一走 `BEL`。
+  - tmux/screen 下 OSC 富通知用 DCS 包裹透传，但 `BEL` 保持裸写（触发 tmux 的 bell-action）。
+  - 可在 `~/.astraea/settings.json` 配 `notify`：`enabled`(默认 true) / `channel`(默认 auto) /
+    `minDurationMs`(仅当本轮耗时 ≥ 此值才响，默认 0) / `sound`(富通知是否额外补一声响铃，默认 false)。
+  - 新增 `src/utils/terminalNotify.ts`（复用 `terminalTitle.ts` 的 `/dev/tty` 直写基建）与
+    单测 `terminalNotify.test.ts`。
+
 ## [0.9.31] - 2026-06-23
 
 ### 修复

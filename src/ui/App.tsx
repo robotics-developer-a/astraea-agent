@@ -49,6 +49,7 @@ import {
   titleIdle,
   clearTitle,
 } from '../utils/terminalTitle'
+import { notifyTaskDone, notifyTaskError } from '../utils/terminalNotify'
 import { generateTitleSummary } from '../services/titleSummary'
 import { getMode, setMode } from '../state/sessionMode'
 import type { SessionMode } from '../state/sessionMode'
@@ -1124,6 +1125,8 @@ export function App() {
                     ...prev,
                     { id: String(entryIdRef.current++), role: 'done_notification' as const, text: `✻ ${phrase} for ${duration}` },
                   ])
+                  // 终端通知：任务干净收尾 → Dock 弹一下 / 任务栏闪 / 通知中心横幅（仅后台时可见）。
+                  notifyTaskDone({ elapsedMs: elapsed, summary: `Done in ${duration}` })
                 }
               }, 0)
               break
@@ -1150,6 +1153,8 @@ export function App() {
           setIsStreaming(false)
           setActiveTool(null)
           titleTaskError(titleTurn)  // 本轮报错 → 标题转 ✗（摘要保留）
+          // 终端通知：本轮报错也提醒用户去看一眼。
+          notifyTaskError({ elapsedMs: Date.now() - runStartRef.current, summary: errMsg.slice(0, 80) })
         }
       } finally {
         abortControllerRef.current = null
