@@ -40,6 +40,8 @@ export interface CommandAction {
 /** local 命令的执行结果。 */
 export type LocalCommandResult =
   | { type: 'text'; value: string }
+  // 预格式化文本：逐行原样透传（不过 markdown），保留对齐/盒线/ANSI。供 /audit 等表格输出。
+  | { type: 'preformatted'; value: string }
   | { type: 'skip' }
 
 interface CommandBase {

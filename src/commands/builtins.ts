@@ -174,13 +174,15 @@ export function getBuiltinCommands(): Command[] {
       async args => {
         const { parseAuditArgs, loadSessionAudit, loadProjectAudit, formatAuditTable } = await import('../audit/query')
         const { getAuditSession } = await import('../audit/record')
-        const { scope, filter } = parseAuditArgs(args)
-        const records = scope === 'project'
+        const { scope, filter, limit } = parseAuditArgs(args)
+        const all = scope === 'project'
           ? loadProjectAudit(process.cwd(), filter)
           : loadSessionAudit(process.cwd(), getAuditSession(), filter)
-        return { type: 'text', value: formatAuditTable(records, scope) }
+        // 分页：默认只铺最近 limit 条（最新在底部），--all / --limit N 可改。
+        const shown = limit != null && all.length > limit ? all.slice(-limit) : all
+        return { type: 'preformatted', value: formatAuditTable(shown, scope, { total: all.length, limit }) }
       },
-      { argumentHint: '[--project] [--allow|--deny] [--reason <type>]' }),
+      { argumentHint: '[--project] [--allow|--deny] [--reason <type>] [--all] [--limit N]' }),
 
     local('help', 'show available commands', async () => {
       const { t } = await import('../i18n')

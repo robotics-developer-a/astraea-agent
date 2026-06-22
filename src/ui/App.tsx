@@ -124,6 +124,13 @@ const VERSION = pkg.version   // 单一来源：版本号只在 package.json 维
 
 const IS_WIN = platform() === 'win32'
 
+// live frame（非 <Static> 的「进行中」帧）封顶预算。流式期间这一帧每出一个 token 都重绘，
+// 一旦它比终端还高，Ink 的逐行擦除会越界——把 <Static> 里已落地的内容顶飞、视口猛地跳到
+// 缓冲区最顶（用户报告：Astraea 输出时往回滚，repl 跳到最开始）。给页脚（输入框 + 状态行 +
+// 各指示器）保留 FOOTER_RESERVE 行后，把「流式预览 + 在途工具批」的总高压在剩余预算内：
+// 工具批只保留最近若干次调用（更早的会在本轮结束统一落进 <Static>，不丢信息）。
+const FOOTER_RESERVE = 12
+
 // 整屏清除序列（含滚动回溯缓冲）。Ink 的 <Static> 是 append-only：内部用 index 记下
 // 已打印条数，每帧只渲染 items.slice(index)，已落盘的行永不擦除。一旦 history 被整体
 // 替换或缩短（/clear、/resume），旧条目仍留在终端，且新 fresh 条目因 index 卡在旧值而
@@ -254,7 +261,7 @@ interface HistoryEntry {
   id: string
   // 路径 A 重构（Stage 1）：tool_use/tool_result 两类合并为一条 'tools' 批（calls 承载，
   // 逐调用配对 + 同类折叠由 <ToolBatch> 渲染）。文本/banner 角色保持不变。
-  role: 'welcome' | 'user' | 'assistant' | 'mode_banner' | 'skill_banner' | 'tools' | 'status' | 'done_notification'
+  role: 'welcome' | 'user' | 'assistant' | 'mode_banner' | 'skill_banner' | 'tools' | 'status' | 'done_notification' | 'preformatted'
   text: string
   lines?: string[]       // 多行结果显示（历史遗留字段，'tools' 不用）
   calls?: ToolCall[]     // 'tools' 行专用：一个已落盘的工具批
@@ -1846,6 +1853,9 @@ export function App() {
             const res = await cmd.run(m[2]?.trim() || undefined)
             if (res.type === 'text') {
               setHistory(prev => [...prev, { id: String(entryIdRef.current++), role: 'assistant', text: res.value }])
+            } else if (res.type === 'preformatted') {
+              // 预格式化（/audit 表格等）：落进 <Static> 逐行原样渲染，绕开 markdown，保住对齐与盒线。
+              setHistory(prev => [...prev, { id: String(entryIdRef.current++), role: 'preformatted', text: res.value }])
             }
             return
           }
@@ -2442,6 +2452,17 @@ export function App() {
             )
           }
 
+          if (entry.role === 'preformatted') {
+            // 预格式化块（/audit 表格）：逐行原样渲染（ANSI 透传），不走 markdown，保住对齐/盒线。
+            // 每行独立 <Text>，避免单个超长 Text 在窄终端被 Ink 折行打乱表格。
+            return (
+              <Box key={entry.id} flexDirection="column" marginBottom={1}>
+                {entry.text.split('\n').map((line, i) => (
+                  <Text key={i}>{line}</Text>
+                ))}
+              </Box>
+            )
+          }
           if (entry.role === 'mode_banner') {
             // 切换模式不再在 scrollback 里展示 "── switched to X ──" 横幅（用户嫌刷屏）。
             // 当前模式仍由输入框的 ModeInputFrame 边框标签持续可见，足够。
@@ -2509,12 +2530,24 @@ export function App() {
         // 末行兜底。续接态下若既无预览正文又无工具，整个 box 会是空的 → 跳过以免多出一空行。
         const hasBody = showHeader || !!streamingText || liveTools.length > 0 || activeTool != null
         if (!hasBody) return null
+        // 视口预算：流式预览 + 在途工具批 共享 (终端行数 - 页脚预留)，避免 live frame 超过视口
+        // 高度导致 Ink 擦除越界、视口跳到最顶（见 FOOTER_RESERVE 注释）。
+        const liveBudget = Math.max(8, (rows ?? 24) - FOOTER_RESERVE)
+        // 有工具批时预览收窄（只留个"还在写"的尾巴），把更多预算让给工具行；纯文本时给足。
+        const previewMax = liveTools.length > 0
+          ? Math.max(4, Math.floor(liveBudget * 0.35))
+          : Math.max(8, (rows ?? 24) - 14)
+        // 工具批余下预算（按每次调用约 2 行估算），只渲染最近 maxToolCalls 次，更早的折叠成一行提示。
+        const toolBudgetLines = liveBudget - (streamingText ? Math.min(previewMax, 6) : 0)
+        const maxToolCalls = Math.max(3, Math.floor(toolBudgetLines / 2))
+        const foldedToolCount = Math.max(0, liveTools.length - maxToolCalls)
+        const shownTools = foldedToolCount > 0 ? liveTools.slice(-maxToolCalls) : liveTools
         return (
         <Box flexDirection="column" marginBottom={1}>
           {(() => {
             // 流式正文预览（落盘前的"进行中"截断版；完整版本轮结束进 <Static>）。
             // 实时预览只渲染尾部若干行，把帧高封顶 → 避免越界擦除把页脚/输入框盖住。
-            const maxLines = Math.max(8, (rows ?? 24) - 14)
+            const maxLines = previewMax
             // 所有平台都按列宽硬截断流式预览：Ink 擦除按"换行符行数"算，但超宽行（尤其
             // 中文全角=2 宽）会被终端自动折行成多物理行，导致擦不干净、星与正文一层层
             // 重影堆叠（eval Item 14：同一行 ✸… 在 REPL 里复印了几十遍）。把预览截成
@@ -2549,8 +2582,13 @@ export function App() {
               </Box>
             )
           })()}
-          {/* 在途工具批：逐调用配对 + 同类折叠，liveOutput 挂在 running 调用下。 */}
-          {liveTools.length > 0 && <ToolBatch calls={liveTools} liveOutput={liveOutput} />}
+          {/* 在途工具批：逐调用配对 + 同类折叠，liveOutput 挂在 running 调用下。
+              只渲染最近 maxToolCalls 次（封顶 live frame 高度）；更早的已会在轮末落进 <Static>，
+              这里用一行 dim 提示占位，不丢信息也不撑爆视口。 */}
+          {foldedToolCount > 0 && (
+            <Text color="gray" dimColor>⋯ {foldedToolCount} earlier tool call{foldedToolCount === 1 ? '' : 's'} above</Text>
+          )}
+          {liveTools.length > 0 && <ToolBatch calls={shownTools} liveOutput={liveOutput} />}
           {/* 次要查询循环（如 WechatRead）只设 activeTool、不入 liveTools → 退回单行 spinner。 */}
           {liveTools.length === 0 && activeTool && (
             <Box flexDirection="column">

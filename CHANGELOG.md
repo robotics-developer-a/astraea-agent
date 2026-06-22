@@ -8,6 +8,23 @@
 
 > **1.0.0 发布门槛**（达成后才从 0.x 升到 1.0 并打首个 `git tag v1.0.0`）：
 
+## [0.9.22] - 2026-06-22
+
+### 修复 / 改进
+- **`/audit` 改为带框彩色表格 + mode 列 + 分页（解决"显示不全"）**：原 `/audit` 输出走
+  markdown 渲染，`mode` / `reason.detail` 从不展示、target 被**硬截 60 字符**、`⟦ok⟧/⟦err⟧`
+  标记因不在段首而**不上色**。现新增 `LocalCommandResult` 的 `'preformatted'` 类型（逐行原样
+  透传、绕开 markdown，由 App.tsx 的 `preformatted` 历史角色逐行渲染、ANSI 保真），`/audit`
+  改输出**盒线表格**：列含 Time / Result(绿/红上色) / Tool / Reason / **Mode** / Target，整表
+  宽度自适应终端、target 按余量省略号截断（不再硬截）。新增分页：默认只铺最近 30 条，
+  `--all` 铺全部、`--limit N` 自定义，超出时标题提示 "showing last N, use /audit --all"。
+- **流式输出时 REPL 不再"跳到最顶"——live frame 高度封顶在视口内**：Astraea 边出 token
+  边重绘的「进行中」帧，一旦比终端还高，Ink 的逐行擦除会越界、把 `<Static>` 已落地内容
+  顶飞、视口猛跳到缓冲区最顶（用户往回滚时尤其明显）。现给页脚预留 `FOOTER_RESERVE` 行后，
+  把「流式预览 + 在途工具批」总高压在剩余预算内：工具批只渲染最近若干次调用（更早的本轮
+  结束统一落进 `<Static>`，用一行 `⋯ N earlier tool calls above` 占位，不丢信息），预览在有
+  工具批时相应收窄。帧高不超过视口 → 不再越界擦除 → 回滚时可自由滑动。
+
 ## [0.9.21] - 2026-06-22
 
 ### 修复 / 改进
