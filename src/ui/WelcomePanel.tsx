@@ -2,8 +2,9 @@ import React from 'react'
 import { Box, Text, useStdout } from 'ink'
 import { AstraeaWordmark, WORDMARK_WIDTH } from './AstraeaWordmark'
 import { AstraeaGoddess, GODDESS_WIDTH } from './AstraeaGoddess'
-import { t } from '../i18n'
-import { INDIGO, SILVER } from './theme'
+import { getLocale, t } from '../i18n'
+import { AMBER, INDIGO, SILVER } from './theme'
+import { getRecentUpdates } from './recentUpdates'
 
 const DIM = '#7A8AAA'
 
@@ -31,6 +32,7 @@ export function WelcomePanel({ version, cwd, model, tools, columns: columnsProp 
 
   const toolLine = tools.slice(0, 3).join(', ') + (tools.length > 3 ? ' …' : '')
   const truncCwd = cwd.length > 38 ? '…' + cwd.slice(cwd.length - 37) : cwd
+  const recentUpdates = getRecentUpdates(version, getLocale())
 
   return (
     <Box flexDirection="column">
@@ -98,6 +100,22 @@ export function WelcomePanel({ version, cwd, model, tools, columns: columnsProp 
             <Text color={DIM}>{toolLine}</Text>
           </Box>
         </Box>
+
+        {recentUpdates.length > 0 && (
+          <Box flexDirection="column" width="100%" marginTop={1}>
+            <Text color={INDIGO}>{t('wRecentUpdates')}</Text>
+            {recentUpdates.map((message, index) => {
+              const [beforeLogin, afterLogin] = message.split('/login')
+              return (
+                <Text key={`${index}-${message}`} color={SILVER}>
+                  {'• '}{beforeLogin}
+                  <Text color={AMBER}>{'/login'}</Text>
+                  {afterLogin}
+                </Text>
+              )
+            })}
+          </Box>
+        )}
 
         <Box marginTop={1}>
           <Text color={DIM} dimColor>{'✦ ' + t('wFooter')}</Text>

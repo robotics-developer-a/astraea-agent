@@ -152,3 +152,34 @@ describe('AstraeaGoddess reveal', () => {
     }
   })
 })
+
+describe('WelcomePanel recent updates', () => {
+  test('shows the localized DeepSeek migration notice on every launch', () => {
+    const expected = {
+      en: ['Recent updates', 'DeepSeek models are now V4 Flash / Pro. Run /login to sign in again.'],
+      de: ['Letzte Updates', 'DeepSeek-Modelle sind jetzt V4 Flash / Pro. Führe /login aus, um dich erneut anzumelden.'],
+      fr: ['Mises à jour récentes', 'Les modèles DeepSeek sont maintenant V4 Flash / Pro. Lancez /login pour vous reconnecter.'],
+      es: ['Actualizaciones recientes', 'Los modelos DeepSeek ahora son V4 Flash / Pro. Ejecuta /login para volver a iniciar sesión.'],
+      zh: ['最近更新', 'DeepSeek 模型已升级为 V4 Flash / Pro，请运行 /login 重新登录。'],
+      ko: ['최근 업데이트', 'DeepSeek 모델이 V4 Flash / Pro로 변경되었습니다. /login을 실행해 다시 로그인하세요.'],
+    } as const
+
+    for (const locale of ['en', 'de', 'fr', 'es', 'zh', 'ko'] as const) {
+      setLocale(locale)
+      const frame = strip(renderPanel(100).lastFrame() ?? '')
+      expect(frame).toContain(expected[locale][0])
+      expect(frame).toContain(expected[locale][1])
+    }
+  })
+
+  test('keeps the bordered panel intact when the notice wraps', () => {
+    setLocale('de')
+    for (const width of WIDTHS) {
+      const { lastFrame } = renderPanel(width)
+      const [first, last] = borderRows(lines(lastFrame() ?? ''))
+      expect(stringWidth(first)).toBe(stringWidth(last))
+      expect(first.endsWith('╮')).toBe(true)
+      expect(last.endsWith('╯')).toBe(true)
+    }
+  })
+})
