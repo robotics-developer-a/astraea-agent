@@ -104,6 +104,39 @@ test('无 transformPaste 的字段：粘贴里的换行被折成空格', async (
   expect(text).toContain('line1 line2')
 })
 
+test('裸 \\r 分隔的多行粘贴也按多行处理（折叠），不让回车符进单行缓冲区', async () => {
+  // 复现根因：从某些终端/来源复制的多行用 \r 当分隔符。若只认 \n，会被当成单行
+  // 原样插入，裸 \r 进缓冲区后终端光标打回行首、覆盖前文 → 叠字串行的乱码。
+  const { stdin, lastFrame } = render(
+    <PasteControlled transformPaste={() => '[Pasted text]'} />,
+  )
+  stdin.write(bracketed('criterionId\rclaim\rsource\rconfidence\rassumptions'))
+  await tick()
+  const text = strip(lastFrame())
+  expect(text).toContain('[Pasted text]')
+  expect(text).not.toContain('\r') // 裸回车符没有原样落进缓冲区
+})
+
+test('\\r\\n（Windows 行尾）分隔的多行粘贴同样折叠', async () => {
+  const { stdin, lastFrame } = render(
+    <PasteControlled transformPaste={() => '[Pasted text]'} />,
+  )
+  stdin.write(bracketed('a\r\nb\r\nc'))
+  await tick()
+  const text = strip(lastFrame())
+  expect(text).toContain('[Pasted text]')
+  expect(text).not.toContain('\r')
+})
+
+test('无 transformPaste 字段：裸 \\r 也被折成空格', async () => {
+  const { stdin, lastFrame } = render(<PasteControlled />)
+  stdin.write(bracketed('line1\rline2'))
+  await tick()
+  const text = strip(lastFrame())
+  expect(text).toContain('line1 line2')
+  expect(text).not.toContain('\r')
+})
+
 test('回车触发 onSubmit，带上当前完整值', async () => {
   const box = { value: '' }
   const { stdin } = render(<Controlled onSubmit={(v) => { box.value = v }} />)

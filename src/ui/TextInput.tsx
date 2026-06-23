@@ -98,9 +98,14 @@ export default function TextInput({
 
   // 粘贴入口：先过 transformPaste（折叠大段 / 规整拖入路径），再插到光标处。
   const handlePaste = useCallback((raw: string) => {
+    // 先把行尾统一成 \n：不同来源/终端的多行粘贴可能用 \r\n（Windows）或裸 \r（部分
+    // 终端、从终端回滚区复制的内容）当分隔符。下游的折叠/检测一律只认 \n——若不先归一，
+    // 裸 \r 既骗过「多行→折叠」判断（split('\n') 只数到 1 行），又会作为回车符进单行
+    // 输入框：终端光标被打回行首、覆盖前文，渲染成叠字串行的乱码（pending+dated 那种）。
+    const normalized = raw.replace(/\r\n?/g, '\n')
     // 无 transformPaste 的字段（/login、/internet 的 Key 框）：Key 本不含换行，把换行
     // 折成空格，避免裸 \n 进单行输入框造成同样的错行。主输入框走 transformPaste 折叠。
-    const out = transformPaste ? transformPaste(raw) : raw.replace(/\r?\n/g, ' ')
+    const out = transformPaste ? transformPaste(normalized) : normalized.replace(/\n/g, ' ')
     if (out) insertText(out)
   }, [insertText, transformPaste])
 
@@ -191,7 +196,7 @@ export default function TextInput({
         // 若放任它原样插入，裸 \n + 宽字符就进了缓冲区——Ink 按列宽换行、伪光标按
         // 码点定位，两套坐标对不上，重绘错行、光标看着卡死。识别出来改走 handlePaste，
         // 经 transformPaste 折叠成 [Pasted text] 占位符再插到光标处。
-        if (input.length > 1 && (input.includes('\n') || input.length > 200)) {
+        if (input.length > 1 && (/[\r\n]/.test(input) || input.length > 200)) {
           handlePaste(input)
           return
         }
