@@ -247,6 +247,8 @@ Astraea auto-detects which key you have. Detection order: **Bocha → Zhipu → 
 
 ## 3 · Getting Started
 
+> 📖 **Community docs & latest releases:** [astraea-community.vercel.app/docs/getting-started](https://astraea-community.vercel.app/docs/getting-started) — guides, changelog, and release notes.
+
 ### Launch the interactive REPL
 
 The primary way to use Astraea — a persistent, multi-turn React Ink UI. If you ran `bun link` during install, just type:
