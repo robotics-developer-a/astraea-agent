@@ -6,6 +6,9 @@ const ADD_BG = '48;2;20;51;33'      // 深森绿背景
 const DEL_BG = '48;2;58;26;30'      // 深褐红背景
 const COMMENT = '38;2;122;138;170'  // 灰注释
 const TEXT = '38;2;232;232;232'     // 白正文
+const KEYWORD = '38;2;255;203;107'  // 关键字
+const STRING = '38;2;166;227;161'   // 字符串
+const NUMBER = '38;2;137;220;235'   // 数字
 
 test('commentSyntaxFor: 按扩展名映射', () => {
   expect(commentSyntaxFor('/a/b.ts')).toEqual({ line: ['//'], block: [['/*', '*/']] })
@@ -43,6 +46,14 @@ test('styleDiffLine: 添加行走绿带、注释灰、正文白', () => {
   expect(out).toContain(TEXT)       // 白正文
   expect(out).toContain(COMMENT)    // 灰注释
   expect(out).not.toContain(DEL_BG)
+})
+
+test('styleDiffLine: 代码正文保留语法高亮，而不是整行白字', () => {
+  const out = styleDiffLine("const value = 'hello' + 42", 'add', '/a/b.ts')
+  expect(out).toContain(KEYWORD)
+  expect(out).toContain(STRING)
+  expect(out).toContain(NUMBER)
+  expect(out).toContain(ADD_BG)
 })
 
 test('styleDiffLine: 删除行走红带', () => {

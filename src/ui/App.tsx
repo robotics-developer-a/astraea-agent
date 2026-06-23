@@ -15,13 +15,13 @@ import type { UserMessage, AssistantMessage } from '../types/message'
 import { WelcomePanel } from './WelcomePanel'
 import { AstraeaIntro } from './AstraeaIntro'
 import { StreamStatus } from './ThinkingIndicator'
-import { hasLiveBody } from './liveFrame'
+import { hasLiveBody, shouldPublishLiveTextPreview } from './liveFrame'
 import { LoginWizard, formatLoginSuccess } from './LoginWizard'
 import type { LoginResult } from './LoginWizard'
 import { InternetWizard, formatInternetSuccess } from './InternetWizard'
 import type { InternetResult } from './InternetWizard'
 import { LanguageWizard, formatLanguageSuccess } from './LanguageWizard'
-import { config, updateProviderConfig, saveConfigToEnv, saveSearchProviderKey, hasValidConfig } from '../config'
+import { config, updateProviderConfig, saveLoginConfigToEnvFiles, saveSearchProviderKey, hasValidConfig } from '../config'
 import { resetAdapter as resetSearchAdapter } from '../tools/WebSearchTool/index'
 import { setLocale, t, resolveLanguageCommand } from '../i18n'
 import type { Locale } from '../i18n'
@@ -109,6 +109,7 @@ import { ModeInputFrame } from './ModeBanner'
 import { ToolBatch, type ToolCall } from './ToolBatch'
 import { STATUS_COLOR, splitStatusLine, INDIGO, DEEP, type AgentStatus } from './theme'
 import { TodoStatusLine } from './TodoStatusLine'
+import { navigateQuestionPanel } from './questionPanelControls'
 import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
@@ -510,6 +511,24 @@ export function App() {
     liveToolsRef.current = next
     setLiveTools(next)
   }, [])
+  const lastLiveTextPreviewAtRef = useRef<number | null>(null)
+  const resetStreamingPreview = useCallback(() => {
+    lastLiveTextPreviewAtRef.current = null
+    setStreamingText('')
+  }, [])
+  const publishStreamingPreview = useCallback((text: string, force = false): boolean => {
+    const now = Date.now()
+    if (!shouldPublishLiveTextPreview({
+      now,
+      lastPublishedAt: lastLiveTextPreviewAtRef.current,
+      force,
+    })) {
+      return false
+    }
+    lastLiveTextPreviewAtRef.current = now
+    setStreamingText(text)
+    return true
+  }, [])
   // 把当前在途批落盘成一条 'tools' 行并清空。空批为 no-op。
   const commitLiveTools = useCallback(() => {
     if (liveToolsRef.current.length === 0) return
@@ -837,7 +856,7 @@ export function App() {
       setInputValue('')
       setIsStreaming(true)
       runStartRef.current = Date.now()
-      setStreamingText('')
+      resetStreamingPreview()
       setActiveTool(null)
       setLiveOutput('')
       syncLiveTools([])
@@ -866,7 +885,7 @@ export function App() {
           ])
         }
         accumulated = ''
-        setStreamingText('')
+        resetStreamingPreview()
       }
 
       try {
@@ -901,9 +920,10 @@ export function App() {
               // token ≈ chars/4，统计口径含叙述文本 + 工具入参（见 tool_use 分支）。
               // 真实上下文用量走另一条线：message_stop 的 usage 三项 input 之和。
               runOutCharsRef.current += event.text.length
-              setLiveTokens(Math.ceil(runOutCharsRef.current / 4))
               if (event.text.trim()) anyVisibleOutput = true
-              setStreamingText(accumulated)
+              if (publishStreamingPreview(accumulated)) {
+                setLiveTokens(Math.ceil(runOutCharsRef.current / 4))
+              }
               break
 
             case 'tool_use': {
@@ -1078,7 +1098,7 @@ export function App() {
               // 已跑完的工具调用落盘保留，避免中止时丢掉用户已看到的结果。
               if (controller.signal.aborted) {
                 accumulated = ''
-                setStreamingText('')
+                resetStreamingPreview()
                 setIsStreaming(false)
                 commitLiveTools()
                 titleTaskDone(titleTurn)  // 用户主动中止 = 本轮结束，标题转 ✓（非错误）
@@ -1091,7 +1111,7 @@ export function App() {
               // 解法：分两帧——先收起 live frame，再到下一帧才把回复 append 进 Static。
               const finalText = accumulated
               accumulated = ''
-              setStreamingText('')      // 帧 A：live frame 干净收起（含在途工具批），Static 不变，无越界
+              resetStreamingPreview()   // 帧 A：live frame 干净收起（含在途工具批），Static 不变，无越界
               setIsStreaming(false)
               setGoalTick(t => t + 1)
               titleTaskDone(titleTurn)  // 本轮干净收尾 → 标题转 ✓（摘要保持到下一任务）
@@ -1137,7 +1157,7 @@ export function App() {
       } catch (err) {
         // AbortError = ESC 中止，UI 已在 ESC 处理器里更新，这里静默清理（保留已跑完的工具批）
         if (err instanceof Error && err.name === 'AbortError') {
-          setStreamingText('')
+          resetStreamingPreview()
           setActiveTool(null)
           setLiveOutput('')
           commitLiveTools()
@@ -1150,7 +1170,7 @@ export function App() {
             ...prev,
             { id: String(entryIdRef.current++), role: 'status', status: 'error', text: `■ Error. ${errMsg}` },
           ])
-          setStreamingText('')
+          resetStreamingPreview()
           setIsStreaming(false)
           setActiveTool(null)
           titleTaskError(titleTurn)  // 本轮报错 → 标题转 ✗（摘要保留）
@@ -1176,7 +1196,7 @@ export function App() {
       abortControllerRef.current?.abort()
       clearInterjects()  // 叫停时丢弃未拾取的插队，与 ESC 语义一致
       setIsStreaming(false)
-      setStreamingText('')
+      resetStreamingPreview()
       setActiveTool(null)
       setLiveOutput('')
       commitLiveTools()  // 已跑完的工具批先落盘，排在 /stop 回执之前（顺序正确）
@@ -1380,7 +1400,7 @@ export function App() {
         conversationRef.current = []
 
         // ② 实时流式缓冲 —— 清掉可能残留的半截流式文本 / 工具指示 / 待答问题
-        setStreamingText('')
+        resetStreamingPreview()
         setActiveTool(null)
         setLiveOutput('')
         setPendingQuestion(null)
@@ -1759,7 +1779,7 @@ export function App() {
 
         setHistory(prev => [...prev, { id: String(entryIdRef.current++), role: 'user', text: '/wechat' }])
         commandHistoryRef.current.push('/wechat')
-        setIsStreaming(true); setStreamingText(''); setActiveTool('WechatRead'); setLiveOutput('')
+        setIsStreaming(true); resetStreamingPreview(); setActiveTool('WechatRead'); setLiveOutput('')
 
         ;(async () => {
           let acc = ''
@@ -1779,7 +1799,7 @@ export function App() {
               setHistory(prev => [...prev,
                 { id: String(entryIdRef.current++), role: 'assistant', text: `⚠️ 微信读取失败：\n\n${collected.output}` },
               ])
-              setStreamingText(''); setIsStreaming(false)
+              resetStreamingPreview(); setIsStreaming(false)
               return
             }
 
@@ -1812,7 +1832,7 @@ export function App() {
 
             const msgs = [...conversationRef.current, createUserMessage(aiPrompt)]
             for await (const ev of query(msgs, [], { system: systemPrompt!, maxTurns: 1, enablePromptCaching: true })) {
-              if (ev.type === 'text') { acc += ev.text; setStreamingText(acc) }
+              if (ev.type === 'text') { acc += ev.text; publishStreamingPreview(acc) }
               else if (ev.type === 'done') { conversationRef.current = ev.messages }
             }
 
@@ -1835,8 +1855,8 @@ export function App() {
               }
             }
             setHistory(prev => [...prev, { id: String(entryIdRef.current++), role: 'assistant', text: report }])
-            setStreamingText(''); setIsStreaming(false)
-          } catch { setActiveTool(null); setIsStreaming(false) }
+            resetStreamingPreview(); setIsStreaming(false)
+          } catch { setActiveTool(null); resetStreamingPreview(); setIsStreaming(false) }
           finally { process.removeListener('SIGINT', sigintHandler) }
         })()
         return
@@ -1900,7 +1920,7 @@ export function App() {
     markTokensUnknown()  // 换模型 → 旧分词器的 token 数作废，等新 usage 刷新（设计文档 §6）
     resetEclipse()       // 换模型 → 折叠的 spawn token 计数按旧分词器，作废重来
     setConfigVersion(v => v + 1)  // 让 modelId 重算 → 触发 system prompt 按新模型重建
-    await saveConfigToEnv()
+    await saveLoginConfigToEnvFiles()
     const successText = formatLoginSuccess(result)
     setHistory(prev => [
       ...prev,
@@ -1987,18 +2007,18 @@ export function App() {
 
     setHistory(prev => [...prev, { id: String(entryIdRef.current++), role: 'user', text: userText }])
     commandHistoryRef.current.push(userText)
-    setIsStreaming(true); setStreamingText(''); setActiveTool(null); setLiveOutput('')
+    setIsStreaming(true); resetStreamingPreview(); setActiveTool(null); setLiveOutput('')
 
     const msgs = [...conversationRef.current, createUserMessage(aiPrompt)]
     ;(async () => {
       let acc = ''
       try {
         for await (const ev of query(msgs, getInteractiveTools(), { system: systemPrompt, maxTurns: 10, enablePromptCaching: true })) {
-          if (ev.type === 'text') { acc += ev.text; setStreamingText(acc) }
+          if (ev.type === 'text') { acc += ev.text; publishStreamingPreview(acc) }
           else if (ev.type === 'done') {
             conversationRef.current = ev.messages
             setHistory(prev => [...prev, { id: String(entryIdRef.current++), role: 'assistant', text: acc }])
-            setStreamingText(''); setIsStreaming(false)
+            resetStreamingPreview(); setIsStreaming(false)
           }
         }
       } catch { setIsStreaming(false) }
@@ -2131,17 +2151,17 @@ export function App() {
           setPendingVigilPanel(false)
           setVigilInlineValues({})
           setHistory(prev => [...prev, { id: String(entryIdRef.current++), role: 'user', text: '/vigil list' }])
-          setIsStreaming(true); setStreamingText(''); setActiveTool(null); setLiveOutput('')
+          setIsStreaming(true); resetStreamingPreview(); setActiveTool(null); setLiveOutput('')
           const msgs = [...conversationRef.current, createUserMessage('List all scheduled vigil tasks using VigilList.')]
           ;(async () => {
             let acc = ''
             try {
               for await (const ev of query(msgs, getInteractiveTools(), { system: systemPrompt!, maxTurns: 3, enablePromptCaching: true })) {
-                if (ev.type === 'text') { acc += ev.text; setStreamingText(acc) }
+                if (ev.type === 'text') { acc += ev.text; publishStreamingPreview(acc) }
                 else if (ev.type === 'done') {
                   conversationRef.current = ev.messages
                   setHistory(prev => [...prev, { id: String(entryIdRef.current++), role: 'assistant', text: acc }])
-                  setStreamingText(''); setIsStreaming(false)
+                  resetStreamingPreview(); setIsStreaming(false)
                 }
               }
             } catch { setIsStreaming(false) }
@@ -2266,7 +2286,7 @@ export function App() {
         abortControllerRef.current?.abort()
         clearInterjects()  // 叫停 = 连未拾取的插队一并丢弃，不让它泄漏到下一次运行
         setIsStreaming(false)
-        setStreamingText('')
+        resetStreamingPreview()
         setActiveTool(null)
         setLiveOutput('')
         commitLiveTools()  // 已跑完的工具批先落盘，排在中断回执之前（顺序正确）
@@ -2344,10 +2364,17 @@ export function App() {
       const otherRow = q.options.length
       const cursor = optCursor[qIndex] ?? 0
 
-      if (key.upArrow) { setQIndex(i => Math.max(0, i - 1)); return }
-      if (key.downArrow) { setQIndex(i => Math.min(questions.length - 1, i + 1)); return }
-      if (key.upArrow) { setOptCursor(cur => setAt(cur, qIndex, Math.max(0, (cur[qIndex] ?? 0) - 1))); return }
-      if (key.downArrow) { setOptCursor(cur => setAt(cur, qIndex, Math.min(otherRow, (cur[qIndex] ?? 0) + 1))); return }
+      const nav = navigateQuestionPanel({
+        questionsLength: questions.length,
+        qIndex,
+        optCursor,
+        optionCount: otherRow,
+      }, key)
+      if (nav) {
+        setQIndex(nav.qIndex)
+        setOptCursor(nav.optCursor)
+        return
+      }
 
       // Space: open free-text on the ✎ row, otherwise toggle/pick the cursor option
       if (input === ' ') {

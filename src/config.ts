@@ -5,7 +5,7 @@
 //   2. <project>/.env            — 项目级覆盖（开发调试用，勿提交 key）
 //   3. ~/.astraea/settings.json 的 env 块 — 行为开关（如 PHOENIX_ENABLED）
 //   4. shell 环境变量             — 最高优先级
-import { chmodSync, mkdirSync, readFileSync } from 'fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync } from 'fs'
 import { join, dirname } from 'path'
 import { homedir } from 'os'
 import { fileURLToPath } from 'url'
@@ -354,4 +354,43 @@ export async function saveConfigToEnv(destination: string = globalEnvPath): Prom
   mkdirSync(dirname(destination), { recursive: true })
   await Bun.write(destination, content)
   chmodSync(destination, 0o600)
+}
+
+function loginEnvUpdates(): Record<string, string> {
+  const updates: Record<string, string> = { PROVIDER: config.provider }
+  switch (config.provider) {
+    case 'anthropic':
+      updates.ANTHROPIC_API_KEY = config.anthropic.apiKey
+      updates.ANTHROPIC_MODEL = config.anthropic.model
+      break
+    case 'deepseek':
+      updates.DEEPSEEK_API_KEY = config.deepseek.apiKey
+      updates.DEEPSEEK_MODEL = config.deepseek.model
+      break
+    case 'kimi':
+      updates.KIMI_API_KEY = config.kimi.apiKey
+      updates.KIMI_MODEL = config.kimi.model
+      updates.KIMI_BASE_URL = config.kimi.baseUrl
+      break
+    case 'openai':
+      updates.OPENAI_API_KEY = config.openai.apiKey
+      updates.OPENAI_MODEL = config.openai.model
+      updates.OPENAI_BASE_URL = config.openai.baseUrl
+      break
+    case 'ollama':
+      updates.OLLAMA_MODEL = config.ollama.model
+      updates.OLLAMA_BASE_URL = config.ollama.baseUrl
+      break
+  }
+  return updates
+}
+
+export async function saveLoginConfigToEnvFiles(
+  globalDestination: string = globalEnvPath,
+  projectDestination: string = envPath,
+): Promise<void> {
+  await saveConfigToEnv(globalDestination)
+  if (existsSync(projectDestination)) {
+    await mergeEnvFile(projectDestination, loginEnvUpdates())
+  }
 }

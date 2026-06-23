@@ -1,5 +1,8 @@
 import { test, expect } from 'bun:test'
+import React from 'react'
+import { render } from 'ink-testing-library'
 import { groupCalls, type ToolCall } from './ToolBatch'
+import { ToolBatch } from './ToolBatch'
 
 const call = (name: string, id: string, status: ToolCall['status'] = 'done'): ToolCall => ({
   toolUseId: id,
@@ -57,4 +60,25 @@ test('groupCalls: running 调用也计入分组', () => {
 
 test('groupCalls: 空输入 → 空数组', () => {
   expect(groupCalls([])).toEqual([])
+})
+
+test('ToolBatch: 带 ANSI 的长结果行单行截断，避免续行顶到左边', () => {
+  ;(process.stdout as { columns?: number }).columns = 44
+  const ansiLine = `\x1b[48;2;20;51;33m+ ${'verificationCommand'.repeat(8)}\x1b[0m`
+  const { lastFrame } = render(
+    React.createElement(ToolBatch, {
+      calls: [{
+        toolUseId: '1',
+        name: 'Edit',
+        argText: 'src/ui/recentUpdates.ts',
+        status: 'done',
+        resultLines: ['Updated → src/ui/recentUpdates.ts', ansiLine],
+      }],
+    }),
+  )
+
+  const frame = lastFrame() ?? ''
+  const resultLines = frame.split('\n').filter(line => line.includes('verificationCommand'))
+  expect(resultLines).toHaveLength(1)
+  expect(resultLines[0]!.startsWith('   ')).toBe(true)
 })

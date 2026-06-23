@@ -12,3 +12,18 @@ export function hasLiveBody(args: {
 }): boolean {
   return args.streamingText.length > 0 || args.liveToolCount > 0 || args.activeTool != null
 }
+
+// INTENT: Live text is only a preview; the complete assistant reply is still accumulated in
+// memory and committed to Static history at turn end. Keeping preview publishes sparse makes
+// terminal mouse selection practical while Astraea continues running.
+export const COPY_FRIENDLY_PREVIEW_INTERVAL_MS = 1_200
+
+export function shouldPublishLiveTextPreview(args: {
+  now: number
+  lastPublishedAt: number | null
+  force?: boolean
+}): boolean {
+  return args.force === true
+    || args.lastPublishedAt === null
+    || args.now - args.lastPublishedAt >= COPY_FRIENDLY_PREVIEW_INTERVAL_MS
+}

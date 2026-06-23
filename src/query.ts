@@ -46,6 +46,7 @@ import { drainNotifications, hasPendingNotifications } from './services/notifica
 import { drainInterjects, hasPendingInterjects } from './services/interject-queue'
 import { hasRunningAgents } from './services/agent-state'
 import { getTodos, type Todo } from './services/todo-state'
+import { recordToolEvidence } from './services/evidence-registry'
 import {
   getActiveGoal,
   recordGoalEvaluation,
@@ -749,6 +750,15 @@ async function* runQuery(
             isError: result.isError ?? false,
             startTime: __phxStart,
           })
+          // INTENT: TodoWrite may run later in the same assistant tool batch and cite
+          // this tool_use id. Register evidence as soon as the individual tool finishes,
+          // not after the whole batch drains, so same-turn proof is visible.
+          recordToolEvidence(todoNamespace, {
+            id: toolUse.id,
+            tool: toolUse.name,
+            output: result.output,
+            isError: result.isError ?? false,
+          })
           // 用户已完成方向确认 → 紧接着问"是否现在开始执行"（counsel 第二道闸）
           if (tool.name === 'AskUserQuestion' && !result.isError) {
             counselConsulted = true
@@ -839,6 +849,12 @@ async function* runQuery(
         output,
         isError,
         startTime: __phxStreamStart,
+      })
+      recordToolEvidence(todoNamespace, {
+        id: toolUse.id,
+        tool: toolUse.name,
+        output,
+        isError,
       })
       streamingResults.push({ toolUse, output, isError })
     }
@@ -1029,7 +1045,8 @@ function buildTodoReminderBlock(todos: Todo[]): TextBlock {
     "You haven't used the TodoWrite tool recently. If the current task is multi-step or " +
     'spans several files, create or update a todo list so sub-tasks do not get dropped and ' +
     'the user can see progress — mark exactly one task in_progress, and flip each to completed ' +
-    'the moment it is verified done. This is a gentle reminder; ignore it if the task is simple ' +
+    'only after it is verified done. Each todo must include acceptanceCriteria and verificationCommand; ' +
+    'completed todos must cite successful tool result ids in evidenceRefs. This is a gentle reminder; ignore it if the task is simple ' +
     'enough not to need tracking. Never mention this reminder to the user.'
   if (todos.length > 0) {
     const list = todos.map(t => `  - [${t.status}] ${t.content}`).join('\n')

@@ -2,7 +2,7 @@
 //
 // 设计（见 UI grill 决议）：
 //   · 添加行走深森绿背景带，删除行走深褐红背景带；整行满宽（铺到终端右缘）。
-//   · 行内文字白色；行内代码注释（// # /* */ <!-- --> 等）保持灰色。
+//   · 行内代码带轻量语法高亮；注释（// # /* */ <!-- --> 等）保持灰色。
 //   · 注释检测：按文件扩展名取注释语法，跳过字符串字面量内的标记（避免 http:// 被误判）。
 //   · 暗调深色带 → 白字与灰注释在带上都清晰可读。
 //
@@ -19,6 +19,12 @@ const DEL_BG = '#3A1A1E'   // 深褐红 —— 删除行背景
 const TEXT = '#E8E8E8'     // 近白 —— 代码正文
 const COMMENT = '#7A8AAA'  // 品牌蓝灰（DIM）—— 行内注释
 const MARKER = '#FFFFFF'   // 亮白 —— +/- 标记
+const KEYWORD = '#FFCB6B'  // 暖黄 —— 关键字
+const STRING = '#A6E3A1'   // 柔绿 —— 字符串
+const NUMBER = '#89DCEB'   // 青蓝 —— 数字/布尔-ish 常量
+const FUNCTION = '#82AAFF' // 蓝紫 —— 函数/方法
+const PROPERTY = '#C792EA' // 紫色 —— 属性名
+const PUNCT = '#A6ACCD'    // 淡灰蓝 —— 标点/操作符
 
 // 强制输出 ANSI（Ink 接管终端时 isTTY 可能探测不到），与 markdown.ts 同策略。
 const c = new Chalk({ level: chalk.level > 0 ? chalk.level : 3 })
@@ -56,6 +62,92 @@ export function commentSyntaxFor(filePath: string): CommentSyntax | null {
 }
 
 export interface Segment { text: string; kind: 'code' | 'comment' }
+
+const KEYWORDS = new Set([
+  'abstract', 'as', 'async', 'await', 'break', 'case', 'catch', 'class', 'const',
+  'continue', 'default', 'defer', 'delete', 'do', 'else', 'enum', 'export',
+  'extends', 'false', 'final', 'finally', 'for', 'from', 'func', 'function', 'go',
+  'if', 'implements', 'import', 'in', 'interface', 'is', 'let', 'match', 'module',
+  'new', 'nil', 'null', 'package', 'private', 'protected', 'public', 'return',
+  'self', 'static', 'struct', 'super', 'switch', 'this', 'throw', 'throws', 'true',
+  'try', 'type', 'undefined', 'use', 'using', 'var', 'void', 'when', 'where',
+  'while', 'yield',
+])
+
+function paint(bg: string, fg: string, text: string): string {
+  return c.bgHex(bg).hex(fg)(text)
+}
+
+function nextNonSpace(text: string, from: number): string {
+  for (let i = from; i < text.length; i++) {
+    const ch = text[i]!
+    if (!/\s/.test(ch)) return ch
+  }
+  return ''
+}
+
+function prevNonSpace(text: string, before: number): string {
+  for (let i = before - 1; i >= 0; i--) {
+    const ch = text[i]!
+    if (!/\s/.test(ch)) return ch
+  }
+  return ''
+}
+
+function highlightCode(text: string, bg: string): string {
+  let out = ''
+  let i = 0
+  while (i < text.length) {
+    const rest = text.slice(i)
+    const ch = text[i]!
+
+    if (/\s/.test(ch)) {
+      out += paint(bg, TEXT, ch)
+      i++
+      continue
+    }
+
+    if (ch === '"' || ch === "'" || ch === '`') {
+      const quote = ch
+      let j = i + 1
+      while (j < text.length) {
+        const cur = text[j]!
+        if (cur === '\\') { j += 2; continue }
+        j++
+        if (cur === quote) break
+      }
+      out += paint(bg, STRING, text.slice(i, j))
+      i = j
+      continue
+    }
+
+    const number = rest.match(/^(?:0x[\da-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?:n)?\b/)
+    if (number) {
+      out += paint(bg, NUMBER, number[0])
+      i += number[0].length
+      continue
+    }
+
+    const ident = rest.match(/^[$A-Za-z_][$\w]*/)
+    if (ident) {
+      const word = ident[0]
+      const fg = KEYWORDS.has(word)
+        ? KEYWORD
+        : prevNonSpace(text, i) === '.'
+          ? PROPERTY
+          : nextNonSpace(text, i + word.length) === '('
+            ? FUNCTION
+            : TEXT
+      out += paint(bg, fg, word)
+      i += word.length
+      continue
+    }
+
+    out += paint(bg, PUNCT, ch)
+    i++
+  }
+  return out
+}
 
 // 把一行代码切成 code / comment 段：扫描字符，跟踪字符串状态，串内的标记不算注释。
 export function splitCodeComment(code: string, syntax: CommentSyntax): Segment[] {
@@ -150,7 +242,7 @@ export function styleDiffLine(
   for (const seg of segments) {
     out += seg.kind === 'comment'
       ? c.bgHex(bg).hex(COMMENT)(seg.text)
-      : c.bgHex(bg).hex(TEXT)(seg.text)
+      : highlightCode(seg.text, bg)
     visible += stringWidth(seg.text)
   }
   // 补齐到满宽（短行铺满背景；长行不补，由 Ink 折行、bg 自然延续）。

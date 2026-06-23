@@ -3,10 +3,11 @@
 // 由 confirmBridge 驱动（工具执行中 requestConfirm → App 渲染本组件 → resolveConfirm）。
 
 import React from 'react'
-import { Box, Text } from 'ink'
+import { Box, Text, useWindowSize } from 'ink'
 import type { ConfirmResult } from '../tools/BashTool/permissions/confirmBridge'
 import { AMBER } from './theme'
 import { t } from '../i18n'
+import { clampLineWidth } from '../utils/termWidth'
 
 export interface ConfirmChoice {
   label: string
@@ -25,9 +26,9 @@ export const CONFIRM_CHOICES: ConfirmChoice[] = [
 // 文件写（FileWrite/FileEdit）：对齐 CC 的 acceptEdits — 「本会话全允许」即切到 cruise 模式
 // （会话内存，不落盘 per-file 规则；红线敏感路径仍会把 allow 降级回 ask）。
 export const FILE_CONFIRM_CHOICES: ConfirmChoice[] = [
-  { label: 'Yes',                      description: 'write once',                          result: { proceed: true,  remember: null } },
-  { label: 'Yes, all edits (cruise)',  description: 'allow all edits this session → switch to cruise mode', result: { proceed: true,  remember: 'session-cruise' } },
-  { label: 'No',                       description: 'cancel this write',                   result: { proceed: false, remember: null } },
+  { label: 'Yes',             description: 'write once',                result: { proceed: true,  remember: null } },
+  { label: 'Yes, all edits',  description: 'session edits -> cruise',   result: { proceed: true,  remember: 'session-cruise' } },
+  { label: 'No',              description: 'cancel this write',         result: { proceed: false, remember: null } },
 ]
 
 export const ACTION_CONFIRM_CHOICES: ConfirmChoice[] = [
@@ -45,16 +46,21 @@ interface ConfirmSelectorProps {
   description?: string
   selectedIndex: number
   kind?: 'bash' | 'file' | 'action'
+  columns?: number
 }
 
-export function ConfirmSelector({ command, description, selectedIndex, kind }: ConfirmSelectorProps) {
+export function ConfirmSelector({ command, description, selectedIndex, kind, columns: columnsProp }: ConfirmSelectorProps) {
+  const { columns } = useWindowSize()
+  const outerWidth = Math.max(42, (columnsProp ?? columns ?? process.stdout.columns ?? 80) - 1)
+  const contentWidth = Math.max(1, outerWidth - 4) // border left/right + paddingX
   // 命令过长时截断显示（真实命令仍按原值执行）
-  const shownCommand = command.length > 200 ? command.slice(0, 200) + '…' : command
+  const shownCommand = clampLineWidth(command.length > 200 ? command.slice(0, 200) + '…' : command, contentWidth)
   const choices = getConfirmChoices(kind)
   const labelWidth = Math.max(...choices.map(c => c.label.length)) + 2
   return (
     <Box
       flexDirection="column"
+      width={outerWidth}
       borderStyle="round"
       borderColor={AMBER}
       paddingX={1}
@@ -67,11 +73,12 @@ export function ConfirmSelector({ command, description, selectedIndex, kind }: C
         <Text color="gray" dimColor>{description}</Text>
       )}
       <Box marginTop={1}>
-        <Text color="gray" dimColor>{t('navHint')}</Text>
+        <Text color="gray" dimColor>{clampLineWidth(t('navHint'), contentWidth)}</Text>
       </Box>
       <Box flexDirection="column" marginTop={1}>
         {choices.map((choice, i) => {
           const isSelected = i === selectedIndex
+          const descriptionWidth = Math.max(1, contentWidth - 3 - labelWidth - 2)
           return (
             <Box key={choice.label}>
               <Text color={isSelected ? 'white' : 'gray'} bold={isSelected}>
@@ -81,7 +88,7 @@ export function ConfirmSelector({ command, description, selectedIndex, kind }: C
                 {choice.label.padEnd(labelWidth)}
               </Text>
               <Text color={isSelected ? 'white' : 'gray'} dimColor={!isSelected}>
-                {'— '}{choice.description}
+                {'— '}{clampLineWidth(choice.description, descriptionWidth)}
               </Text>
             </Box>
           )

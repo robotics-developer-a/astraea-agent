@@ -39,8 +39,9 @@ describe('recent updates', () => {
       )
       expect(getRecentUpdates('0.9.27', 'en')).toEqual([
         'high',
-        'DeepSeek models are now V4 Flash / Pro. Run /login to sign in again.',
         'Ambiguous tasks → Counsel automatically. /goal: dynamic graphs, per-step criteria, sourced evidence. Stronger shell, MCP, network safety.',
+        'DeepSeek models are now V4 Flash / Pro. Run /login to sign in again.',
+        'Todo and task capabilities are greatly improved in the latest version.',
         'low',
       ])
     } finally {
@@ -52,8 +53,8 @@ describe('recent updates', () => {
     expect(getRecentUpdates(pkg.version, 'en').length).toBeLessThanOrEqual(3)
   })
 
-  test('/goal task-accuracy update is the second welcome notice', () => {
+  test('/goal task-accuracy update is the first welcome notice', () => {
     const updates = getRecentUpdates(pkg.version, 'en')
-    expect(updates[1]).toContain('/goal')
+    expect(updates[0]).toContain('/goal')
   })
 })

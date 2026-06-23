@@ -5,11 +5,16 @@ import React from 'react'
 import { test, expect, afterEach } from 'bun:test'
 import { render } from 'ink-testing-library'
 import { TodoStatusLine } from './TodoStatusLine'
-import { setTodos, clearTodos, getTodos } from '../services/todo-state'
+import { setTodos, clearTodos, getTodos, type Todo } from '../services/todo-state'
 
 const NS = 'main'
 const strip = (s: string | undefined) => (s ?? '').replace(/\[[0-9;]*m/g, '')
 const tick = () => new Promise((r) => setTimeout(r, 350)) // > POLL_MS(300)
+const todo = (partial: Pick<Todo, 'id' | 'content' | 'status'> & Partial<Todo>): Todo => ({
+  acceptanceCriteria: ['Status line reflects todo counts'],
+  verificationCommand: 'bun test src/ui/TodoStatusLine.test.tsx',
+  ...partial,
+})
 
 // 每次 render 登记，afterEach 统一 unmount —— 否则组件的 300ms 轮询定时器跨测试残留，
 // 污染后续用例的渲染帧。
@@ -33,10 +38,10 @@ test('无 todo → 不渲染任何内容(0 行)', () => {
 
 test('有 todo → 单行显示三态计数 ○p ◉i ●c', async () => {
   setTodos([
-    { id: '1', content: '甲', status: 'completed' },
-    { id: '2', content: '乙', status: 'in_progress' },
-    { id: '3', content: '丙', status: 'pending' },
-    { id: '4', content: '丁', status: 'pending' },
+    todo({ id: '1', content: '甲', status: 'completed', evidenceRefs: ['tool-1'], verifiedAt: '2026-06-23T00:00:00.000Z' }),
+    todo({ id: '2', content: '乙', status: 'in_progress' }),
+    todo({ id: '3', content: '丙', status: 'pending' }),
+    todo({ id: '4', content: '丁', status: 'pending' }),
   ], NS)
   const { lastFrame } = mount(<TodoStatusLine columns={80} />)
   await tick()
@@ -50,8 +55,8 @@ test('有 todo → 单行显示三态计数 ○p ◉i ●c', async () => {
 
 test('有 in_progress → 单行带上当前任务名', async () => {
   setTodos([
-    { id: '1', content: '正在重写渲染层', status: 'in_progress' },
-    { id: '2', content: '待办', status: 'pending' },
+    todo({ id: '1', content: '正在重写渲染层', status: 'in_progress' }),
+    todo({ id: '2', content: '待办', status: 'pending' }),
   ], NS)
   const { lastFrame } = mount(<TodoStatusLine columns={80} />)
   await tick()
@@ -60,8 +65,8 @@ test('有 in_progress → 单行带上当前任务名', async () => {
 
 test('全部 completed → 自动清空,摘要行消失', async () => {
   setTodos([
-    { id: '1', content: '甲', status: 'completed' },
-    { id: '2', content: '乙', status: 'completed' },
+    todo({ id: '1', content: '甲', status: 'completed', evidenceRefs: ['tool-1'], verifiedAt: '2026-06-23T00:00:00.000Z' }),
+    todo({ id: '2', content: '乙', status: 'completed', evidenceRefs: ['tool-2'], verifiedAt: '2026-06-23T00:00:00.000Z' }),
   ], NS)
   const { lastFrame } = mount(<TodoStatusLine columns={80} />)
   await tick()
@@ -72,7 +77,7 @@ test('全部 completed → 自动清空,摘要行消失', async () => {
 
 test('当前任务名超宽 → 截断成单行(不折行)', async () => {
   setTodos([
-    { id: '1', content: '这是一个非常非常非常非常非常非常非常非常长的任务名称会超出窄终端宽度', status: 'in_progress' },
+    todo({ id: '1', content: '这是一个非常非常非常非常非常非常非常非常长的任务名称会超出窄终端宽度', status: 'in_progress' }),
   ], NS)
   const { lastFrame } = mount(<TodoStatusLine columns={20} />)
   await tick()

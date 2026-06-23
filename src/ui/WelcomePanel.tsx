@@ -109,7 +109,7 @@ export function WelcomePanel({ version, cwd, model, tools, columns: columnsProp 
               const parts = message.split(/(\/[a-z]+)/g)
               return (
                 <Text key={`${index}-${message}`} color={SILVER}>
-                  {'• '}
+                  {'◇ '}
                   {parts.map((part, i) =>
                     part.startsWith('/') ? (
                       <Text key={i} color={AMBER}>{part}</Text>

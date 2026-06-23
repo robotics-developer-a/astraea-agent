@@ -11,6 +11,10 @@ export interface Todo {
   content: string
   status: TodoStatus
   priority?: 'high' | 'medium' | 'low'
+  acceptanceCriteria: string[]
+  verificationCommand: string
+  evidenceRefs?: string[]
+  verifiedAt?: string
 }
 
 const _store = new Map<string, Todo[]>()

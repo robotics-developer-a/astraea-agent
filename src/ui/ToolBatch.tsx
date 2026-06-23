@@ -50,7 +50,7 @@ function ResultLines({ lines }: { lines: string[] }) {
         // 工具自带 ANSI 样式（如 Edit/Write 的 diff 背景带）→ 原样输出，不再二次上色，
         // 让内嵌的 bg/fg 完全生效（与 markdown 渲染同模式：纯 <Text> 透传 ANSI）。
         if (line.includes('\x1b[')) {
-          return <Text key={i}>{prefix}{line}</Text>
+          return <Text key={i} wrap="truncate-end">{prefix}{line}</Text>
         }
         const t = line.trimStart()
         const isAdded = t.startsWith('+')
