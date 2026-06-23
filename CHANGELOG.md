@@ -8,6 +8,40 @@
 
 > **1.0.0 发布门槛**（达成后才从 0.x 升到 1.0 并打首个 `git tag v1.0.0`）：
 
+## [0.9.44] - 2026-06-23
+
+### 修复
+- **PowerShellTool 在 forge 模式下仍弹权限确认**：PowerShell 现在和 Bash 共用同一套 shell
+  permission 模式语义，`forge` 会自动放行本应询问的普通执行命令，`default` / `cruise` 继续询问，
+  无交互后台 fail-closed，`orbit` / `counsel` 仍由调度层按非只读执行工具拦截；写 `.git`、`.astraea`
+  等敏感路径的红线命令即便在 `forge` 下也会降级为确认。
+
+## [0.9.43] - 2026-06-23
+
+### 修复
+- **/goal 使用多行粘贴时目标条件显示为 `[Pasted text #N ...]`**：提交入口现在会先把输入框里的
+  粘贴占位符展开为真实内容，再进入 slash 命令解析；因此 `/goal <多行粘贴>` 存入状态机、
+  evaluator 的都是实际目标条件，而不是 UI 占位符。进度面板遇到超长目标时只显示一句摘要，
+  避免大段粘贴把常驻区撑满；完整条件仍保留给 evaluator 使用。普通历史展示仍保留用户提交时
+  看到的简短文本，避免大段粘贴把终端刷满。
+
+## [0.9.42] - 2026-06-23
+
+### 修复
+- **长思考后 Astraea「自己退出」、零输出回到提示符**：开启 `/reason`（extended thinking / reasoner CoT）
+  后，模型在综合作答前先思考数十秒至数分钟。根因有两环叠加：
+  1. **思考增量被丢弃**：Anthropic 适配器只处理 `text_delta`/`input_json_delta`，把 `thinking_delta`
+     （及 DeepSeek/Kimi/OpenAI 的 `reasoning_content`）直接吞掉，内层流在整个思考阶段一个事件都不发。
+     空闲看门狗（默认 90s）据「两次事件间隔」判活，于是把"模型正在思考"误判成半开连接而 abort。
+  2. **兜底被自己掐死**：看门狗超时后本应走非流式 fallback 救场，但 fallback 与被 abort 的流式请求
+     **共用同一个 AbortSignal**，`opts.abort()` 一调，fallback 拿到的就是已 aborted 的 signal，
+     `messages.create` 一发出即抛 `APIUserAbortError`。该错误又被 `isAbortError` 误判成"用户按 ESC"，
+     令本轮静默 `done`、零输出收尾。表现正是"跑满约 2 分钟后自己退出"。
+  修复：① `thinking_delta`/`reasoning_content` 增量改为 yield 轻量 `thinking` 心跳事件，看门狗据此重置
+  计时，长思考不再误触发；② `linkAbort` 拆出只跟随【外部 ESC】的 `fallbackSignal`，看门狗的 abort
+  不再波及兜底——真·半开连接时 fallback 能真正发出请求救场。五个 provider（Anthropic/OpenAI/DeepSeek/
+  Kimi/Ollama）一并修复。补 6 条看门狗回归测试。
+
 ## [0.9.41] - 2026-06-23
 
 ### 新增

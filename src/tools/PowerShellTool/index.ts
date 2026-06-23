@@ -1,10 +1,12 @@
 import { buildTool } from '../Tool.js'
-import type { Tool, ToolCallResult } from '../Tool.js'
+import type { ToolCallResult, ToolContext } from '../Tool.js'
 import { executePowerShell } from './executor/powershell.js'
 import { matchRule, DEFAULT_RULES, type PermissionRule } from '../BashTool/permissions/permission-rules.js'
 import { confirmWithUser } from '../BashTool/permissions/confirm.js'
 import { loadPermissionRules, appendPermissionRule } from '../../config/permissions.js'
 import { checkCommandSecurity } from './security/injection-check.js'
+import { shellAskBehavior, type PermissionBehavior } from '../../state/sessionMode.js'
+import { commandTouchesSensitivePath } from '../../config/redlines.js'
 const runtimeRules: PermissionRule[] = []
 
 export function addPsPermissionRule(rule: PermissionRule): void {
@@ -33,6 +35,71 @@ Requires PowerShell 7+ (pwsh) to be installed. On macOS/Linux install via: brew 
 - You may specify an optional timeout in milliseconds (up to 600000ms). Default: 120000ms
 - Working directory starts from the current session directory`
 
+interface PowerShellPermissionOutcome {
+  proceed: boolean
+  rejection?: string
+}
+
+async function resolvePowerShellPermission(
+  command: string,
+  description: string | undefined,
+  ctx: ToolContext,
+  securityBehavior: 'ask' | 'pass',
+): Promise<PowerShellPermissionOutcome> {
+  await ensureConfigLoaded()
+
+  const allRules = [...runtimeRules, ...configRules, ...DEFAULT_RULES]
+  const ruleAction = matchRule(command, allRules)
+
+  if (ruleAction === 'deny') {
+    return { proceed: false, rejection: `Command denied by permission rules: \`${command}\`` }
+  }
+
+  // INTENT: PowerShell follows the same session-mode contract as Bash: forge
+  // auto-accepts commands that would otherwise ask, while block-tier security
+  // checks have already returned before this function is reached.
+  let behavior: PermissionBehavior =
+    ruleAction === 'allow' && securityBehavior !== 'ask'
+      ? 'allow'
+      : shellAskBehavior(ctx.mode)
+
+  // INTENT: Mode bypass must not silently modify the permission system or user
+  // shell startup surface. This mirrors BashTool's bypass-immune redline.
+  if (behavior === 'allow' && commandTouchesSensitivePath(command)) {
+    behavior = 'ask'
+  }
+
+  if (behavior === 'allow') {
+    return { proceed: true }
+  }
+
+  if (ctx.isInteractive !== true) {
+    return {
+      proceed: false,
+      rejection: `Command requires confirmation, but no interactive user is available (fail-closed deny): \`${command}\`. Pre-allow it in .astraea/settings.json, or run interactively.`,
+    }
+  }
+
+  const confirm = await confirmWithUser(command, description)
+
+  if (confirm.remember === 'always-deny') {
+    await appendPermissionRule(process.cwd(), command, 'deny')
+    configRules.unshift({ pattern: command, action: 'deny' })
+    return { proceed: false, rejection: `Command denied. Rule saved: deny "${command}"` }
+  }
+
+  if (!confirm.proceed) {
+    return { proceed: false, rejection: 'Command cancelled by user.' }
+  }
+
+  if (confirm.remember === 'always-allow') {
+    await appendPermissionRule(process.cwd(), command, 'allow')
+    configRules.unshift({ pattern: command, action: 'allow' })
+  }
+
+  return { proceed: true }
+}
+
 export const PowerShellTool = buildTool({
   name: 'PowerShell',
   description: TOOL_DESCRIPTION,
@@ -56,7 +123,7 @@ export const PowerShellTool = buildTool({
     required: ['command'],
   },
 
-  async call(input, _ctx: import("../Tool.js").ToolContext): Promise<ToolCallResult> {
+  async call(input, ctx: ToolContext): Promise<ToolCallResult> {
     const command = input['command'] as string | undefined
     if (!command?.trim()) {
       return { output: 'Error: command is required', isError: true }
@@ -75,38 +142,14 @@ export const PowerShellTool = buildTool({
       }
     }
 
-    await ensureConfigLoaded()
-    const allRules = [...runtimeRules, ...configRules, ...DEFAULT_RULES]
-    const ruleAction = matchRule(command, allRules)
-
-    if (ruleAction === 'deny') {
-      return { output: `Command denied by permission rules: \`${command}\``, isError: true }
-    }
-
-    // A dangerous pattern forces confirmation even when an allow rule matched —
-    // dangerous cmdlets must never be silently auto-allowed (claude-code parity).
-    if (ruleAction === 'ask' || security.behavior === 'ask') {
+    const permission = await resolvePowerShellPermission(command, description, ctx, security.behavior)
+    if (!permission.proceed) {
       if (security.behavior === 'ask') {
         process.stderr.write(
           `[PowerShell] dangerous pattern (check #${security.checkId}): ${security.reason}\n`,
         )
       }
-      const confirm = await confirmWithUser(command, description)
-
-      if (confirm.remember === 'always-deny') {
-        await appendPermissionRule(process.cwd(), command, 'deny')
-        configRules.unshift({ pattern: command, action: 'deny' })
-        return { output: `Command denied. Rule saved: deny "${command}"`, isError: true }
-      }
-
-      if (!confirm.proceed) {
-        return { output: 'Command cancelled by user.', isError: true }
-      }
-
-      if (confirm.remember === 'always-allow') {
-        await appendPermissionRule(process.cwd(), command, 'allow')
-        configRules.unshift({ pattern: command, action: 'allow' })
-      }
+      return { output: permission.rejection ?? 'Command cancelled by user.', isError: true }
     }
 
     const result = await executePowerShell({ command, timeout, description })
