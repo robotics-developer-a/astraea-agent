@@ -10,17 +10,11 @@
 Built from the ground up on [**Bun**](https://bun.com), with a React Ink TUI, multi-provider model support, sub-agents, scheduling, and a permission system you can actually trust.
 
 <br>
-<table align="center" style="background-color: #0d0d1a; border: 1px solid #7C3AED; border-radius: 12px;">
-  <tr>
-    <td style="padding: 16px 24px; text-align: center;">
-      <span style="color: #a78bfa; font-size: 11px; font-weight: 700; letter-spacing: 2px;">COMMUNITY</span><br>
-      <a href="https://astraea-community.vercel.app/docs/getting-started" style="color: #e2e8f0; font-size: 15px; font-weight: 600; text-decoration: none;">
-        astraea-community.vercel.app/docs/getting-started
-      </a><br>
-      <span style="color: #94a3b8; font-size: 12px;">Guides, changelog, and latest releases</span>
-    </td>
-  </tr>
-</table>
+<p align="center">
+  <a href="https://astraea-community.vercel.app/docs/getting-started">
+    <img src="./assets/community-card.svg" alt="Community docs" width="560"/>
+  </a>
+</p>
 <br>
 
 <p>
