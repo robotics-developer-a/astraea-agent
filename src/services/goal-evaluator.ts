@@ -18,6 +18,22 @@ export interface GoalDecision {
   reason: string
 }
 
+export type CritiqueFindingKind =
+  | 'insufficient_evidence'
+  | 'risk_coverage_gap'
+  | 'goalpost_shift'
+
+export interface CritiqueFinding {
+  kind: CritiqueFindingKind
+  detail: string
+}
+
+export interface CritiqueDecision {
+  pass: boolean
+  reason: string
+  findings: CritiqueFinding[]
+}
+
 // transcript 上限 —— 控制 evaluator 的输入规模与延迟。保留最近的内容，
 // 因为完成条件总是由最新的几个 turn 证明的。
 const MAX_TRANSCRIPT_CHARS = 16_000
@@ -121,6 +137,56 @@ export async function evaluateGoal(
   return parseDecision(raw)
 }
 
+const CRITIQUE_SYSTEM = [
+  'You are a verification-critique layer for an autonomous coding agent.',
+  'You are NOT the primary goal evaluator. You only decide whether the evidence shown for a claimed',
+  'completion is strong enough to trust.',
+  '',
+  'Check exactly these risk classes:',
+  '1. insufficient_evidence — the transcript lacks concrete external proof such as test/build/run output,',
+  '   inspected artifact output, source-backed data checks, or command results.',
+  '2. risk_coverage_gap — tests/checks exist but miss the key failure modes implied by the work.',
+  '3. goalpost_shift — the agent appears to make verification easier instead of fixing the work, such as',
+  '   deleting/skipping tests, loosening assertions, disabling lint/type rules, mocking away the logic under',
+  '   test, or changing the verification command into a weaker one.',
+  '',
+  'Important boundaries:',
+  '- Do not demand tests for every artifact. Documents and data may be verified by render checks, source',
+  '  cross-checks, schema checks, counts, or other concrete external evidence.',
+  '- Do not reject merely because the solution could have even more tests. Reject only when important risks',
+  '  from the stated goal are not covered by the evidence in the transcript.',
+  '- Critique is supplementary. It cannot replace external evidence; it can only reject weak or suspicious',
+  '  evidence and tell the agent what proof to gather next.',
+  '- Judge ONLY from the transcript. Do not assume files or commands succeeded unless their output appears.',
+  '',
+  'Respond with ONLY a single JSON object, no prose, no code fences:',
+  '{"pass": <true|false>, "reason": "<one concise sentence>", "findings": [{"kind": "insufficient_evidence|risk_coverage_gap|goalpost_shift", "detail": "<specific issue>"}]}',
+].join('\n')
+
+/**
+ * Secondary completion critique. It runs only after the primary evaluator thinks a
+ * goal is met, and it can only ask for stronger proof; it never replaces tests.
+ */
+export async function critiqueGoalEvidence(
+  condition: string,
+  transcript: string,
+  signal?: AbortSignal,
+): Promise<CritiqueDecision> {
+  const userPrompt = [
+    'COMPLETION CONDITION:',
+    condition,
+    '',
+    'CONVERSATION TRANSCRIPT:',
+    transcript,
+    '',
+    'The primary evaluator thinks this may be complete. Critique only the evidence quality.',
+    'Now output the JSON verdict.',
+  ].join('\n')
+
+  const raw = await querySmallModel(userPrompt, signal, CRITIQUE_SYSTEM)
+  return parseCritiqueDecision(raw)
+}
+
 // ── set 时的可验证性评估（③）──────────────────────────────────────────────────
 // /goal 设定时跑一次的"质量门"：用小快模型判断条件能否从 transcript 证据客观验证。
 // 非阻断 —— 仅用于在设定时给用户一句提醒 + 改写建议，决定权仍在用户。
@@ -203,4 +269,61 @@ export function parseDecision(raw: string): GoalDecision {
     met: looksMet,
     reason: `evaluator returned non-JSON output: ${truncate(text, 160) || '(empty)'}`,
   }
+}
+
+export function parseCritiqueDecision(raw: string): CritiqueDecision {
+  const text = raw.trim()
+  const candidates: string[] = [text]
+  const match = text.match(/\{[\s\S]*\}/)
+  if (match) candidates.push(match[0])
+
+  for (const c of candidates) {
+    try {
+      const obj = JSON.parse(c) as {
+        pass?: unknown
+        reason?: unknown
+        findings?: unknown
+      }
+      if (typeof obj.pass !== 'boolean') continue
+      const findings = Array.isArray(obj.findings)
+        ? obj.findings.flatMap(parseCritiqueFinding)
+        : []
+      return {
+        pass: obj.pass,
+        reason: typeof obj.reason === 'string' && obj.reason.trim()
+          ? obj.reason.trim()
+          : obj.pass ? 'evidence critique passed' : 'evidence critique failed',
+        findings,
+      }
+    } catch { /* try next candidate */ }
+  }
+
+  return {
+    pass: false,
+    reason: `critique returned non-JSON output: ${truncate(text, 160) || '(empty)'}`,
+    findings: [{
+      kind: 'insufficient_evidence',
+      detail: 'Critique output could not be parsed, so completion needs explicit external proof.',
+    }],
+  }
+}
+
+function parseCritiqueFinding(value: unknown): CritiqueFinding[] {
+  if (!value || typeof value !== 'object') return []
+  const obj = value as { kind?: unknown; detail?: unknown }
+  if (!isCritiqueFindingKind(obj.kind)) return []
+  return [{
+    kind: obj.kind,
+    detail: typeof obj.detail === 'string' && obj.detail.trim()
+      ? obj.detail.trim()
+      : obj.kind,
+  }]
+}
+
+function isCritiqueFindingKind(value: unknown): value is CritiqueFindingKind {
+  return (
+    value === 'insufficient_evidence' ||
+    value === 'risk_coverage_gap' ||
+    value === 'goalpost_shift'
+  )
 }

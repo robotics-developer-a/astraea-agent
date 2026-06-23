@@ -41,6 +41,7 @@ import { renderMarkdown } from '../utils/markdown'
 import { normalizeDraggedPath } from '../utils/dragPath'
 import { clampLineWidth, safeAnsiPreview } from '../utils/termWidth'
 import { displayPath } from '../utils/displayPath'
+import { isAbortError } from '../utils/abortError'
 import {
   initTitle,
   titleStartTask,
@@ -1155,8 +1156,10 @@ export function App() {
           }
         }
       } catch (err) {
-        // AbortError = ESC 中止，UI 已在 ESC 处理器里更新，这里静默清理（保留已跑完的工具批）
-        if (err instanceof Error && err.name === 'AbortError') {
+        // 中止 = ESC，UI 已在 ESC 处理器里更新，这里静默清理（保留已跑完的工具批）。
+        // SDK 把流式 abort 包成 APIUserAbortError（name='Error'，message='Request was aborted.'），
+        // 故用 isAbortError + 当前 controller.signal 统一识别，避免中止被渲染成红色报错。
+        if (isAbortError(err, controller.signal)) {
           resetStreamingPreview()
           setActiveTool(null)
           setLiveOutput('')

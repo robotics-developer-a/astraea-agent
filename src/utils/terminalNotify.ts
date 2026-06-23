@@ -141,3 +141,10 @@ export function notifyTaskError(opts: { elapsedMs?: number; summary?: string } =
   if ((opts.elapsedMs ?? 0) < cfg.minDurationMs) return
   send(BRAND, opts.summary?.trim() || 'Task failed — needs your attention')
 }
+
+/** 权限确认正在等待用户选择 → 立即提示用户回来处理，不受任务耗时门控。 */
+export function notifyPermissionRequest(opts: { summary?: string } = {}): void {
+  const cfg = resolveNotify()
+  if (!cfg.enabled) return
+  send(BRAND, opts.summary?.trim() || 'Permission needed — choose allow or deny')
+}

@@ -1,5 +1,5 @@
 import { test, expect, afterEach } from 'bun:test'
-import { detectTerm, notifyTaskDone, notifyTaskError } from './terminalNotify'
+import { detectTerm, notifyPermissionRequest, notifyTaskDone, notifyTaskError } from './terminalNotify'
 
 const ENV_KEYS = ['TERM_PROGRAM', 'TERM', 'GHOSTTY_RESOURCES_DIR', 'KITTY_WINDOW_ID']
 const saved: Record<string, string | undefined> = {}
@@ -57,4 +57,9 @@ test('notifyTaskDone / notifyTaskError 在测试环境静默且不抛', () => {
   expect(() => notifyTaskDone({ elapsedMs: 5000, summary: 'Done in 5s' })).not.toThrow()
   expect(() => notifyTaskError({ elapsedMs: 0, summary: 'boom' })).not.toThrow()
   expect(() => notifyTaskDone()).not.toThrow()
+})
+
+test('notifyPermissionRequest 在测试环境静默且不抛', () => {
+  expect(() => notifyPermissionRequest({ summary: 'Permission needed' })).not.toThrow()
+  expect(() => notifyPermissionRequest()).not.toThrow()
 })

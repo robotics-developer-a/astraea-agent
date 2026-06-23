@@ -6,7 +6,9 @@
 // 超过 STREAM_IDLE_TIMEOUT_MS 没收到新事件 → 主动 abort 流式请求 → 非流式重试一次（fallback）。
 //
 // 关键语义：外部 ESC 与看门狗超时都能 abort SDK 流，但只有看门狗超时路径才触发 fallback。
-// 外部 abort 走 SDK 流抛 AbortError → 透传给 query.ts 现有 AbortError 分支，不进 fallback。
+// 外部 abort 走 SDK 流抛中止错误 → 透传给 query.ts 的 isAbortError 分支，不进 fallback。
+// 注意：SDK 抛的是 APIUserAbortError（name='Error'，message='Request was aborted.'），不是原生
+// 'AbortError'，故上层统一用 utils/abortError.ts 的 isAbortError 识别，勿只比对 err.name。
 
 import type { Message as SDKMessage } from '@anthropic-ai/sdk/resources/messages'
 import type OpenAI from 'openai'
@@ -16,7 +18,7 @@ import type { StreamEvent, StopReason } from '../types/message'
 /**
  * 把外部 AbortSignal 桥接到一个内部 AbortController：
  *  - 返回的 signal 传给 SDK（.stream(..., { signal })）；
- *  - 外部 signal 触发（ESC）→ 转发 abort 到内部（SDK 流抛 AbortError，透传上层）；
+ *  - 外部 signal 触发（ESC）→ 转发 abort 到内部（SDK 流抛中止错误，透传上层）；
  *  - 看门狗超时 → 调用返回的 abort()（同样 abort SDK 流，但由看门狗接管走 fallback）。
  */
 export function linkAbort(external?: AbortSignal): { signal: AbortSignal; abort: () => void } {

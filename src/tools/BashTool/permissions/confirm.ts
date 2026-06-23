@@ -11,6 +11,7 @@ import {
   requestConfirm,
   type ConfirmResult,
 } from './confirmBridge.js'
+import { notifyPermissionRequest } from '../../../utils/terminalNotify.js'
 
 export type { ConfirmResult }
 
@@ -19,6 +20,8 @@ export async function confirmWithUser(
   description?: string,
   kind: 'bash' | 'file' | 'action' = 'bash',
 ): Promise<ConfirmResult> {
+  notifyPermissionRequest()
+
   // 首选方向键选择器（有 Ink UI 时）
   if (hasConfirmUI()) {
     return requestConfirm({ command, description, kind })

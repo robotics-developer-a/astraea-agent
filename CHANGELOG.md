@@ -8,6 +8,22 @@
 
 > **1.0.0 发布门槛**（达成后才从 0.x 升到 1.0 并打首个 `git tag v1.0.0`）：
 
+## [0.9.41] - 2026-06-23
+
+### 新增
+- **权限确认触发系统级提醒**：当 Astraea 需要用户 Allow/Deny 权限时，会立即复用终端通知通道提醒用户回来处理。
+  macOS 后台终端会通过 Dock 弹跳/红色角标提示；Windows Terminal 后台会闪任务栏。提醒不受任务完成通知的
+  `minDurationMs` 限制，避免权限框挂起时用户没有感知。
+
+### 修复
+- **中止请求被误判为报错**（ESC 中止 / `/goal` 长跑被打断时弹出红色「■ Error. Request was aborted.」）：
+  根因是 Anthropic / OpenAI SDK 在流式 abort 时抛的是 `APIUserAbortError`，其 `.name` 退化为默认的
+  `'Error'`（基类未设 `this.name`）、`.message` 固定为 `'Request was aborted.'`，而旧代码只用
+  `err.name === 'AbortError'` 判定中止，导致 SDK 的中止错误全部漏网、被当作真错误冒泡。新增统一的
+  `utils/abortError.ts#isAbortError(err, signal?)`（同时识别原生 `AbortError`、SDK 的中止错误、以及
+  「signal 已 abort」旁证），替换 `query.ts`、`ui/App.tsx`、`services/compact/compact.ts` 的全部 5 处
+  脆弱判定。现在按 ESC 中止任意请求都会干净收尾，不再弹红色报错，`/goal` 状态也保留以便继续或清除。
+
 ## [0.9.40] - 2026-06-23
 
 ### 新增

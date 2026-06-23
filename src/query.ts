@@ -56,7 +56,8 @@ import {
   GOAL_MAX_TURNS,
   GOAL_MAX_TOKEN_SPEND,
 } from './state/goalState'
-import { evaluateGoal, serializeTranscript } from './services/goal-evaluator'
+import { critiqueGoalEvidence, evaluateGoal, serializeTranscript } from './services/goal-evaluator'
+import { isAbortError } from './utils/abortError'
 
 import { config, activeContextWindow } from './config'
 import { getCommands } from './commands/registry'
@@ -305,7 +306,7 @@ async function* runQuery(
                 if (isCompactionTripped()) yield { type: 'compact_tripped' }
               }
             } catch (err: unknown) {
-              if (err instanceof Error && err.name === 'AbortError') {
+              if (isAbortError(err, options.abortSignal)) {
                 yield { type: 'done', messages }
                 return
               }
@@ -402,8 +403,10 @@ async function* runQuery(
         }
       }
     } catch (err: unknown) {
-      // ESC 中止：保存部分消息后干净退出，不抛给调用方
-      if (err instanceof Error && err.name === 'AbortError') {
+      // ESC 中止：保存部分消息后干净退出，不抛给调用方。
+      // 注意：SDK 把流式 abort 包成 APIUserAbortError（name='Error'，message='Request was aborted.'），
+      // 不是原生 'AbortError'，必须用 isAbortError 统一识别，否则中止会被误当真错误冒泡。
+      if (isAbortError(err, options.abortSignal)) {
         // 只有当部分助手消息含可见内容（文本或工具调用）才落盘。空 content 的 assistant
         // 消息会让下游 provider 报 400（OpenAI 兼容："content or tool_calls must be set"）。
         // 例如中止恰好落在 reasoning-only 片段、文本/工具尚未产出时。— eval Item 15
@@ -448,7 +451,7 @@ async function* runQuery(
           }
           continue // 重试本轮（turnCount 不变）
         } catch (e2: unknown) {
-          if (e2 instanceof Error && e2.name === 'AbortError') {
+          if (isAbortError(e2, options.abortSignal)) {
             yield { type: 'done', messages }
             return
           }
@@ -588,6 +591,24 @@ async function* runQuery(
         } catch (err: unknown) {
           // evaluator 出错不应让目标崩溃：保守判未达成并继续
           decision = { met: false, reason: `evaluator error: ${String(err)} — continuing` }
+        }
+        if (decision.met) {
+          try {
+            const critique = await critiqueGoalEvidence(goal.condition, transcript)
+            if (!critique.pass) {
+              const findings = critique.findings
+                .map(f => `${f.kind}: ${f.detail}`)
+                .join('; ')
+              decision = {
+                met: false,
+                reason: findings
+                  ? `evidence critique failed: ${critique.reason} Findings: ${findings}`
+                  : `evidence critique failed: ${critique.reason}`,
+              }
+            }
+          } catch (err: unknown) {
+            decision = { met: false, reason: `evidence critique error: ${String(err)} — continuing` }
+          }
         }
         recordGoalEvaluation(decision.reason, tracker.lastGlobalTurnTokens)
         const updated = getActiveGoal()

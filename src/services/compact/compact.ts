@@ -15,6 +15,7 @@ import {
 } from './compactPrompt'
 import { activeThresholds, landingTarget } from './window'
 import { runPreCompactHook, runPostCompactHook } from './hooks'
+import { isAbortError } from '../../utils/abortError'
 
 type ConvMessage = UserMessage | AssistantMessage
 
@@ -219,9 +220,9 @@ async function* streamCompactSummary(
       yield { type: 'compact_progress', chars: raw.length }
       return raw
     } catch (err) {
-      // 溢出错误不重试，直接上抛让 PTL 截头逻辑处理；中止也直接上抛。
+      // 溢出错误不重试，直接上抛让 PTL 截头逻辑处理；中止也直接上抛（含 SDK 的 APIUserAbortError）。
       if (isOverflowError(err)) throw err
-      if (err instanceof Error && err.name === 'AbortError') throw err
+      if (isAbortError(err, signal)) throw err
       lastErr = err // 瞬时错误：重试
     }
   }

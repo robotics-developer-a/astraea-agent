@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test'
-import { parseDecision, serializeTranscript } from './goal-evaluator'
+import { parseCritiqueDecision, parseDecision, serializeTranscript } from './goal-evaluator'
 import type { AssistantMessage, UserMessage } from '../types/message'
 
 // ── parseDecision ────────────────────────────────────────────────────────────
@@ -83,4 +83,38 @@ test('truncates very long transcripts but keeps the tail', () => {
   expect(out.length).toBeLessThan(20_000)
   expect(out).toContain('FINAL_MARKER')
   expect(out).toContain('truncated')
+})
+
+// ── parseCritiqueDecision ────────────────────────────────────────────────────
+
+test('critique parser accepts clean evidence', () => {
+  const d = parseCritiqueDecision('{"pass":true,"reason":"Evidence is sufficient.","findings":[]}')
+  expect(d.pass).toBe(true)
+  expect(d.reason).toBe('Evidence is sufficient.')
+  expect(d.findings).toEqual([])
+})
+
+test('critique parser preserves evidence, coverage, and goalpost findings', () => {
+  const raw = JSON.stringify({
+    pass: false,
+    reason: 'Verification is not strong enough.',
+    findings: [
+      { kind: 'insufficient_evidence', detail: 'No command output proves the file renders.' },
+      { kind: 'risk_coverage_gap', detail: 'Tests miss the error path.' },
+      { kind: 'goalpost_shift', detail: 'The failing assertion was removed.' },
+    ],
+  })
+  const d = parseCritiqueDecision(raw)
+  expect(d.pass).toBe(false)
+  expect(d.findings.map(f => f.kind)).toEqual([
+    'insufficient_evidence',
+    'risk_coverage_gap',
+    'goalpost_shift',
+  ])
+})
+
+test('critique parser fails closed on malformed output', () => {
+  const d = parseCritiqueDecision('looks fine to me')
+  expect(d.pass).toBe(false)
+  expect(d.reason).toContain('non-JSON')
 })
