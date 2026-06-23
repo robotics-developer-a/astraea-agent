@@ -184,6 +184,13 @@ export function getBuiltinCommands(): Command[] {
       },
       { argumentHint: '[--project] [--allow|--deny] [--reason <type>] [--all] [--limit N]' }),
 
+    local('export', 'export current conversation to a Markdown file',
+      async args => {
+        const { exportConversation } = await import('./export')
+        return exportConversation(args)
+      },
+      { argumentHint: '[filename]' }),
+
     local('help', 'show available commands', async () => {
       const { t } = await import('../i18n')
       const cmds = _commandsForHelp().filter(c => c.userInvocable && !c.hidden)
