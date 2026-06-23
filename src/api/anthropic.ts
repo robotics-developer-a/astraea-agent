@@ -71,7 +71,7 @@ export function streamMessageAnthropic(
   return withIdleWatchdog({
     stream: streamRawAnthropic(client, params, linked.signal),
     abort: linked.abort,
-    fallback: () => fallback(linked.signal),
+    fallback: () => fallback(linked.fallbackSignal),
   })
 }
 
@@ -101,6 +101,10 @@ async function* streamRawAnthropic(
       case 'content_block_delta': {
         if (event.delta.type === 'text_delta') {
           yield { type: 'text', text: event.delta.text }
+        } else if (event.delta.type === 'thinking_delta') {
+          // extended thinking 的增量：必须 yield 出去，否则长思考期间内层流一个事件都不发，
+          // 空闲看门狗会把"模型正在思考"误判成半开连接而 abort（见 idleWatchdog 注释）。
+          yield { type: 'thinking', text: event.delta.thinking }
         } else if (event.delta.type === 'input_json_delta') {
           inputJsonBuffer += event.delta.partial_json
         }

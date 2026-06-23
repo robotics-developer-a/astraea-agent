@@ -83,7 +83,13 @@ interface RewindLine {
   toTurn: number  // 回滚到的回合号（仅展示/审计用）
   convLen: number // 回滚后 conversationRef 应有的长度——loadSessionMessages 据此截断
 }
-type TranscriptLine = SessionHeaderLine | MessageLine | CompactLine | RewindLine
+interface CustomTitleLine {
+  type: 'custom-title'
+  uuid: string
+  timestamp: string
+  title: string
+}
+type TranscriptLine = SessionHeaderLine | MessageLine | CompactLine | RewindLine | CustomTitleLine
 
 // ── Writer ───────────────────────────────────────────────────────────────────
 export interface TranscriptWriter {
@@ -93,6 +99,7 @@ export interface TranscriptWriter {
   appendMessages(msgs: ConvMessage[]): void
   appendCompact(snapshot: ConvMessage[], summary: string, preTokens: number, trigger: 'auto' | 'manual'): void
   appendRewind(toTurn: number, convLen: number): void
+  appendCustomTitle(title: string): void
 }
 
 const NOOP_WRITER: TranscriptWriter = {
@@ -102,6 +109,7 @@ const NOOP_WRITER: TranscriptWriter = {
   appendMessages() {},
   appendCompact() {},
   appendRewind() {},
+  appendCustomTitle() {},
 }
 
 function activeModel(): string {
@@ -174,6 +182,11 @@ function createTranscriptAt(sessionId: string, path: string): TranscriptWriter {
     appendRewind(toTurn, convLen) {
       writeLine(path, { type: 'rewind', uuid: randomUUID(), timestamp: new Date().toISOString(), toTurn, convLen })
     },
+    appendCustomTitle(title) {
+      const clean = title.trim()
+      if (!clean) return
+      writeLine(path, { type: 'custom-title', uuid: randomUUID(), timestamp: new Date().toISOString(), title: clean })
+    },
   }
 }
 
@@ -184,6 +197,7 @@ export interface SessionSummary {
   mtimeMs: number
   startedAt: string
   firstUserText: string // 首条用户消息预览，给 picker 展示
+  customTitle?: string
 }
 
 function parseLines(path: string): TranscriptLine[] {
@@ -210,6 +224,17 @@ function firstUserPreview(lines: TranscriptLine[]): string {
   return '(no user message)'
 }
 
+function latestCustomTitle(lines: TranscriptLine[]): string | undefined {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i]!
+    if (l.type === 'custom-title') {
+      const title = (l as CustomTitleLine).title.trim()
+      if (title) return title
+    }
+  }
+  return undefined
+}
+
 /** 列出当前 cwd 的历史会话，按最近修改排序（picker 用）。 */
 export function listSessions(cwd: string): SessionSummary[] {
   const dir = projectDir(cwd)
@@ -221,12 +246,14 @@ export function listSessions(cwd: string): SessionSummary[] {
     try {
       const lines = parseLines(path)
       const header = lines.find(l => l.type === 'session') as SessionHeaderLine | undefined
+      const customTitle = latestCustomTitle(lines)
       out.push({
         sessionId: name.replace(/\.jsonl$/, ''),
         path,
         mtimeMs: statSync(path).mtimeMs,
         startedAt: header?.startedAt ?? '',
-        firstUserText: firstUserPreview(lines),
+        firstUserText: customTitle ?? firstUserPreview(lines),
+        customTitle,
       })
     } catch { /* 跳过坏文件 */ }
   }

@@ -20,10 +20,14 @@ function fmtDuration(ms: number): string {
   return [h ? `${h}h` : '', m || h ? `${m}m` : '', `${sec}s`].filter(Boolean).join(' ')
 }
 
-// 单行截断目标条件，避免长条件把面板撑成一大片。
-function truncate(s: string, n: number): string {
+// 面板只显示一句摘要，避免大段 pasted goal 把常驻区撑满；完整 condition 仍保留给 evaluator。
+export function summarizeGoalConditionForDisplay(s: string, max = 64): string {
   const oneLine = s.replace(/\s+/g, ' ').trim()
-  return oneLine.length > n ? oneLine.slice(0, n - 1) + '…' : oneLine
+  if (oneLine.length <= max) return oneLine
+
+  const firstSentence = oneLine.match(/^.*?[.!?。！？](?:\s|$)/)?.[0]?.trim()
+  const summary = firstSentence || oneLine
+  return summary.length > max ? summary.slice(0, max - 1).trimEnd() + '…' : summary
 }
 
 // ── GoalHint ──────────────────────────────────────────────────────────────────
@@ -92,7 +96,7 @@ export function GoalPanel({ running }: GoalPanelProps) {
 
       <Box>
         <Text color="gray">{t('goalLabel')}  </Text>
-        <Text color="white">{truncate(goal.condition, 64)}</Text>
+        <Text color="white">{summarizeGoalConditionForDisplay(goal.condition, 64)}</Text>
       </Box>
 
       <Box>

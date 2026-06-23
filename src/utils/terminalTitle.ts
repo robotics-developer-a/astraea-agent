@@ -166,6 +166,16 @@ export function titleIdle(cwd = process.cwd()): void {
   write()
 }
 
+/** 用户显式命名会话：空闲态显示该标题，并作废在途自动摘要回填。 */
+export function titleCustom(title: string, cwd = process.cwd()): void {
+  dir = formatTitleDir(cwd)
+  glyph = TITLE_GLYPH.idle
+  const clean = cleanPromptForTitle(title)
+  summary = clean ? truncWidth(clean, SUMMARY_MAX) : BRAND
+  activeTurn = ++turnSeq
+  write()
+}
+
 /**
  * 退出时落一条干净的品牌标题。
  * 注意：不能写「空标题」——空标题会让终端回落去显示前台命令行（bun ~/.bun/bin/astraea），

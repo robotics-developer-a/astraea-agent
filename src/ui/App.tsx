@@ -48,6 +48,7 @@ import {
   titleTaskDone,
   titleTaskError,
   titleIdle,
+  titleCustom,
   clearTitle,
 } from '../utils/terminalTitle'
 import { notifyTaskDone, notifyTaskError } from '../utils/terminalNotify'
@@ -180,6 +181,53 @@ function formatDuration(ms: number): string {
   const m = Math.floor((s % 3600) / 60)
   const sec = s % 60
   return [h ? `${h}h` : '', m || h ? `${m}m` : '', `${sec}s`].filter(Boolean).join(' ')
+}
+
+function textFromConversation(messages: Array<UserMessage | AssistantMessage>): string {
+  const parts: string[] = []
+  for (const m of messages) {
+    if (m.role === 'user') {
+      if (typeof m.content === 'string') parts.push(m.content)
+      else {
+        for (const b of m.content) {
+          if (b.type === 'text') parts.push(b.text)
+          else if (typeof b.content === 'string') parts.push(b.content)
+        }
+      }
+    } else {
+      for (const b of m.content) {
+        if (b.type === 'text') parts.push(b.text)
+      }
+    }
+  }
+  return parts.join('\n').replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim()
+}
+
+function toKebabSessionName(label: string): string {
+  return label
+    .normalize('NFKD')
+    .toLowerCase()
+    .replace(/['"`]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .split('-')
+    .filter(Boolean)
+    .slice(0, 4)
+    .join('-')
+}
+
+async function generateRenameTitle(messages: Array<UserMessage | AssistantMessage>): Promise<string | null> {
+  const conversationText = textFromConversation(messages)
+  if (!conversationText) return null
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 15_000)
+  try {
+    const label = await generateTitleSummary(conversationText, controller.signal)
+    const kebab = label ? toKebabSessionName(label) : ''
+    return kebab || null
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 // /goal 使用场景提示（①）——通俗版，不放命令样例，只讲"什么样的目标能用"。
@@ -1543,6 +1591,39 @@ export function App() {
         return
       }
 
+      // ── /rename — 给当前会话设置自定义标题（零 token，本地 transcript 元数据）──
+      if (trimmed === '/rename' || trimmed.startsWith('/rename ')) {
+        setInputValue('')
+        historyIndexRef.current = -1
+        let title = trimmed.slice('/rename'.length).trim()
+        if (!title) {
+          try {
+            title = await generateRenameTitle(conversationRef.current) ?? ''
+          } catch {
+            title = ''
+          }
+          if (!title) {
+            setHistory(prev => [...prev, {
+              id: String(entryIdRef.current++),
+              role: 'assistant',
+              text: 'Could not generate a name: no conversation context yet. Usage: /rename <name>',
+            }])
+            return
+          }
+        }
+
+        // INTENT: A rename is metadata about the session, not a user turn. Keep it
+        // out of conversationRef so it changes resume/UI labels without spending tokens.
+        transcriptRef.current?.appendCustomTitle(title)
+        titleCustom(title)
+        setHistory(prev => [...prev, {
+          id: String(entryIdRef.current++),
+          role: 'assistant',
+          text: `◎ Session renamed to: ${title}`,
+        }])
+        return
+      }
+
       // ── /rewind — 会话内回滚（对话 + Write/Edit 文件，per-turn 粒度）──────────
       if (trimmed === '/rewind' || trimmed.startsWith('/rewind ')) {
         setInputValue('')
@@ -1665,6 +1746,7 @@ export function App() {
             '',
             '**Session control:**',
             '  /clear   — clear conversation history (also clears any active goal)',
+            '  /rename  — rename the current session for /resume and the terminal title',
             '  /resume  — resume a past session (args: session-id or number from /resume list)',
             '  /rewind  — rewind this session — restore conversation + edited files',
             '  /compact — force context compaction now (optional: /compact <focus>)',

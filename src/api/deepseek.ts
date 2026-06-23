@@ -104,7 +104,7 @@ export function streamMessageDeepSeek(
   return withIdleWatchdog({
     stream: streamRawDeepSeek(client, baseParams, linked.signal),
     abort: linked.abort,
-    fallback: () => fallbackDeepSeek(client, baseParams, linked.signal),
+    fallback: () => fallbackDeepSeek(client, baseParams, linked.fallbackSignal),
   })
 }
 
@@ -156,6 +156,13 @@ async function* streamRawDeepSeek(
 
     if (!choice) continue
     const delta = choice.delta
+
+    // reasoner 的 CoT 走独立的 reasoning_content 字段：思考阶段只有它在流、content 为空。
+    // 必须发心跳，否则空闲看门狗把这段误判成半开连接而 abort（见 idleWatchdog 注释）。
+    const reasoning = (delta as { reasoning_content?: string }).reasoning_content
+    if (reasoning) {
+      yield { type: 'thinking', text: reasoning }
+    }
 
     if (delta.content) {
       yield { type: 'text', text: delta.content }

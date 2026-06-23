@@ -36,7 +36,7 @@ test('无 todo → 不渲染任何内容(0 行)', () => {
   expect(strip(lastFrame()).trim()).toBe('')
 })
 
-test('有 todo → 单行显示三态计数 ○p ◉i ●c', async () => {
+test('有 todo → 单行显示用户可读的三态计数', async () => {
   setTodos([
     todo({ id: '1', content: '甲', status: 'completed', evidenceRefs: ['tool-1'], verifiedAt: '2026-06-23T00:00:00.000Z' }),
     todo({ id: '2', content: '乙', status: 'in_progress' }),
@@ -46,9 +46,12 @@ test('有 todo → 单行显示三态计数 ○p ◉i ●c', async () => {
   const { lastFrame } = mount(<TodoStatusLine columns={80} />)
   await tick()
   const frame = strip(lastFrame())
-  expect(frame).toContain('○2')   // pending
-  expect(frame).toContain('◉1')   // in_progress
-  expect(frame).toContain('●1')   // completed
+  expect(frame).toContain('Tasks: 2 waiting')
+  expect(frame).toContain('1 working')
+  expect(frame).toContain('1 done')
+  expect(frame).not.toContain('○')
+  expect(frame).not.toContain('◉')
+  expect(frame).not.toContain('●')
   // 恒高：只有一行
   expect(frame.trim().split('\n').length).toBe(1)
 })
@@ -60,7 +63,8 @@ test('有 in_progress → 单行带上当前任务名', async () => {
   ], NS)
   const { lastFrame } = mount(<TodoStatusLine columns={80} />)
   await tick()
-  expect(strip(lastFrame())).toContain('正在重写渲染层')
+  const frame = strip(lastFrame())
+  expect(frame).toContain('Working on: 正在重写渲染层')
 })
 
 test('全部 completed → 自动清空,摘要行消失', async () => {

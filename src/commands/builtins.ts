@@ -82,6 +82,10 @@ export function getBuiltinCommands(): Command[] {
 
     jsx('clear', 'clear conversation history', () => ({ kind: 'clear-history' })),
 
+    local('rename', 'rename the current session',
+      async () => ({ type: 'text', value: 'Usage: /rename <session-name>' }),
+      { argumentHint: '<session-name>' }),
+
     jsx('compact', 'compact context now (optional: /compact <focus>)',
       args => ({ kind: 'compact-now', args }), { argumentHint: '[focus]' }),
 

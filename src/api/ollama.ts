@@ -110,7 +110,7 @@ export function streamMessageOllama(
   return withIdleWatchdog({
     stream: streamRawOllama(client, baseParams, linked.signal),
     abort: linked.abort,
-    fallback: () => fallbackOllama(client, baseParams, linked.signal),
+    fallback: () => fallbackOllama(client, baseParams, linked.fallbackSignal),
   })
 }
 

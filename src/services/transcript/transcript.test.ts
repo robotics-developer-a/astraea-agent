@@ -34,6 +34,18 @@ test('write + list + 无 compact 时全量恢复', () => {
   expect(msgs[0]!.role).toBe('user')
 })
 
+test('/rename custom title wins in resume summaries and latest title wins', () => {
+  const w = createTranscript(TEST_CWD)
+  w.appendMessages([U('please debug the failing auth flow')])
+  w.appendCustomTitle('auth-debug')
+  w.appendCustomTitle('auth-flow-fix')
+
+  const sessions = listSessions(TEST_CWD)
+  expect(sessions.length).toBe(1)
+  expect(sessions[0]!.customTitle).toBe('auth-flow-fix')
+  expect(sessions[0]!.firstUserText).toBe('auth-flow-fix')
+})
+
 test('有 compact 标记 → 恢复 = 快照 + 标记之后的消息', () => {
   const w = createTranscript(TEST_CWD)
   w.appendMessages([U('m1'), A('a1'), U('m2'), A('a2')])

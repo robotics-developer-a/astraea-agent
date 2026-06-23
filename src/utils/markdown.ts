@@ -12,6 +12,11 @@ import { createRequire } from 'node:module'
 import { VERDICT_COLOR, type VerdictKind } from '../ui/theme'
 
 const EOL = '\n'
+const CODE_BG = '#202636'
+const CODE_BG_SGR = '\x1b[48;2;32;38;54m'
+const CODE_GUTTER = '#6B7280'
+const CODE_GUTTER_GAP = '    '
+const CODE_WIDTH_RATIO = 0.75
 
 // Verdict 标记：模型在「结论行」行首打一个 ⟦ok⟧/⟦warn⟧/⟦err⟧，renderer 据此整行上色并
 // 把标记吞掉（绝不显示给用户）。仅在「自成一段的结论行」生效，普通正文不受影响。
@@ -70,6 +75,32 @@ function clampAnsiLine(line: string, width: number): string {
   if (stringWidth(line) <= width) return line
   const head = wrapAnsi(line, Math.max(1, width - 1), { hard: true, trim: false }).split(EOL)[0] ?? ''
   return head + '…'
+}
+
+function keepCodeBackgroundAcrossAnsi(line: string): string {
+  return CODE_BG_SGR + line.replace(/\x1b\[[0-9;]*m/g, m => m + CODE_BG_SGR)
+}
+
+function renderCodeBand(line: string, width: number, c: C): string {
+  const clamped = clampAnsiLine(line, width)
+  const visible = stringWidth(stripAnsi(clamped))
+  const padding = Math.max(0, width - visible)
+  return keepCodeBackgroundAcrossAnsi(clamped) + c.bgHex(CODE_BG)(' '.repeat(padding)) + '\x1b[49m'
+}
+
+function renderCodeBlock(body: string, c: C): string {
+  const lines = body.split(EOL)
+  const gutterW = String(lines.length).length
+  const gutterSpace = gutterW + CODE_GUTTER_GAP.length
+  const maxBand = Math.max(60, Math.floor(termWidth() * CODE_WIDTH_RATIO))
+  const width = Math.max(1, Math.min(termWidth(), maxBand) - gutterSpace)
+
+  return lines
+    .map((line: string, i: number) => {
+      const gutter = c.hex(CODE_GUTTER)(String(i + 1).padStart(gutterW)) + CODE_GUTTER_GAP
+      return gutter + renderCodeBand(line, width, c)
+    })
+    .join(EOL)
 }
 
 // 终端可用列宽。Ink 把整段 markdown 放在贴边（marginLeft=0）的 <Text> 里，默认 wrap='wrap'，
@@ -163,8 +194,8 @@ function formatToken(token: Token, c: C, listDepth: number): string {
       return ''
 
     case 'codespan':
-      // 行内代码：唯一保留的强调色（cyan 单一强调色，仅 code/链接使用）。
-      return c.cyan(token.text)
+      // 行内代码：蓝灰底承接代码块视觉语言，cyan 保留轻量技术强调。
+      return c.bgHex(CODE_BG).cyan(` ${token.text} `)
 
     case 'code': {
       // 代码块：按语言做语法高亮（cli-highlight = highlight.js 的终端版），
@@ -179,11 +210,9 @@ function formatToken(token: Token, c: C, listDepth: number): string {
       } catch {
         body = token.text  // 高亮失败（生僻语言）→ 退回原文，不影响可读性。
       }
-      const width = termWidth()
       // 不打印字面 ``` 围栏——终端里 ``` 是噪声，靠语法高亮本身就能把代码块与正文区分开
       // （eval Item 7：用户问"为什么还会展示 ``` ```"）。仅保留高亮正文 + 前后空行做块分隔。
-      const lines = body.split(EOL).map((l: string) => clampAnsiLine(l, width))
-      return lines.join(EOL) + EOL + EOL
+      return renderCodeBlock(body, c) + EOL + EOL
     }
 
     case 'blockquote': {

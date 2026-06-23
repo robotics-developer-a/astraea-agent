@@ -88,6 +88,30 @@ test('palette: 行内代码保留唯一强调色 cyan', () => {
   expect(out).toContain('\x1b[36m')           // codespan 仍 cyan
 })
 
+test('palette: 行内代码有蓝灰背景和左右 padding', () => {
+  const out = renderMarkdown('用 `bun test` 跑')
+  expect(out).toContain('48;2;32;38;54')      // #202636 代码背景
+  expect(stripAnsi(out)).toContain('用  bun test  跑')
+})
+
+test('code block: renders blue-gray full-width bands with external line numbers', () => {
+  const original = process.stdout.columns
+  try {
+    ;(process.stdout as { columns: number }).columns = 48
+    const out = renderMarkdown('```ts\nconst x = 1\n\nconsole.log(x)\n```')
+    const plain = stripAnsi(out)
+    const lines = plain.split('\n')
+
+    expect(out).toContain('48;2;32;38;54')    // #202636 代码背景
+    expect(lines[0]).toMatch(/^1 {4}const x = 1/)
+    expect(lines[1]).toMatch(/^2 {4}\s+$/)    // 空行也铺背景
+    expect(lines[2]).toMatch(/^3 {4}console\.log\(x\)/)
+    expect(lines.every(line => stringWidth(line) <= 48)).toBe(true)
+  } finally {
+    ;(process.stdout as { columns: number | undefined }).columns = original
+  }
+})
+
 // ── Stage 2：扩展 markdown 覆盖 ──────────────────────────────────────────────
 test('coverage: 删除线 ~~x~~ 渲染，单个 ~ 不误伤', () => {
   const out = renderMarkdown('done ~~old~~ new')

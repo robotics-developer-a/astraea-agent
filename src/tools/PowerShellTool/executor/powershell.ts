@@ -1,4 +1,5 @@
 import { getCurrentCwd } from '../../BashTool/executor/cwd-tracker.js'
+import { readStreamBounded } from '../../BashTool/executor/readStreamBounded.js'
 
 const MAX_OUTPUT_BYTES = 64 * 1024 * 1024
 const MAX_STDERR_BYTES = 1024 * 1024
@@ -77,12 +78,15 @@ export async function executePowerShell(input: PsInput): Promise<PsOutput> {
     const abortHandler = () => proc.kill()
     timeoutController.signal.addEventListener('abort', abortHandler, { once: true })
 
+    // 以 proc.exited 为边界读取：PowerShell 的 Start-Process 会启动脱离的常驻进程并继承
+    // 管道句柄，若死等 EOF 整个工具调用会永久卡死。进程退出后只再排干残留输出即返回。
+    const exited = proc.exited
     const [stdout, stderr] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
+      readStreamBounded(proc.stdout, exited, MAX_OUTPUT_BYTES),
+      readStreamBounded(proc.stderr, exited, MAX_STDERR_BYTES),
     ])
 
-    await proc.exited
+    await exited
     timeoutController.signal.removeEventListener('abort', abortHandler)
     clearTimeout(timer)
 

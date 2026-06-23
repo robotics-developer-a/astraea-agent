@@ -1,6 +1,6 @@
 // TodoStatusLine — 恒高单行 todo 摘要。
 // 取代可变高度的浮动 TodoPanel：清单本体随 TodoWrite 工具调用内联滚走,
-// 这里只在输入框上方留一行恒高摘要 ○p ◉i ●c · <当前任务>，永不顶飞输入框。
+// 这里只在输入框上方留一行恒高、可读的任务摘要，永不顶飞输入框。
 // 无 todo 时返回 null（0 行）。
 
 import React, { useState, useEffect } from 'react'
@@ -35,8 +35,8 @@ export function TodoStatusLine({ namespace = 'main', columns = 80 }: { namespace
   const completed = todos.filter(t => t.status === 'completed').length
   const current = todos.find(t => t.status === 'in_progress')?.content ?? ''
 
-  const counts = `○${pending} ◉${inprog} ●${completed}`
-  const line = current ? `${counts} · ${current}` : counts
+  const counts = `Tasks: ${pending} waiting, ${inprog} working, ${completed} done`
+  const line = current ? `${counts} · Working on: ${current}` : counts
 
   return <Text dimColor wrap="truncate-end">{clampLineWidth(line, columns - 1)}</Text>
 }

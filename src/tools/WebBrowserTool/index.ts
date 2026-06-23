@@ -9,6 +9,10 @@ import { confirmWithUser } from '../BashTool/permissions/confirm.js'
 
 type BrowserAction = 'navigate' | 'screenshot' | 'click' | 'type' | 'scroll'
 
+const DEFAULT_ACTION_TIMEOUT_MS = 8000
+const MAX_ACTION_TIMEOUT_MS = 15000
+const MAX_RESULT_CONTENT_CHARS = 4000
+
 // BrowserDriver 接口 — 真实浏览器引擎的抽象层
 // 在 Astraea 获得浏览器运行时后，注入实现此接口的驱动即可
 export interface BrowserDriver {
@@ -30,6 +34,38 @@ export function resetBrowserDriver(): void {
   _driver = null
   _initAttempted = false
 }
+
+function parseTimeoutMs(value: unknown): number {
+  const requested = typeof value === 'number' && Number.isFinite(value) ? value : DEFAULT_ACTION_TIMEOUT_MS
+  return Math.min(Math.max(Math.trunc(requested), 1), MAX_ACTION_TIMEOUT_MS)
+}
+
+async function withActionTimeout<T>(action: BrowserAction, timeoutMs: number, task: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      task,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`WebBrowser ${action} timed out after ${timeoutMs}ms`)), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+function limitContent(content: string): string {
+  if (content.length <= MAX_RESULT_CONTENT_CHARS) return content
+  const omitted = content.length - MAX_RESULT_CONTENT_CHARS
+  return `${content.slice(0, MAX_RESULT_CONTENT_CHARS)}\n\n[WebBrowser] 内容已截断，省略 ${omitted} 字符。`
+}
+
+function pageOutput(prefix: string, state: { title?: string; url?: string; content: string }): string {
+  const title = state.title ? `\n标题：${state.title}` : ''
+  const url = state.url ? ` → ${state.url}` : ''
+  return `[WebBrowser] ${prefix}${url}${title}\n\n${limitContent(state.content)}`
+}
+
 async function lazyInit(): Promise<void> {
   if (_initAttempted) return
   _initAttempted = true
@@ -68,6 +104,10 @@ NOTE: Requires browser runtime. If unavailable, use WebFetch for static content 
         type: 'string',
         description: 'Text to input, used with action=type',
       },
+      timeoutMs: {
+        type: 'number',
+        description: `Maximum time for this browser action in milliseconds (default ${DEFAULT_ACTION_TIMEOUT_MS}, max ${MAX_ACTION_TIMEOUT_MS})`,
+      },
     },
     required: ['url'],
   },
@@ -77,6 +117,7 @@ NOTE: Requires browser runtime. If unavailable, use WebFetch for static content 
     const action = (input['action'] as BrowserAction | undefined) ?? 'navigate'
     const selector = input['selector'] as string | undefined
     const text = input['text'] as string | undefined
+    const timeoutMs = parseTimeoutMs(input['timeoutMs'])
 
     if (action === 'click' && !selector) return { output: 'Error: click 操作需要提供 selector', isError: true }
     if (action === 'type' && !selector) return { output: 'Error: type 操作需要提供 selector', isError: true }
@@ -114,24 +155,27 @@ NOTE: Requires browser runtime. If unavailable, use WebFetch for static content 
     try {
       switch (action) {
         case 'navigate': {
-          const state = await driver.navigate(url)
-          return { output: `[WebBrowser] navigate → ${state.url}\n标题：${state.title}\n\n${state.content}` }
+          const state = await withActionTimeout(action, timeoutMs, driver.navigate(url))
+          return { output: pageOutput('navigate', state) }
         }
         case 'screenshot': {
-          const base64 = await driver.screenshot()
-          return { output: `[WebBrowser] screenshot 完成（Base64 PNG，${base64.length} 字符）\n${base64}` }
+          const base64 = await withActionTimeout(action, timeoutMs, driver.screenshot())
+          // INTENT: Screenshots are binary evidence, not readable transcript text.
+          // Returning raw Base64 makes the TUI reserve a huge blank-looking result block,
+          // so the tool reports the capture metadata and keeps the conversation compact.
+          return { output: `[WebBrowser] screenshot 完成（Base64 PNG，${base64.length} 字符，内容已折叠不显示）` }
         }
         case 'click': {
-          const state = await driver.click(selector!)
-          return { output: `[WebBrowser] click "${selector}" → ${state.url}\n${state.content}` }
+          const state = await withActionTimeout(action, timeoutMs, driver.click(selector!))
+          return { output: pageOutput(`click "${selector}"`, state) }
         }
         case 'type': {
-          const state = await driver.type(selector!, text!)
-          return { output: `[WebBrowser] type "${text}" into "${selector}" 完成\n${state.content}` }
+          const state = await withActionTimeout(action, timeoutMs, driver.type(selector!, text!))
+          return { output: pageOutput(`type "${text}" into "${selector}" 完成`, state) }
         }
         case 'scroll': {
-          const state = await driver.scroll()
-          return { output: `[WebBrowser] scroll 完成\n${state.content}` }
+          const state = await withActionTimeout(action, timeoutMs, driver.scroll())
+          return { output: pageOutput('scroll 完成', state) }
         }
         default:
           return { output: `Error: 未知 action "${action}"`, isError: true }

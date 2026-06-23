@@ -2,6 +2,7 @@
 // 特性：超时控制、输出 64MB 截断、CWD 追踪、bash/zsh 自动选择
 
 import { getCurrentCwd, wrapWithCwdTracking, syncCwd } from './cwd-tracker.js'
+import { readStreamBounded } from './readStreamBounded.js'
 
 const MAX_OUTPUT_BYTES = 64 * 1024 * 1024 // 64 MB
 const MAX_STDERR_BYTES = 1024 * 1024       // 1 MB
@@ -63,20 +64,35 @@ export async function* executeStreamingBash(
     const abortHandler = () => proc.kill()
     combinedSignal.addEventListener('abort', abortHandler, { once: true })
 
-    // Stream stdout chunk by chunk
+    // Stream stdout chunk by chunk. 以 proc.exited 为边界：进程退出 + grace 后放弃
+    // 管道句柄，避免被脱离的常驻孙进程占住 stdout 而永久卡死。
+    const exited = proc.exited
     const decoder = new TextDecoder()
     let capturedStdout = ''
     const reader = proc.stdout.getReader()
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      const chunk = decoder.decode(value, { stream: true })
-      capturedStdout += chunk
-      if (capturedStdout.length <= MAX_OUTPUT_BYTES) yield chunk
+    let abandoned = false
+    void exited.then(() => {
+      const t = setTimeout(() => {
+        abandoned = true
+        void reader.cancel().catch(() => {})
+      }, 200)
+      ;(t as { unref?: () => void }).unref?.()
+    })
+
+    try {
+      while (!abandoned) {
+        const { done, value } = await reader.read()
+        if (done) break
+        const chunk = decoder.decode(value, { stream: true })
+        capturedStdout += chunk
+        if (capturedStdout.length <= MAX_OUTPUT_BYTES) yield chunk
+      }
+    } catch {
+      // reader 被 cancel —— 正常的放弃路径
     }
 
-    const stderr = await new Response(proc.stderr).text()
-    await proc.exited
+    const stderr = await readStreamBounded(proc.stderr, exited, MAX_STDERR_BYTES)
+    await exited
     combinedSignal.removeEventListener('abort', abortHandler)
     clearTimeout(timer)
     await syncCwd()
@@ -135,12 +151,14 @@ export async function executeBash(
     const abortHandler = () => proc.kill()
     combinedSignal.addEventListener('abort', abortHandler, { once: true })
 
+    // 以 proc.exited 为边界读取，避免被脱离的常驻孙进程占住管道而永久卡死。
+    const exited = proc.exited
     const [stdout, stderr] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
+      readStreamBounded(proc.stdout, exited, MAX_OUTPUT_BYTES),
+      readStreamBounded(proc.stderr, exited, MAX_STDERR_BYTES),
     ])
 
-    await proc.exited
+    await exited
     combinedSignal.removeEventListener('abort', abortHandler)
     clearTimeout(timer)
 

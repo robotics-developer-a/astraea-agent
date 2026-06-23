@@ -106,6 +106,12 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     enterAction: 'execute',
   },
   {
+    name: '/rename',
+    summary: 'rename the current session',
+    options: ['<session-name>'],
+    enterAction: 'execute',
+  },
+  {
     name: '/compact',
     summary: 'compact context now (optional: /compact <focus>)',
     options: [],

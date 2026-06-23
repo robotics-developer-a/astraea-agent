@@ -71,3 +71,10 @@ test('文件不存在：报错', async () => {
   const r = await read({ file_path: join(tmpdir(), 'no-such-astraea-file.txt') })
   expect(r.isError).toBe(true)
 })
+
+test('xlsx 文件：提示使用 Spreadsheet 专用工具', async () => {
+  const p = await mkfile('book.xlsx', 'not a real workbook')
+  const r = await read({ file_path: p })
+  expect(r.isError).toBe(true)
+  expect(r.output).toContain('Spreadsheet tool')
+})

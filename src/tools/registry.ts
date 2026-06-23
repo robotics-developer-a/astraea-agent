@@ -7,6 +7,7 @@ import { BashTool } from './BashTool'
 import { FileReadTool } from './FileReadTool'
 import { FileEditTool } from './FileEditTool'
 import { FileWriteTool } from './FileWriteTool'
+import { SpreadsheetTool } from './SpreadsheetTool'
 import { GlobTool } from './GlobTool'
 import { GrepTool } from './GrepTool'
 import { LSPTool } from './LSPTool'
@@ -62,6 +63,7 @@ function getBuiltinToolList(): Tool[] {
     FileReadTool,
     FileEditTool,
     FileWriteTool,
+    SpreadsheetTool,
     GlobTool,
     GrepTool,
     LSPTool,
@@ -109,6 +111,7 @@ export function getWorkerTools(): Tool[] {
     FileReadTool,
     FileEditTool,
     FileWriteTool,
+    SpreadsheetTool,
     GlobTool,
     GrepTool,
     LSPTool,

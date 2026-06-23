@@ -16,18 +16,43 @@ import { config } from '../config'
 import type { StreamEvent, StopReason } from '../types/message'
 
 /**
- * 把外部 AbortSignal 桥接到一个内部 AbortController：
- *  - 返回的 signal 传给 SDK（.stream(..., { signal })）；
- *  - 外部 signal 触发（ESC）→ 转发 abort 到内部（SDK 流抛中止错误，透传上层）；
- *  - 看门狗超时 → 调用返回的 abort()（同样 abort SDK 流，但由看门狗接管走 fallback）。
+ * 把外部 AbortSignal 桥接到两路内部 AbortController：
+ *  - signal          传给流式 SDK（.stream(..., { signal })）；
+ *  - abort()         看门狗超时调用，仅 abort 流式 signal，触发走 fallback；
+ *  - fallbackSignal  传给非流式兜底（messages.create(..., { signal })）。
+ *
+ * 关键：看门狗的 abort() 绝不能波及 fallbackSignal —— 否则兜底请求一发出就被自己掐死
+ * （拿到已 aborted 的 signal 立刻抛 APIUserAbortError），看门狗的救场逻辑形同虚设，
+ * 且该 abort 错误会被上层 isAbortError 误判成"用户按了 ESC"，让本轮静默收尾、零输出。
+ * 故 fallbackSignal 只跟随【外部 ESC】，与看门狗 abort 解耦。外部 ESC 同时 abort 两路。
  */
-export function linkAbort(external?: AbortSignal): { signal: AbortSignal; abort: () => void } {
+export function linkAbort(external?: AbortSignal): {
+  signal: AbortSignal
+  abort: () => void
+  fallbackSignal: AbortSignal
+} {
   const controller = new AbortController()
+  const fallbackController = new AbortController()
   if (external) {
-    if (external.aborted) controller.abort()
-    else external.addEventListener('abort', () => controller.abort(), { once: true })
+    if (external.aborted) {
+      controller.abort()
+      fallbackController.abort()
+    } else {
+      external.addEventListener(
+        'abort',
+        () => {
+          controller.abort()
+          fallbackController.abort()
+        },
+        { once: true },
+      )
+    }
   }
-  return { signal: controller.signal, abort: () => controller.abort() }
+  return {
+    signal: controller.signal,
+    abort: () => controller.abort(), // 只掐流式，不动 fallbackController
+    fallbackSignal: fallbackController.signal,
+  }
 }
 
 interface WatchdogOpts {

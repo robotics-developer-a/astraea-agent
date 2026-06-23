@@ -8,6 +8,28 @@
 
 > **1.0.0 发布门槛**（达成后才从 0.x 升到 1.0 并打首个 `git tag v1.0.0`）：
 
+## [0.9.49] - 2026-06-23
+
+### 新增
+- **Spreadsheet 工具支持 Excel `.xlsx` 读写**：新增结构化 `Spreadsheet` 工具，`action="read"`
+  会解包 `.xlsx` workbook/worksheet XML 并输出 sheet 列表与 Markdown 表格预览；`action="write"`
+  可从二维 rows 创建/覆盖一个真实 `.xlsx` 工作簿。普通 `Read` 碰到 `.xlsx` 现在会明确提示改用
+  `Spreadsheet`，避免把 Excel 当文本或二进制乱码处理。旧 `.xls` 仍保持拒绝并提示先转换为 `.xlsx`。
+
+### 修复
+- **WebBrowser 任务不再频繁卡顿**：截图动作只返回可读摘要和 PNG 字符数，不再把原始 Base64 写入
+  工具结果；同时将 UI/web 验证规则改为按需选择工具，静态页面、文档和 README 链接优先使用 WebFetch，
+  只有需要视觉渲染或交互验证时才使用 WebBrowser。WebBrowser 动作新增默认超时和返回文本上限，
+  避免视觉验证在慢页面或超长页面内容上长期卡住。
+
+## [0.9.48] - 2026-06-23
+
+### 新增
+- **/rename 会话命名命令**：新增本地 slash command `/rename <session-name>`，给当前会话写入
+  `custom-title` transcript 元数据；裸 `/rename` 会参考当前对话自动生成一个短 kebab-case 名字。该标题
+  不会进入模型上下文；`/resume` 列表会优先显示用户命名，终端标题也会立即切换为该会话名。对齐
+  Claude Code 中 `/rename` 作为会话标题/检索名的核心用途。
+
 ## [0.9.47] - 2026-06-23
 
 ### 修复

@@ -129,7 +129,7 @@ export function streamMessageOpenAI(
   return withIdleWatchdog({
     stream: streamRawOpenAI(client, baseParams, linked.signal),
     abort: linked.abort,
-    fallback: () => fallbackOpenAI(client, baseParams, linked.signal),
+    fallback: () => fallbackOpenAI(client, baseParams, linked.fallbackSignal),
   })
 }
 
@@ -182,6 +182,12 @@ async function* streamRawOpenAI(
     if (!choice) continue
 
     const delta = choice.delta
+
+    // o 系 / gpt-5.x 等推理模型的 CoT 若以 reasoning_content 增量流出：发心跳防看门狗误判空闲。
+    const reasoning = (delta as { reasoning_content?: string }).reasoning_content
+    if (reasoning) {
+      yield { type: 'thinking', text: reasoning }
+    }
 
     if (delta.content) {
       yield { type: 'text', text: delta.content }

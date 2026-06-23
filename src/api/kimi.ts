@@ -89,7 +89,7 @@ export function streamMessageKimi(
   return withIdleWatchdog({
     stream: streamRawKimi(client, baseParams, linked.signal),
     abort: linked.abort,
-    fallback: () => fallbackKimi(client, baseParams, linked.signal),
+    fallback: () => fallbackKimi(client, baseParams, linked.fallbackSignal),
   })
 }
 
@@ -141,6 +141,12 @@ async function* streamRawKimi(
 
     if (!choice) continue
     const delta = choice.delta
+
+    // 推理档的 CoT 走独立 reasoning_content：思考阶段只有它在流。发心跳防看门狗误判空闲。
+    const reasoning = (delta as { reasoning_content?: string }).reasoning_content
+    if (reasoning) {
+      yield { type: 'thinking', text: reasoning }
+    }
 
     if (delta.content) {
       yield { type: 'text', text: delta.content }

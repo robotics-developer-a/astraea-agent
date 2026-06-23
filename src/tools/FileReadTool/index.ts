@@ -62,6 +62,20 @@ export const FileReadTool = buildTool({
         return await readPdf(filePath, file, pages)
       }
 
+      if (filePath.toLowerCase().endsWith('.xlsx')) {
+        return {
+          output: 'This is an Excel .xlsx workbook. Use the Spreadsheet tool with action="read" to inspect sheets and table data.',
+          isError: true,
+        }
+      }
+
+      if (filePath.toLowerCase().endsWith('.xls')) {
+        return {
+          output: 'Legacy .xls workbooks are not supported by Read. Convert the file to .xlsx, then use the Spreadsheet tool.',
+          isError: true,
+        }
+      }
+
       // ① 体积闸门（读前）：超软上限且无 limit、或超硬上限（含 §5-#4：limit 也绕不过）→ 抛短错误
       const sizeErr = checkFileSize(file.size, limit !== undefined)
       if (sizeErr) return { output: sizeErr, isError: true }

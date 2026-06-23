@@ -36,7 +36,7 @@ test('正常流：事件原样透传，abort/fallback 不被调用', async () =>
   const out = await collect(withIdleWatchdog({
     stream: normalStream(events),
     abort: () => { aborted = true },
-    fallback: () => { fellBack = true; return [] },
+    fallback: async () => { fellBack = true; return [] },
     idleMs: 1000,
   }))
   expect(out).toEqual(events)
@@ -81,7 +81,7 @@ test('外部 abort：透出 AbortError，fallback 不被调用', async () => {
   const gen = withIdleWatchdog({
     stream: stalledStream([{ type: 'text', text: 'x' }], linked.signal),
     abort: () => linked.abort(),
-    fallback: () => { fellBack = true; return [] },
+    fallback: async () => { fellBack = true; return [] },
     idleMs: 10_000, // 远大于外部 abort 触发时机，确保不是看门狗先动手
   })
   // 拿到第一个事件后外部中止
@@ -109,6 +109,71 @@ test('linkAbort：外部已 aborted 时内部 signal 立即 aborted', () => {
   external.abort()
   const linked = linkAbort(external.signal)
   expect(linked.signal.aborted).toBe(true)
+})
+
+test('linkAbort：看门狗 abort() 只掐流式 signal，不波及 fallbackSignal', () => {
+  const linked = linkAbort()
+  linked.abort()
+  expect(linked.signal.aborted).toBe(true)        // 流式被掐
+  expect(linked.fallbackSignal.aborted).toBe(false) // 兜底仍可发请求 —— 这是修复的核心
+})
+
+test('linkAbort：外部 ESC 同时 abort 流式 signal 与 fallbackSignal', () => {
+  const external = new AbortController()
+  const linked = linkAbort(external.signal)
+  expect(linked.fallbackSignal.aborted).toBe(false)
+  external.abort()
+  expect(linked.signal.aborted).toBe(true)
+  expect(linked.fallbackSignal.aborted).toBe(true)
+})
+
+test('linkAbort：外部已 aborted 时 fallbackSignal 也立即 aborted', () => {
+  const external = new AbortController()
+  external.abort()
+  const linked = linkAbort(external.signal)
+  expect(linked.fallbackSignal.aborted).toBe(true)
+})
+
+// 回归：复刻"看门狗触发后兜底被自己掐死"的原始 bug。fallback 必须收到一个未被
+// 看门狗 abort 的 signal，否则 messages.create 一发出就抛 APIUserAbortError → 静默退出。
+test('看门狗触发：fallback 收到未 aborted 的 signal，能正常产出', async () => {
+  const linked = linkAbort()
+  const fallbackEvents: StreamEvent[] = [
+    { type: 'text', text: 'rescued' },
+    { type: 'message_stop', usage: { input_tokens: 1, output_tokens: 1 }, stopReason: 'end_turn' },
+  ]
+  const out = await collect(withIdleWatchdog({
+    stream: stalledStream([], linked.signal),
+    abort: () => linked.abort(),
+    // 模拟真实 fallback：signal 已 aborted 就抛（等同 SDK 行为）；正确接线下不应触发。
+    fallback: async () => {
+      if (linked.fallbackSignal.aborted) throw new Error('Request was aborted.')
+      return fallbackEvents
+    },
+    idleMs: 20,
+  }))
+  expect(out).toEqual(fallbackEvents)
+})
+
+// 看门狗在 thinking 心跳之间不应误触发：只要持续有事件到达就一直重置计时。
+test('thinking 心跳：持续到达可阻止看门狗超时', async () => {
+  let fellBack = false
+  async function* thinkingThenAnswer(): AsyncGenerator<StreamEvent> {
+    for (let i = 0; i < 5; i++) {
+      yield { type: 'thinking', text: `step ${i}` }
+      await Bun.sleep(15) // < idleMs，每个心跳都重置计时
+    }
+    yield { type: 'text', text: 'final answer' }
+    yield { type: 'message_stop', usage: { input_tokens: 1, output_tokens: 1 }, stopReason: 'end_turn' }
+  }
+  const out = await collect(withIdleWatchdog({
+    stream: thinkingThenAnswer(),
+    abort: () => {},
+    fallback: async (): Promise<StreamEvent[]> => { fellBack = true; return [] },
+    idleMs: 40,
+  }))
+  expect(fellBack).toBe(false)
+  expect(out.at(-2)).toEqual({ type: 'text', text: 'final answer' })
 })
 
 test('mapAnthropicMessageToEvents：text + tool_use + message_stop', () => {

@@ -48,6 +48,10 @@ export type StopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'stop_sequence
 // 我们自己的流事件，比 SDK 原始事件更精简
 export type StreamEvent =
   | { type: 'text'; text: string }
+  // 扩展思考（extended thinking / reasoning_content）的增量。仅作"连接仍活跃"的心跳信号：
+  // 空闲看门狗据此重置计时，避免长思考被误判成半开连接而 abort。上层（query/UI）可忽略，
+  // 不计入 assistantMessage 的 content（思考内容不回灌对话历史）。
+  | { type: 'thinking'; text: string }
   // incomplete: 工具入参 JSON 在累积过程中被截断、parse 失败 —— 不可执行，需让模型重试
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown>; incomplete?: boolean }
   // 开启 prompt caching 后，input 被服务器拆成三份：input_tokens（本轮未命中缓存的新增）、

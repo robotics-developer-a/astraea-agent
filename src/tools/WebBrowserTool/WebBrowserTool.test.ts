@@ -39,6 +39,13 @@ class MockBrowserDriver implements BrowserDriver {
   }
 }
 
+class SlowBrowserDriver extends MockBrowserDriver {
+  override async screenshot() {
+    await new Promise(resolve => setTimeout(resolve, 50))
+    return 'slow_screenshot'
+  }
+}
+
 describe('WebBrowserTool — 运行时不可用', () => {
   // ⚠️ 不能用 resetBrowserDriver() 来制造「不可用」状态：lazyInit() 会在 Playwright
   // 已安装的机器上自动拉起真实浏览器，于是测试在装了 Playwright 的环境（CI / 本机）
@@ -84,6 +91,18 @@ describe('WebBrowserTool — navigate', () => {
     expect(result.output).toContain('欢迎回来')
   })
 
+  test('navigate 对页面文本输出设置上限', async () => {
+    const driver = new MockBrowserDriver()
+    driver.registerPage('https://app.example.com/huge', 'Huge', 'x'.repeat(5000))
+    injectBrowserDriver(driver)
+
+    const result = await WebBrowserTool.call({ url: 'https://app.example.com/huge' }, { mode: "default" })
+
+    expect(result.isError).toBeFalsy()
+    expect(result.output.length).toBeLessThan(4400)
+    expect(result.output).toContain('内容已截断')
+  })
+
   test('action 默认为 navigate', async () => {
     const result = await WebBrowserTool.call({ url: 'https://app.example.com/dashboard' }, { mode: "default" })
     expect(result.output).toContain('[WebBrowser] navigate')
@@ -94,11 +113,27 @@ describe('WebBrowserTool — screenshot', () => {
   beforeEach(() => injectBrowserDriver(new MockBrowserDriver()))
   afterEach(() => resetBrowserDriver())
 
-  test('screenshot 返回 base64 内容', async () => {
+  test('screenshot 只返回摘要，不把 base64 原文写进输出', async () => {
     const result = await WebBrowserTool.call({ url: 'https://example.com', action: 'screenshot' }, { mode: "default" })
     expect(result.isError).toBeFalsy()
-    expect(result.output).toContain('bW9ja19zY3JlZW5zaG90')
+    expect(result.output).toContain('Base64 PNG，20 字符')
+    expect(result.output).toContain('已折叠')
+    expect(result.output).not.toContain('bW9ja19zY3JlZW5zaG90')
     expect(result.output).toContain('screenshot')
+  })
+
+  test('screenshot 支持短超时限制，避免视觉验证长期卡住', async () => {
+    injectBrowserDriver(new SlowBrowserDriver())
+
+    const result = await WebBrowserTool.call({
+      url: 'https://example.com',
+      action: 'screenshot',
+      timeoutMs: 5,
+    }, { mode: "default" })
+
+    expect(result.isError).toBe(true)
+    expect(result.output).toContain('timed out')
+    expect(result.output).toContain('5ms')
   })
 })
 
