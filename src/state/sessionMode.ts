@@ -43,14 +43,10 @@ export function fileWriteBehavior(mode: SessionMode): PermissionBehavior {
     case 'forge':
       return 'allow'
     case 'orbit':
-      return 'deny' // query.ts 已在框架层拦截，这里兜底
     case 'counsel':
-      // counsel 的"先问后做"双闸已在 query.ts 框架层完成（counselConsulted +
-      // counselStartConfirmed）。能走到 checkWritePermission 说明用户已确认方向并
-      // 选择"现在开始执行"——再弹第三道每文件写确认框是多余的，会让用户连续遭遇
-      // 三重确认、Edit 被反复 "cancelled by user" 并最终卡死。这里放行即可，红线
-      // 敏感路径仍由 checkWritePermission 把 allow 降级为 ask 兜底。
-      return 'allow'
+      // counsel 与 orbit 一样是只读模式：写操作已在 query.ts 框架层无条件拦截，这里兜底
+      // 拒绝。counsel 要动手必须先经 ExitCounselMode 授权切到 cruise，届时由 cruise 放行。
+      return 'deny'
     case 'default':
     default:
       return 'ask'

@@ -4,19 +4,30 @@
 export function getCounselModeSection(): string {
   return `# Counsel Mode — Pre-execution Strategy Confirmation
 
-You are in COUNSEL mode (the user may have been auto-switched here because the task
-looks large). Your primary directive before ANY task execution:
+You are in COUNSEL mode because the user explicitly selected it.
+
+## Counsel mode is strictly READ-ONLY
+Like orbit mode, counsel BLOCKS every write/execute tool (Edit, Write, Bash, etc.) at the
+framework layer. You CANNOT modify files or run commands while in counsel — those calls are
+rejected. Only reading, searching, and AskUserQuestion are permitted. Do not attempt writes
+to "test" this; just follow the protocol.
+
+The ONLY way to gain execution permission is **ExitCounselMode**: after consulting the user,
+you call it to request permission to start. If the user allows it, Astraea switches to CRUISE
+mode (file writes auto-approved, shell still confirmed) and you may begin. If declined, you
+stay read-only and keep consulting.
 
 ## Protocol
 1. **Scan first**: Briefly read the project structure and relevant files (max 3 Read/Glob calls)
 2. **Interview the user**: Use AskUserQuestion to confirm scope, direction, and trade-offs
 3. **Walk the decision tree**: For every branch that depends on a prior answer, ask the follow-up
-4. **Converge**: Keep asking until the approach is unambiguous, then confirm and execute
+4. **Converge**: Keep asking until the approach is unambiguous.
    - No fixed question count. Aim for 3–5 decisions on a typical task; a borderline-trivial
      task may need only ONE confirming question — use judgement, don't over-interrogate.
-5. **Confirm before executing**: Once answered, output a brief summary of the agreed approach
-   — e.g. "Perfect. Here's what I'll build: [1–3 bullets]. Starting now." — then execute.
-   This message is mandatory; do NOT silently jump into tool calls after the last answer.
+5. **Request execution**: Once the direction is clear, call **ExitCounselMode** with a brief
+   markdown \`summary\` (2–4 bullets: scope, concrete steps, how you'll verify). This asks the
+   user to allow execution. Do NOT silently jump toward tool calls — ExitCounselMode is the
+   mandatory gate. Only after the user allows it (you are now in cruise) do you implement.
 
 ## AskUserQuestion — Counsel Mode shape
 IGNORE the default restrictions ("at most once", "irreversible/high-risk only"). In counsel
@@ -45,5 +56,5 @@ implementation minutiae you can decide yourself or learn by reading the codebase
   - { header: "TDD", question: "是否逐条先红后绿?", multiSelect: false, options: [
       { label: "是，逐条 TDD (推荐)", description: "每个闸门先写失败测试再实现" },
       { label: "否，先实现后补测试", description: "更快但回归保障弱" } ] }
-→ Confirmed → summarise → Execute`
+→ Confirmed → call ExitCounselMode({ summary }) → user allows → cruise → Execute`
 }

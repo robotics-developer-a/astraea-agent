@@ -60,10 +60,10 @@ describe('fileWriteBehavior matrix', () => {
   test('default asks before writing', () => {
     expect(fileWriteBehavior('default')).toBe('ask')
   })
-  test('counsel allows file writes once its two framework gates have passed', () => {
-    // counsel 的方向确认 + "现在开始执行" 双闸在 query.ts 完成；走到 fileWriteGate
-    // 即已获批，不应再弹每文件写确认框（避免三重确认导致的 Edit 卡死/循环）。
-    expect(fileWriteBehavior('counsel')).toBe('allow')
+  test('counsel denies file writes (read-only, like orbit)', () => {
+    // counsel 与 orbit 一样只读：写操作在 query.ts 框架层无条件拦截，fileWriteGate
+    // 兜底拒绝。要动手须先经 ExitCounselMode 授权切到 cruise，由 cruise 放行。
+    expect(fileWriteBehavior('counsel')).toBe('deny')
   })
   test('orbit denies file writes', () => {
     expect(fileWriteBehavior('orbit')).toBe('deny')

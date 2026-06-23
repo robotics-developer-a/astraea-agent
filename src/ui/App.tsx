@@ -30,7 +30,6 @@ import { getSystemPrompt } from '../context/systemPrompt/builder'
 import { onQuestion, answer } from '../tools/AskUserQuestionTool/bridge'
 import type { PendingQuestion, Question } from '../tools/AskUserQuestionTool/bridge'
 import { QuestionPanel } from './QuestionPanel'
-import { detectCounselTask } from '../utils/detectLongTask'
 import { setSessionSystemPrompt } from '../services/session-context'
 import { startUDSServer } from '../services/uds-server'
 import { getState, clearAllTasks, killAllRunningAgents } from '../services/agent-state'
@@ -108,6 +107,7 @@ import { assessGoalVerifiability } from '../services/goal-evaluator'
 import { SlashHint, allSlashCommands, matchSlashCommands } from './SlashHint'
 import { ModeInputFrame } from './ModeBanner'
 import { ToolBatch, type ToolCall } from './ToolBatch'
+import { expandPasteTokens } from './pasteExpansion'
 import { STATUS_COLOR, splitStatusLine, INDIGO, DEEP, type AgentStatus } from './theme'
 import { TodoStatusLine } from './TodoStatusLine'
 import { navigateQuestionPanel } from './questionPanelControls'
@@ -1227,7 +1227,8 @@ export function App() {
 
   const handleSubmit = useCallback(
     async (text: string) => {
-      const trimmed = text.trim()
+      const displayText = text.trim()
+      const trimmed = expandPasteTokens(text, pasteStoreRef.current).trim()
       if (!trimmed) return
 
       // AskUserQuestion answer mode: this fires from the ✎ free-text box for the
@@ -1901,16 +1902,12 @@ export function App() {
         }
       }
 
-      // 长任务或缺少可验收目标的模糊任务自动切入 counsel。
-      // 切入后由 query.ts 双闸强制先问后做；模型仍可自行决定问几道题（trivial 任务可只问一道）。
-      if (getMode() === 'default' && detectCounselTask(trimmed).counsel) {
-        setMode('counsel')
-        setSessionModeState('counsel')
-        setHistory(prev => [...prev, { id: String(entryIdRef.current++), role: 'mode_banner' as const, text: 'counsel' }])
-      }
+      // 注：不再用关键词正则猜测任务大小来自动切 counsel —— 模式由用户掌控。
+      // 是否在执行前先向用户确认方向，交给模型在默认模式下自行判断（见系统提示词）；
+      // 需要强制「先问后做」时由用户手动 /mode 进入 counsel。
 
-      // 展开粘贴占位符 → 真实内容喂给模型；history 仍显示占位符（trimmed）
-      await runConversation(expandPastes(trimmed), trimmed)
+      // 展开粘贴占位符 → 真实内容喂给模型；history 仍显示用户提交时看到的文本。
+      await runConversation(trimmed, displayText)
     },
     [isStreaming, systemPrompt, pendingQuestion, pendingModeSelect, pendingVigilPanel, qIndex, selections, freeTexts, submitQuestions, runConversation, stopActiveWork],
   )
@@ -2048,18 +2045,6 @@ export function App() {
     const token = `[Pasted text #${id} ${summary}]`
     pasteStoreRef.current.set(token, text)
     return token
-  }, [])
-
-  // 提交时把占位符展开回真实内容（喂给模型）；消费后从 store 删除。
-  const expandPastes = useCallback((text: string): string => {
-    let out = text
-    for (const [token, content] of pasteStoreRef.current) {
-      if (out.includes(token)) {
-        out = out.split(token).join(content)
-        pasteStoreRef.current.delete(token)
-      }
-    }
-    return out
   }, [])
 
   // 切换会话模式并写入 history 横幅（/mode、ModeSelector、Shift+Tab 共用同一落点）。

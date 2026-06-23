@@ -25,7 +25,6 @@ import {
   type PhoenixTrace,
 } from './observability/phoenix'
 import { getMode } from './state/sessionMode'
-import { askOne } from './tools/AskUserQuestionTool/bridge'
 import { yieldMissingToolResultBlocks } from './utils/messages'
 import {
   getSystemContext,
@@ -250,13 +249,10 @@ async function* runQuery(
     ? { role: 'user', content: recallResult.reminder }
     : null
 
-  // counsel 模式两段式闸（Permission & Safety Technical Spec §7）：
-  //   ① counselConsulted    — 是否已通过 AskUserQuestion 向用户确认过方向
-  //   ② counselStartConfirmed — 方向确认后，用户是否已回答"现在开始执行"
-  // 两者皆 true 前，框架层拦截所有「非只读」工具（与 orbit 的硬闸对称）。
-  // 随 query() 调用作用域存活 → 每个用户请求都需重新确认。
-  let counselConsulted = false
-  let counselStartConfirmed = false
+  // counsel 模式（Permission & Safety Technical Spec §7）：与 orbit 对称，框架层无条件
+  // 硬拦截一切「非只读」工具——counsel 自身永远只读，不存在「确认后就地放开写权限」。
+  // 模型唯一的逃生口是调用 ExitCounselMode：请求用户授权后 setMode('cruise')，此后才在
+  // cruise 模式下获得执行权。因此这里不再保留任何「确认即放行」的本地闸变量。
 
   // 反应式溢出兜底：每个 query() 调用最多触发一次，防止重试死循环。
   let reactiveCompacted = false
@@ -750,12 +746,13 @@ async function* runQuery(
             isError: true,
           }
         }
-        // 框架层 counsel 拦截：方向确认 + 开工确认 两道闸都过之前，禁止任何写/执行类工具。
-        // 只读工具（Read/Glob/Grep…）放行，供模型先扫描项目；逃生口是调用 AskUserQuestion。
-        if (ctx.mode === 'counsel' && !tool.isReadOnly(toolUse.input) && !(counselConsulted && counselStartConfirmed)) {
+        // 框架层 counsel 拦截：与 orbit 对称，无条件禁止任何写/执行类工具。只读工具
+        // （Read/Glob/Grep/AskUserQuestion…）放行，供模型先扫描项目并咨询用户。逃生口是
+        // 调用 ExitCounselMode 请求授权切入 cruise——只有切到 cruise 后才能动手。
+        if (ctx.mode === 'counsel' && !tool.isReadOnly(toolUse.input)) {
           return {
             toolUse,
-            output: `[counsel mode] ${tool.name} blocked — confirm the direction with the user first. Call AskUserQuestion to ask strategic multiple-choice question(s) about scope / approach / trade-offs, then proceed once the user has answered.`,
+            output: `[counsel mode] ${tool.name} blocked — counsel mode is read-only. First confirm the direction with the user via AskUserQuestion, then call ExitCounselMode to request permission to start executing. Once the user allows it, Astraea switches to cruise mode and writes are permitted.`,
             isError: true,
           }
         }
@@ -780,20 +777,6 @@ async function* runQuery(
             output: result.output,
             isError: result.isError ?? false,
           })
-          // 用户已完成方向确认 → 紧接着问"是否现在开始执行"（counsel 第二道闸）
-          if (tool.name === 'AskUserQuestion' && !result.isError) {
-            counselConsulted = true
-            if (ctx.mode === 'counsel' && !counselStartConfirmed) {
-              const go = await askOne(
-                'Direction confirmed. Start executing now? / 方向已确认，现在开始执行吗？',
-                ['yes — start executing now', 'no — keep discussing'],
-              )
-              const ans = go.trim().toLowerCase()
-              // 答复是格式化文本（含被选 label）。空答复（无 UI 监听）视为放行避免死锁；
-              // 命中 yes/「start executing」即放行，否则（含 no — keep discussing）保持闸闭。
-              counselStartConfirmed = ans === '' || ans.includes('start executing') || ans.includes('yes —')
-            }
-          }
           return { toolUse, output: result.output, isError: result.isError ?? false }
         } catch (err: unknown) {
           recordToolObservation(phoenixTrace, {
@@ -837,11 +820,11 @@ async function* runQuery(
         })
         continue
       }
-      // 框架层 counsel 拦截（流式工具同样适用）：两道闸都过之前禁止写/执行
-      if (ctx.mode === 'counsel' && !tool.isReadOnly(toolUse.input) && !(counselConsulted && counselStartConfirmed)) {
+      // 框架层 counsel 拦截（流式工具同样适用）：无条件只读，逃生口是 ExitCounselMode
+      if (ctx.mode === 'counsel' && !tool.isReadOnly(toolUse.input)) {
         streamingResults.push({
           toolUse,
-          output: `[counsel mode] ${tool.name} blocked — confirm the direction with the user via AskUserQuestion first, then proceed once answered.`,
+          output: `[counsel mode] ${tool.name} blocked — counsel mode is read-only. Confirm the direction via AskUserQuestion, then call ExitCounselMode to request switching to cruise before executing.`,
           isError: true,
         })
         continue
@@ -905,15 +888,15 @@ async function* runQuery(
       ...pendingInterjects.map(buildInterjectBlock),
     ]
 
-    // counsel 强制注入：本轮出现了因未问用户而被拦截的写/执行操作
-    // → 在下一轮的 user message 里追加强制指令，模型没有退路，必须先调 AskUserQuestion
-    const counselWasBlocked = !(counselConsulted && counselStartConfirmed) && allResults.some(
+    // counsel 强制注入：本轮出现了被只读闸拦截的写/执行操作
+    // → 在下一轮的 user message 里追加强制指令，引导模型先咨询、再走 ExitCounselMode 授权
+    const counselWasBlocked = getMode() === 'counsel' && allResults.some(
       r => r.isError && r.output.startsWith('[counsel mode]'),
     )
     if (counselWasBlocked) {
       extraTextBlocks.push({
         type: 'text',
-        text: '[Counsel mode enforcement] You attempted a write/execute action without first consulting the user. MANDATORY: your very next action must be to call AskUserQuestion with an options[] array. Ask about scope, format, style, or priorities — whatever is strategically relevant for this task. Do NOT produce any text summary or proceed with any non-read-only tool until you have called AskUserQuestion and the user has answered.',
+        text: '[Counsel mode enforcement] Counsel mode is strictly read-only — your write/execute action was blocked. You cannot write or run commands here. MANDATORY path to execution: (1) use AskUserQuestion to confirm scope / approach / trade-offs with the user; (2) once the direction is clear, call ExitCounselMode with a brief summary to ask the user for permission. Only after the user allows it (Astraea then switches to cruise mode) may you write or run commands. Do NOT attempt any non-read-only tool until then.',
       })
     }
 

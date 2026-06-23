@@ -26,6 +26,7 @@ import { ListPeersTool } from './ListPeersTool'
 import { AskUserQuestionTool } from './AskUserQuestionTool'
 import { EnterOrbitModeTool } from './EnterOrbitModeTool'
 import { ExitOrbitModeTool } from './ExitOrbitModeTool'
+import { ExitCounselModeTool } from './ExitCounselModeTool'
 import { VerifyOrbitExecutionTool } from './VerifyOrbitExecutionTool'
 import { TodoWriteTool } from './TodoWriteTool'
 import { VigilOnceTool } from './VigilOnceTool'
@@ -81,6 +82,7 @@ function getBuiltinToolList(): Tool[] {
     // ── 计划与调度控制层 ──────────────────────────────────────────
     EnterOrbitModeTool,
     ExitOrbitModeTool,
+    ExitCounselModeTool,
     VerifyOrbitExecutionTool,
     TodoWriteTool,
     VigilOnceTool,

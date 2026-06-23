@@ -8,6 +8,23 @@
 
 > **1.0.0 发布门槛**（达成后才从 0.x 升到 1.0 并打首个 `git tag v1.0.0`）：
 
+## [0.9.47] - 2026-06-23
+
+### 修复
+- **counsel 越权执行写/bash 的 bug**：counsel 此前在「方向确认 + 现在开始执行」双闸通过后会就地
+  放开写/执行权限，违背只读语义。现改为与 orbit 严格对称——counsel 全程只读，框架层（`query.ts`）
+  无条件拦截一切非只读工具（Edit/Write/Bash 等），`fileWriteBehavior('counsel')` 兜底由 `allow`
+  改为 `deny`。
+- **counsel 唯一执行入口 ExitCounselMode**：新增只读工具 `ExitCounselMode`。模型咨询完用户、方向
+  明确后调用它请求授权；用户「allow this session」→ 自动 `setMode('cruise')` 切入 cruise（文件写
+  自动通过、shell 仍逐条确认）后方可动手；用户拒绝则留在只读 counsel 继续咨询。删除旧的 `askOne`
+  「现在开始执行」自动放行逻辑。
+
+### 移除
+- **counsel 关键词正则自动切换**：删除 `detectLongTask` / `detectCounselTask` 整套硬编码中英关键词
+  正则及其在 `App.tsx` 的自动切模式逻辑。不再靠扫描用户文本猜测任务大小来强制切 counsel——模式
+  回归用户掌控（手动 `/mode` 进入），是否在执行前先咨询交由模型按任务哲学 Principle 1 自行判断。
+
 ## [0.9.46] - 2026-06-23
 
 ### 新增
