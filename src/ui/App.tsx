@@ -39,7 +39,7 @@ import type { AgentTaskState } from '../services/agent-state'
 import { clearTodos, getAllNamespaces, getTodos } from '../services/todo-state'
 import { renderMarkdown } from '../utils/markdown'
 import { normalizeDraggedPath } from '../utils/dragPath'
-import { clampLineWidth, safeWinPreview } from '../utils/termWidth'
+import { clampLineWidth, safeAnsiPreview } from '../utils/termWidth'
 import { displayPath } from '../utils/displayPath'
 import {
   initTitle,
@@ -2589,7 +2589,7 @@ export function App() {
             const starCols = showHeader ? 0 : 2   // 行内分支左侧 "✸ " 占 2 列
             const cols = Math.max(1, (columns ?? 80) - 1 - starCols)
             const previewEl = streamingText
-              ? <Text bold>{safeWinPreview(streamingText, cols, maxLines)}</Text>
+              ? <Text bold>{safeAnsiPreview(renderMarkdown(streamingText), cols, maxLines)}</Text>
               : null
             // turn 起点：「STAR Astraea」独占一行、正文在下。
             if (showHeader) {

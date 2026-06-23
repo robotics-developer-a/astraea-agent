@@ -2,7 +2,9 @@
 // 任何一行的显示宽度都必须严格小于列数，终端才不会折行、Ink 擦除才数得准。
 
 import { test, expect } from 'bun:test'
-import { charDisplayWidth, stringDisplayWidth, clampLineWidth, safeWinPreview } from './termWidth'
+import stripAnsi from 'strip-ansi'
+import { renderMarkdown } from './markdown'
+import { charDisplayWidth, stringDisplayWidth, clampLineWidth, safeWinPreview, safeAnsiPreview } from './termWidth'
 
 test('charDisplayWidth：CJK/全角=2，ASCII=1', () => {
   expect(charDisplayWidth('a'.codePointAt(0)!)).toBe(1)
@@ -35,5 +37,18 @@ test('safeWinPreview：每一行都严格小于列宽，且只保留尾部若干
   expect(lines.length).toBeLessThanOrEqual(maxLines + 1)
   for (const l of lines) {
     expect(stringDisplayWidth(l)).toBeLessThan(cols)
+  }
+})
+
+test('safeAnsiPreview：保留 markdown 样式但按可见宽度安全截断', () => {
+  const cols = 24
+  const rendered = renderMarkdown('**重点**：请运行 `bun test` 验证。' + '内容'.repeat(20))
+  const preview = safeAnsiPreview(rendered, cols, 4)
+
+  expect(preview).not.toBe(stripAnsi(preview))
+  expect(stripAnsi(preview)).toContain('重点')
+  expect(stripAnsi(preview)).not.toContain('**重点**')
+  for (const line of preview.split('\n')) {
+    expect(stringDisplayWidth(line)).toBeLessThan(cols)
   }
 })
