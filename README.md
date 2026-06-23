@@ -1,14 +1,6 @@
 <div align="center">
 <img src="./assets/banner.svg" alt="Astraea" width="700"/>
 
-<br>
-<p align="center">
-  <a href="https://astraea-community.vercel.app/docs/getting-started">
-    <img src="./assets/community-card.svg" alt="Community docs" width="560"/>
-  </a>
-</p>
-<br>
-
 ### An Agent of Order and Precision
 
 ![screenshot](./assets/screenshot.png)
@@ -16,6 +8,14 @@
 **Astraea** is a terminal-native AI coding agent that resolves disorder — it doesn't just write code, it imposes structure on any problem that arrives with ambiguity, inefficiency, or unchecked complexity.
 
 Built from the ground up on [**Bun**](https://bun.com), with a React Ink TUI, multi-provider model support, sub-agents, scheduling, and a permission system you can actually trust.
+
+<br>
+<p align="center">
+  <a href="https://astraea-community.vercel.app/">
+    <img src="./assets/community-card.svg" alt="Community docs" width="640"/>
+  </a>
+</p>
+<br>
 
 <p>
   <img alt="Runtime" src="https://img.shields.io/badge/runtime-Bun-000000?logo=bun&logoColor=white">
