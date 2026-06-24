@@ -72,6 +72,7 @@ import { resetEclipse } from '../services/eclipse/store'
 import { setLastAssistantTs, resetMicrocompactState } from '../state/microcompactState'
 import { ResumePicker } from './ResumePicker'
 import { RewindPicker } from './RewindPicker'
+import { ExportPanel, EXPORT_ACTIONS } from './ExportPanel'
 import {
   beginCheckpoint,
   listCheckpoints,
@@ -522,6 +523,9 @@ export function App() {
   const [pendingRewindPicker, setPendingRewindPicker] = useState(false)
   const [rewindPickerIndex, setRewindPickerIndex] = useState(0)
   const rewindCheckpointsRef = useRef<Checkpoint[]>([])
+  const [pendingExportPanel, setPendingExportPanel] = useState(false)
+  const [exportPanelIndex, setExportPanelIndex] = useState(0)
+  const [pendingExportPath, setPendingExportPath] = useState(false)
   // Slash 命令选择器：高亮项索引。slashIndexRef 供 handleSubmit 同步读取（避免入 deps）。
   const [slashIndex, setSlashIndex] = useState(0)
   const slashIndexRef = useRef(0)
@@ -869,6 +873,16 @@ export function App() {
       { id: String(entryIdRef.current++), role: 'assistant', text: `↩ rewound to checkpoint #${turn} — ${dropped} message${dropped === 1 ? '' : 's'} dropped${fileNote}.` },
     ])
   }, [wipeStatic])
+
+  const runLocalExport = useCallback(async (args?: string) => {
+    const { exportConversation } = await import('../commands/export')
+    const res = await exportConversation(args)
+    if (res.type === 'text') {
+      setHistory(prev => [...prev, { id: String(entryIdRef.current++), role: 'assistant', text: res.value }])
+    } else if (res.type === 'preformatted') {
+      setHistory(prev => [...prev, { id: String(entryIdRef.current++), role: 'preformatted', text: res.value }])
+    }
+  }, [])
 
   const runConversation = useCallback(
     async (
@@ -1278,6 +1292,15 @@ export function App() {
       const displayText = text.trim()
       const trimmed = expandPasteTokens(text, pasteStoreRef.current).trim()
       if (!trimmed) return
+
+      if (pendingExportPath) {
+        setInputValue('')
+        historyIndexRef.current = -1
+        setPendingExportPath(false)
+        setPendingExportPanel(false)
+        await runLocalExport(trimmed)
+        return
+      }
 
       // AskUserQuestion answer mode: this fires from the ✎ free-text box for the
       // current question. Store the typed text, then advance to the next unanswered
@@ -1745,11 +1768,13 @@ export function App() {
             '**Available commands:**',
             '',
             '**Session control:**',
+            '  /init    — analyze this repo and create/update AGENTS.md project instructions',
             '  /clear   — clear conversation history (also clears any active goal)',
             '  /rename  — rename the current session for /resume and the terminal title',
             '  /resume  — resume a past session (args: session-id or number from /resume list)',
             '  /rewind  — rewind this session — restore conversation + edited files',
             '  /compact — force context compaction now (optional: /compact <focus>)',
+            '  /export  — export conversation with folder/path picker',
             '',
             '**Mode:**',
             '  /mode    — select session mode: orbit · cruise · forge · counsel · default (or press Shift+Tab to cycle)',
@@ -1774,6 +1799,20 @@ export function App() {
             '  /wechat  — run WeChat chat summary (configured via settings.json)',
           ].join('\n'),
         }])
+        return
+      }
+
+      if (trimmed === '/export' || trimmed.startsWith('/export ')) {
+        setInputValue('')
+        historyIndexRef.current = -1
+        const arg = trimmed.slice('/export'.length).trim()
+        if (arg) {
+          await runLocalExport(arg)
+        } else {
+          setExportPanelIndex(0)
+          setPendingExportPath(false)
+          setPendingExportPanel(true)
+        }
         return
       }
 
@@ -1991,17 +2030,18 @@ export function App() {
       // 展开粘贴占位符 → 真实内容喂给模型；history 仍显示用户提交时看到的文本。
       await runConversation(trimmed, displayText)
     },
-    [isStreaming, systemPrompt, pendingQuestion, pendingModeSelect, pendingVigilPanel, qIndex, selections, freeTexts, submitQuestions, runConversation, stopActiveWork],
+    [isStreaming, systemPrompt, pendingQuestion, pendingModeSelect, pendingVigilPanel, pendingExportPath, qIndex, selections, freeTexts, submitQuestions, runConversation, stopActiveWork, runLocalExport],
   )
 
   const handleLoginDone = useCallback(async (result: LoginResult | null) => {
     setShowLogin(false)
     if (!result) return
-    updateProviderConfig(result.provider, result.model, result.apiKey)
+    const modelSelectionChanged = updateProviderConfig(result.provider, result.model, result.apiKey)
     resetAllApiClients()
     markTokensUnknown()  // 换模型 → 旧分词器的 token 数作废，等新 usage 刷新（设计文档 §6）
     resetEclipse()       // 换模型 → 折叠的 spawn token 计数按旧分词器，作废重来
     setConfigVersion(v => v + 1)  // 让 modelId 重算 → 触发 system prompt 按新模型重建
+    if (modelSelectionChanged) await persistReason({ message: '', disk: 'clear' })
     await saveLoginConfigToEnvFiles()
     const successText = formatLoginSuccess(result)
     setHistory(prev => [
@@ -2191,6 +2231,33 @@ export function App() {
         return
       }
       return // 吞掉其它按键
+    }
+
+    // ── ExportPanel 键盘控制 ─────────────────────────────────────────────────
+    if (pendingExportPanel && !pendingExportPath) {
+      if (key.escape) { setPendingExportPanel(false); return }
+      if (key.upArrow) { setExportPanelIndex(i => (i - 1 + EXPORT_ACTIONS.length) % EXPORT_ACTIONS.length); return }
+      if (key.downArrow) { setExportPanelIndex(i => (i + 1) % EXPORT_ACTIONS.length); return }
+      if (key.return) {
+        const action = EXPORT_ACTIONS[exportPanelIndex]
+        if (!action) return
+        if (action.key === 'current') {
+          setPendingExportPanel(false)
+          void runLocalExport(undefined)
+        } else if (action.key === 'path') {
+          setPendingExportPath(true)
+          setInputValue('')
+        } else {
+          setPendingExportPanel(false)
+        }
+        return
+      }
+      return
+    }
+    if (pendingExportPanel && pendingExportPath && key.escape) {
+      setPendingExportPath(false)
+      setInputValue('')
+      return
     }
 
     // ── RewindPicker 键盘控制 ─────────────────────────────────────────────────
@@ -2518,10 +2585,12 @@ export function App() {
             : config.anthropic.model
 
   // 执行中输入框保持可用（不锁定）：用户可随时 /mode 切换。仅在模式/面板覆盖层时让出焦点。
-  const inputFocused = !pendingReasonSelect && !pendingModeSelect && !pendingVigilPanel && !pendingConfirm && !pendingResumePicker && !pendingRewindPicker
+  const inputFocused = !pendingReasonSelect && !pendingModeSelect && !pendingVigilPanel && !pendingConfirm && !pendingResumePicker && !pendingRewindPicker && (!pendingExportPanel || pendingExportPath)
   const inputPlaceholder = pendingQuestion
     ? 'Type your answer… (Esc to skip)'
-    : isStreaming
+    : pendingExportPath
+      ? 'Paste export file or folder path…'
+      : isStreaming
       ? 'Astraea is working… type to interject · Esc to cancel'
       : systemPrompt === null
         ? 'Initializing...'
@@ -2818,6 +2887,13 @@ export function App() {
         />
       )}
 
+      {pendingExportPanel && (
+        <ExportPanel
+          selectedIndex={exportPanelIndex}
+          pathMode={pendingExportPath}
+        />
+      )}
+
       {/* RewindPicker — 会话内回滚检查点选择器（/rewind） */}
       {pendingRewindPicker && (
         <RewindPicker
@@ -2848,7 +2924,7 @@ export function App() {
           状态行应展示在 Tasks 列表下面，而非其上方）。 */}
       {isStreaming && <StreamStatus startTime={streamStart} tokens={liveTokens} />}
 
-      {!showLogin && !showInternet && !showLanguage && !pendingReasonSelect && !pendingModeSelect && !pendingVigilPanel && !pendingConfirm && !pendingResumePicker && !pendingRewindPicker && (
+      {!showLogin && !showInternet && !showLanguage && !pendingReasonSelect && !pendingModeSelect && !pendingVigilPanel && !pendingConfirm && !pendingResumePicker && !pendingRewindPicker && (!pendingExportPanel || pendingExportPath) && (
         <ModeInputFrame mode={sessionMode}>
           {/* While the question panel is open, hide the text input — the panel owns
               ←→/↑↓/Space/Enter. Once the user picks ✎ 自填 (questionFreeText), reveal
@@ -2864,7 +2940,7 @@ export function App() {
                   <Text color="gray" dimColor>Esc again to clear</Text>
                 </Box>
               )}
-              <SlashHint input={inputValue} selectedIndex={slashIndex} />
+              {!pendingExportPath && <SlashHint input={inputValue} selectedIndex={slashIndex} />}
               <GoalHint input={inputValue} />
               <Box>
                 <Text bold color={inputFocused && !isStreaming ? INDIGO : pendingQuestion ? 'yellow' : 'gray'}>

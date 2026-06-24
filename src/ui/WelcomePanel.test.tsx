@@ -101,6 +101,8 @@ for (const locale of ['zh', 'en'] as Locale[]) {
         expect(frame).toContain(t('wTagline1'))
         expect(frame).toContain(t('wTagline2'))
         expect(frame).toContain(t('wTagline3'))
+        expect(frame).toContain('astraea website:')
+        expect(frame).toContain('https://astraea-community.vercel.app/')
         expect(frame).toContain(t('wFooter'))
         expect(frame).toContain('╗')             // 字标 figlet 专属角字符（女神无）
         expect(frame).toContain('▔▔▔▔')          // 女神底座符号

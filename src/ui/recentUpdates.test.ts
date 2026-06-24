@@ -49,12 +49,12 @@ describe('recent updates', () => {
     }
   })
 
-  test('developer-maintained eligible notices never exceed three', () => {
-    expect(getRecentUpdates(pkg.version, 'en').length).toBeLessThanOrEqual(3)
+  test('developer-maintained eligible notices never exceed four', () => {
+    expect(getRecentUpdates(pkg.version, 'en').length).toBeLessThanOrEqual(4)
   })
 
-  test('/goal task-accuracy update is the first welcome notice', () => {
+  test('/init onboarding update is the first welcome notice', () => {
     const updates = getRecentUpdates(pkg.version, 'en')
-    expect(updates[0]).toContain('/goal')
+    expect(updates[0]).toContain('/init')
   })
 })

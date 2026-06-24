@@ -9,6 +9,19 @@ export interface RecentUpdate {
 
 export const RECENT_UPDATES: RecentUpdate[] = [
   {
+    version: '0.10.1',
+    priority: 120,
+    persistent: false,
+    messages: {
+      en: '/init can now scan a repo and create or update Astraea AGENTS.md instructions.',
+      zh: '/init 现在可以扫描仓库并创建或更新 Astraea 的 AGENTS.md 项目指令。',
+      de: '/init kann jetzt ein Repo scannen und Astraea-AGENTS.md-Anweisungen erstellen oder aktualisieren.',
+      fr: '/init peut maintenant analyser un dépôt et créer ou mettre à jour les instructions AGENTS.md d’Astraea.',
+      es: '/init ahora puede analizar un repo y crear o actualizar instrucciones AGENTS.md de Astraea.',
+      ko: '/init이 이제 저장소를 스캔하고 Astraea AGENTS.md 지침을 만들거나 업데이트할 수 있습니다.',
+    },
+  },
+  {
     version: '0.9.28',
     priority: 100,
     persistent: true,

@@ -1,5 +1,5 @@
-import { join } from 'node:path'
-import { writeFileSync } from 'node:fs'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { mkdirSync, statSync, writeFileSync } from 'node:fs'
 import { getAuditSession } from '../audit/record'
 import { sessionPath, loadSessionMessages } from '../services/transcript/transcript'
 import { config } from '../config'
@@ -29,6 +29,23 @@ function formatTimestamp(): string {
   const mi = String(now.getMinutes()).padStart(2, '0')
   const s = String(now.getSeconds()).padStart(2, '0')
   return `${y}-${mo}-${d}-${h}${mi}${s}`
+}
+
+export function resolveExportPath(
+  args: string | undefined,
+  cwd: string,
+  isDirectory: (path: string) => boolean = path => {
+    try { return statSync(path).isDirectory() } catch { return false }
+  },
+  timestamp: string = formatTimestamp(),
+): string {
+  const fallback = `conversation-${timestamp}.md`
+  const raw = args?.trim()
+  if (!raw) return join(cwd, fallback)
+
+  const target = isAbsolute(raw) ? raw : resolve(cwd, raw)
+  if (isDirectory(target)) return join(target, fallback)
+  return target.endsWith('.md') ? target : `${target}.md`
 }
 
 function toolResultSummary(block: ToolResultBlock): string {
@@ -133,16 +150,9 @@ export async function exportConversation(args: string | undefined): Promise<Loca
 
   const markdown = lines.join('\n')
 
-  let filename: string
-  if (args && args.trim()) {
-    filename = args.trim()
-    if (!filename.endsWith('.md')) filename += '.md'
-  } else {
-    filename = `conversation-${formatTimestamp()}.md`
-  }
-
-  const filepath = join(cwd, filename)
+  const filepath = resolveExportPath(args, cwd)
   try {
+    mkdirSync(dirname(filepath), { recursive: true })
     writeFileSync(filepath, markdown, 'utf-8')
     return { type: 'text', value: `Exported ${messages.length} messages to **${filepath}**` }
   } catch (e) {

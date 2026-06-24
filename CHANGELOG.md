@@ -8,6 +8,24 @@
 
 > **1.0.0 发布门槛**（达成后才从 0.x 升到 1.0 并打首个 `git tag v1.0.0`）：
 
+## [0.10.1] - 2026-06-24
+
+### 新增
+- **本地选区命令桥接服务**：新增 `bridge:selection` 启动脚本和 `/ask` 本地 HTTP 入口，接收任意捕获端传入的
+  `instruction`、`selection` 与来源元数据，并把选区文本作为不可信上下文交给 Astraea 回复。该入口为后续
+  桌面全局快捷键、浏览器右键菜单、PDF/doc/web 选区浮窗以及 Obsidian/Codex/Claude Code adapter 打底。
+- **/init 项目初始化命令**：新增内置 prompt command `/init [focus]`，会引导 Astraea 扫描当前仓库的
+  `package.json` / README / `.mcp.json` / `.cursor/rules` / 既有 AI 指令等高信号文件，询问用户要创建
+  团队共享 `AGENTS.md`、个人私有 `AGENTS.local.md` 还是两者，并按 Astraea 真实加载规则生成精简项目说明。
+  命令默认使用 Bun 语义，明确禁止误建 `CLAUDE.md`，并可按需创建 `.astraea/skills/<name>/SKILL.md`
+  项目技能。
+
+### 优化
+- **Welcome 最新更新允许四条并置顶 /init**：最近更新列表上限从 3 条放宽到 4 条，新增 `/init`
+  项目初始化提示并排在第一条，方便用户启动时第一时间发现项目上手能力。
+- **astraea-community 官网同步 v0.10.1**：社区站首页 current release 与 Recent updates 已更新为
+  `/init` 项目初始化向导，并在命令文档中加入 `/init` 的用途、示例与使用场景。
+
 ## [0.10.0] - 2026-06-24
 
 ### 修复
@@ -33,6 +51,11 @@
   `structuredResponse: 'json'` 选项。所有 provider 都会强化 JSON-only 系统提示，OpenAI-compatible
   provider 额外透传 `response_format: { type: 'json_object' }`，空响应或非法 JSON 会自动重试一次。
   `/goal` evaluator / critique / verifiability 已切到该能力，减少结构化判定的格式漂移。
+- **Welcome 面板展示 Astraea 官网**：启动欢迎页现在在模型/目录/工具信息下方显示
+  `astraea website: https://astraea-community.vercel.app/`，方便用户直接找到社区站点。
+- **/export 改为交互式导出面板**：`/export` 现在会弹出方向键面板，用户可直接导出到当前文件夹、
+  选择粘贴文件/文件夹路径，或取消；仍兼容 `/export <path>` 直接导出。路径解析支持绝对路径、
+  相对路径和目录路径，并会自动创建目标目录。
 
 ## [0.9.49] - 2026-06-23
 

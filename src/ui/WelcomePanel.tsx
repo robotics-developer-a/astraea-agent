@@ -101,6 +101,11 @@ export function WelcomePanel({ version, cwd, model, tools, columns: columnsProp 
           </Box>
         </Box>
 
+        <Box marginTop={1}>
+          <Text color={DIM}>{'astraea website: '}</Text>
+          <Text color={INDIGO}>https://astraea-community.vercel.app/</Text>
+        </Box>
+
         {recentUpdates.length > 0 && (
           <Box flexDirection="column" width="100%" marginTop={1}>
             <Text color={INDIGO}>{t('wRecentUpdates')}</Text>

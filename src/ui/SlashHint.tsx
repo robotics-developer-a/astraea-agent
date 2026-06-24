@@ -23,6 +23,12 @@ export interface SlashCommand {
 
 export const SLASH_COMMANDS: SlashCommand[] = [
   {
+    name: '/init',
+    summary: 'create or update AGENTS.md project instructions',
+    options: [],
+    enterAction: 'execute',
+  },
+  {
     name: '/mode',
     summary: 'session mode',
     options: ['orbit', 'forge', 'counsel', 'default'],
@@ -126,6 +132,12 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   {
     name: '/rewind',
     summary: 'rewind this session — restore conversation + edited files (↑↓ picker)',
+    options: [],
+    enterAction: 'execute',
+  },
+  {
+    name: '/export',
+    summary: 'export conversation (picker)',
     options: [],
     enterAction: 'execute',
   },
