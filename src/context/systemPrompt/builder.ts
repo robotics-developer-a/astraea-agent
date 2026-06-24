@@ -10,11 +10,10 @@
 //     § 5  工具规范
 //     § 6  语气风格
 //     § 7  Token 预算提示（静态，缓存）
+//     § 8  记忆行为指令（稳定规则，缓存）
 //   ── DYNAMIC_BOUNDARY ──
 //   动态段（会话级缓存，随 clearSectionCache() 重算）
 //     · 环境信息
-//     · 语言偏好（可选）
-//     · 内存注入
 //   不可缓存段（每轮强制重算，DANGEROUS_UNCACHED）
 //     · MCP 插件说明
 
@@ -50,10 +49,6 @@ export async function getSystemPrompt(options: SystemPromptOptions): Promise<str
 
   const dynamicSections = [
     systemPromptSection('env_info', () => computeEnvInfo(modelId)),
-    // 记忆「行为指令」段（类型规范/怎么存/防漂移/边界）—— 定稿 #10：稳定进缓存前缀。
-    // 不含 MEMORY.md 索引/记忆正文（索引走 reminder 块，召回正文走用户消息尾部）。
-    // 会话级缓存（/clear 失效）。指令静态，永远非空。
-    systemPromptSection('memory', () => loadMemoryInstructions(cwd)),
     // MCP 服务器说明：从会话级 MCP 注册表读已连接 server 的 instructions。
     // DANGEROUS_UNCACHED — 跳过 prompt cache（server 可在会话中途上下线/重连）。
     uncachedSection(
@@ -99,6 +94,9 @@ Be concrete and specific — vague plans ("improve the code") are not acceptable
     getVoiceToneSection(),
     // Token 预算提示：静态文本，注入一次后随静态段缓存
     `# Token Budget\n${TOKEN_BUDGET_HINT_TEXT}`,
+    // 记忆「行为指令」段：只含稳定规则，不含 MEMORY.md 索引/正文；放在动态环境信息前，
+    // 让 DeepSeek V4 的低价 cache-hit 尽量命中更长的系统提示前缀。
+    loadMemoryInstructions(cwd),
     // ── 动态段 ──────────────────────────────────────────────────
     ...resolvedDynamic,
     // ── 模式感知段（按需注入）────────────────────────────────────

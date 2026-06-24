@@ -1,5 +1,7 @@
-import { test, expect, beforeEach } from 'bun:test'
+import { test, expect, beforeEach, afterEach } from 'bun:test'
+import { config } from '../../config'
 import {
+  activeThresholds,
   effectiveWindow,
   thresholds,
   percentLeft,
@@ -24,6 +26,16 @@ import {
   markTokensUnknown,
 } from '../../state/contextTokens'
 
+const originalProvider = config.provider
+const originalDeepSeekWindow = config.deepseek.contextWindow
+const originalDeepSeekMaxTokens = config.deepseek.maxTokens
+
+afterEach(() => {
+  config.provider = originalProvider
+  config.deepseek.contextWindow = originalDeepSeekWindow
+  config.deepseek.maxTokens = originalDeepSeekMaxTokens
+})
+
 // ── window/阈值（设计文档 §2/§3/§4 的数值表）────────────────────────────────
 test('effectiveWindow: anthropic 200K/32K → 166K，ollama 32K/8K → 21808', () => {
   expect(effectiveWindow(200_000, 32_000)).toBe(166_000)
@@ -40,6 +52,22 @@ test('thresholds: 0.80/0.92/0.98 与文档数值一致', () => {
   expect(t.warning).toBe(132_800)
   expect(t.autocompact).toBe(152_720)
   expect(t.blocking).toBe(162_680)
+})
+
+test('activeThresholds: DeepSeek 1M 窗口按 80/90/95 策略 compact 与 eclipse 折叠', () => {
+  config.provider = 'deepseek'
+  config.deepseek.contextWindow = 1_000_000
+  config.deepseek.maxTokens = 8_192
+
+  const t = activeThresholds()
+
+  expect(t.effectiveWindow).toBe(989_808)
+  expect(t.eclipseStageFloor).toBe(Math.floor(989_808 * 0.80))
+  expect(t.warning).toBe(Math.floor(989_808 * 0.90))
+  expect(t.eclipseCommit).toBe(Math.floor(989_808 * 0.90))
+  expect(t.autocompact).toBe(Math.floor(989_808 * 0.90))
+  expect(t.eclipseBlocking).toBe(Math.floor(989_808 * 0.95))
+  expect(t.blocking).toBe(Math.floor(989_808 * 0.95))
 })
 
 test('percentLeft 相对 autocompact 阈值', () => {

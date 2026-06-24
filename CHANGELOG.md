@@ -8,6 +8,32 @@
 
 > **1.0.0 发布门槛**（达成后才从 0.x 升到 1.0 并打首个 `git tag v1.0.0`）：
 
+## [0.10.0] - 2026-06-24
+
+### 修复
+- **/login 选择 DeepSeek V4 Flash 后仍显示/使用 Pro**：`/login` 现在把用户刚选择的
+  provider/model 视为最高优先级。若 provider 或 model 发生变化，会清除当前会话里的
+  `/reason` 档位，并同步移除持久化和运行时 env reasoning override，避免旧的 `high` / `max`
+  推理档在 DeepSeek V4 下继续把 `deepseek-v4-flash` 临时升到 `deepseek-v4-pro`。
+
+### 优化
+- **DeepSeek V4 prompt cache 前缀更稳定**：系统提示构建现在把稳定的 memory 行为指令前移到
+  `# Environment` 等动态环境信息之前，扩大可命中缓存的静态 system prompt 前缀；模型请求也不再把
+  AGENTS/日期/MEMORY index 这类每轮变化的 reminder 放在对话消息最前面，而是放到历史消息之后、
+  相关记忆之前，避免高频变化内容破坏 DeepSeek V4 低价 cache-hit 的前缀复用。
+- **DeepSeek V4 长上下文下按 80/90/95 策略 compact**：DeepSeek provider 现在按 effective window
+  计算上下文阈值：80% 启动 Eclipse ctx-agent 后台折叠，90% 提醒并触发 commit/autocompact，
+  95% 进入阻塞式折叠或硬阻塞，优先保留原始长任务上下文，减少过早摘要带来的细节损失；同时
+  `FileReadTool` 的单次读取 token 上限从 25K 提高到 80K，让 1M 窗口下按 6% 比例放宽到 60K，
+  但仍保留绝对上限，避免单次读取失控。
+- **DeepSeek 小模型默认固定 Flash**：内部轻量调用和 Eclipse ctx-agent 默认使用
+  `deepseek-v4-flash`，不再跟随主模型切到 `deepseek-v4-pro`；需要高保真内部任务时可用
+  `DEEPSEEK_SMALL_MODEL` 显式覆盖。
+- **小模型结构化响应抽象**：`querySmallModel` 新增 provider-neutral 的
+  `structuredResponse: 'json'` 选项。所有 provider 都会强化 JSON-only 系统提示，OpenAI-compatible
+  provider 额外透传 `response_format: { type: 'json_object' }`，空响应或非法 JSON 会自动重试一次。
+  `/goal` evaluator / critique / verifiability 已切到该能力，减少结构化判定的格式漂移。
+
 ## [0.9.49] - 2026-06-23
 
 ### 新增

@@ -20,8 +20,9 @@ test('computeReadMaxTokens: 中等窗口取比例值', () => {
   expect(computeReadMaxTokens(256_000)).toBe(15_360)
 })
 
-test('computeReadMaxTokens: 超大窗口命中 CEIL', () => {
-  expect(computeReadMaxTokens(1_000_000)).toBe(READ_TOKEN_CEIL) // 60000 → 25000
+test('computeReadMaxTokens: DeepSeek 1M 窗口按比例放宽但仍受 CEIL 保护', () => {
+  expect(computeReadMaxTokens(1_000_000)).toBe(60_000) // 1000000*0.06=60000，未触顶
+  expect(computeReadMaxTokens(2_000_000)).toBe(READ_TOKEN_CEIL) // 120000 → CEIL
 })
 
 // ── 体积闸门（含 §5-#4：硬上限不被 limit 绕过）────────────────────────────

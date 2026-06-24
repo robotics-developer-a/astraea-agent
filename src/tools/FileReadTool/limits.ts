@@ -7,7 +7,7 @@ import { activeContextWindow } from '../../config'
 // 兜住「窗口过小」与「窗口过大反而放纵」两头。三常量为内部调参，不开放给用户配。
 export const READ_TOKEN_RATIO = 0.06
 export const READ_TOKEN_FLOOR = 4_000
-export const READ_TOKEN_CEIL = 25_000
+export const READ_TOKEN_CEIL = 80_000
 
 export function computeReadMaxTokens(contextWindow: number): number {
   return Math.min(

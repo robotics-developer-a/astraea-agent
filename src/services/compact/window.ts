@@ -4,7 +4,7 @@
 // 任何写死的绝对预留量在小窗口上都会失效。阈值每次现算（从当前激活 provider 的
 // contextWindow/maxOutput 取值），所以 /login 换模型后自动生效。
 
-import { activeContextWindow, activeMaxTokens } from '../../config'
+import { activeContextWindow, activeMaxTokens, config } from '../../config'
 
 // 给输出留位置，保证 输入 + 输出 ≤ contextWindow。
 // 预留量以真实 maxOutput 为下界（+ pad 兜 thinking/估算误差），但 cap 在窗口一半，
@@ -45,21 +45,50 @@ export interface Thresholds {
 }
 
 export function thresholds(eff: number): Thresholds {
+  return thresholdsWithRatios(eff, {
+    warning: WARNING_RATIO,
+    autocompact: AUTOCOMPACT_RATIO,
+    blocking: BLOCKING_RATIO,
+    eclipseCommit: ECLIPSE_COMMIT_RATIO,
+    eclipseBlocking: ECLIPSE_BLOCKING_RATIO,
+    eclipseStageFloor: ECLIPSE_STAGE_FLOOR,
+  })
+}
+
+interface ThresholdRatios {
+  warning: number
+  autocompact: number
+  blocking: number
+  eclipseCommit: number
+  eclipseBlocking: number
+  eclipseStageFloor: number
+}
+
+const DEEPSEEK_RATIOS: ThresholdRatios = {
+  warning: 0.90,
+  eclipseStageFloor: 0.80,
+  eclipseCommit: 0.90,
+  autocompact: 0.90,
+  eclipseBlocking: 0.95,
+  blocking: 0.95,
+}
+
+function thresholdsWithRatios(eff: number, ratios: ThresholdRatios): Thresholds {
   return {
     effectiveWindow: eff,
-    warning: Math.floor(eff * WARNING_RATIO),
-    autocompact: Math.floor(eff * AUTOCOMPACT_RATIO),
-    blocking: Math.floor(eff * BLOCKING_RATIO),
-    eclipseCommit: Math.floor(eff * ECLIPSE_COMMIT_RATIO),
-    eclipseBlocking: Math.floor(eff * ECLIPSE_BLOCKING_RATIO),
-    eclipseStageFloor: Math.floor(eff * ECLIPSE_STAGE_FLOOR),
+    warning: Math.floor(eff * ratios.warning),
+    autocompact: Math.floor(eff * ratios.autocompact),
+    blocking: Math.floor(eff * ratios.blocking),
+    eclipseCommit: Math.floor(eff * ratios.eclipseCommit),
+    eclipseBlocking: Math.floor(eff * ratios.eclipseBlocking),
+    eclipseStageFloor: Math.floor(eff * ratios.eclipseStageFloor),
   }
 }
 
 // 从当前激活 provider 现算（每次调用都读最新 config，/login 后自动用新模型的数）。
 export function activeThresholds(): Thresholds {
   const eff = effectiveWindow(activeContextWindow(), activeMaxTokens())
-  return thresholds(eff)
+  return config.provider === 'deepseek' ? thresholdsWithRatios(eff, DEEPSEEK_RATIOS) : thresholds(eff)
 }
 
 // 压缩后落点目标的绝对 token 数。

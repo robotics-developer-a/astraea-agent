@@ -133,7 +133,7 @@ export async function evaluateGoal(
     'Now output the JSON verdict.',
   ].join('\n')
 
-  const raw = await querySmallModel(userPrompt, signal, EVALUATOR_SYSTEM)
+  const raw = await querySmallModel(userPrompt, signal, EVALUATOR_SYSTEM, { structuredResponse: 'json' })
   return parseDecision(raw)
 }
 
@@ -183,7 +183,7 @@ export async function critiqueGoalEvidence(
     'Now output the JSON verdict.',
   ].join('\n')
 
-  const raw = await querySmallModel(userPrompt, signal, CRITIQUE_SYSTEM)
+  const raw = await querySmallModel(userPrompt, signal, CRITIQUE_SYSTEM, { structuredResponse: 'json' })
   return parseCritiqueDecision(raw)
 }
 
@@ -225,6 +225,7 @@ export async function assessGoalVerifiability(
       `COMPLETION CONDITION:\n${condition}\n\nOutput the JSON verdict.`,
       signal,
       VERIFIABILITY_SYSTEM,
+      { structuredResponse: 'json' },
     )
     const match = raw.trim().match(/\{[\s\S]*\}/)
     if (!match) return { verifiable: true, suggestion: null }

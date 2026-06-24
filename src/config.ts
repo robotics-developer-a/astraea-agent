@@ -10,6 +10,7 @@ import { join, dirname } from 'path'
 import { homedir } from 'os'
 import { fileURLToPath } from 'url'
 import { getSettings } from './settings'
+import { unsetSessionEffort } from './state/reasoningEffort'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 export const envPath = join(__dirname, '..', '.env')
@@ -227,7 +228,11 @@ export function assertConfig(): void {
   }
 }
 
-export function updateProviderConfig(provider: Provider, model: string, apiKey: string): void {
+export function updateProviderConfig(provider: Provider, model: string, apiKey: string): boolean {
+  const previousProvider = config.provider
+  const previousModel = (config as unknown as Record<string, { model?: string }>)[provider]?.model
+  const modelSelectionChanged = previousProvider !== provider || previousModel !== model
+
   config.provider = provider
   switch (provider) {
     case 'anthropic':
@@ -247,6 +252,11 @@ export function updateProviderConfig(provider: Provider, model: string, apiKey: 
       config.openai.model = model
       break
   }
+  if (modelSelectionChanged) {
+    unsetSessionEffort()
+    delete process.env.ASTRAEA_REASONING_EFFORT
+  }
+  return modelSelectionChanged
 }
 
 // ─── 搜索 provider 配置（/internet 向导用）──────────────────────────────────

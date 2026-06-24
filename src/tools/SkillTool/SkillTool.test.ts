@@ -16,7 +16,7 @@ function writeSkill(name: string, content: string) {
 
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), 'astraea-skill-test-'))
-  _setSkillDirsForTest({ userDir: tmpDir })
+  _setSkillDirsForTest({ userDir: tmpDir, projectRoot: tmpDir })
   resetCommandsCache()
 })
 

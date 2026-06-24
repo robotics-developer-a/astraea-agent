@@ -204,7 +204,7 @@ async function* runQuery(
     if (menu) system = `${system}\n\n${menu}`
   }
 
-  // <system-reminder>（CLAUDE.md + 日期）每轮为模型调用「新鲜注入」，但【不】持久进对话数组，
+  // <system-reminder>（AGENTS + 日期）每轮为模型调用「新鲜注入」，但【不】持久进对话数组，
   // 否则会逐轮在头部累积、膨胀上下文。取出 reminder 块，对话数组保持干净。
   const reminderBlock = prependUserContext([], userCtx)[0]!
   // 定稿 #10：MEMORY.md 索引走 reminder 块（每 query 调用新鲜读，反映会内写入）。
@@ -348,7 +348,9 @@ async function* runQuery(
     const llmInputSnapshot = projectForSend(messages)
 
     try {
-      for await (const event of streamMessage([reminderBlock, ...llmInputSnapshot, ...(relevantTail ? [relevantTail] : [])], {
+      // Cache-friendly ordering: stable conversation history stays first; volatile reminders
+      // (AGENTS/date/MEMORY index) sit near the tail, and per-request memory recall remains last.
+      for await (const event of streamMessage([...llmInputSnapshot, reminderBlock, ...(relevantTail ? [relevantTail] : [])], {
         system,
         enablePromptCaching: options.enablePromptCaching,
         tools: toolSchemas.length > 0 ? toolSchemas : undefined,
