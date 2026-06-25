@@ -2946,7 +2946,7 @@ export function App() {
       {isStreaming && <StreamStatus startTime={streamStart} tokens={liveTokens} />}
 
       {!showLogin && !showInternet && !showLanguage && !pendingReasonSelect && !pendingModeSelect && !pendingVigilPanel && !pendingConfirm && !pendingResumePicker && !pendingRewindPicker && (!pendingExportPanel || pendingExportPath) && (
-        <ModeInputFrame mode={sessionMode}>
+        <ModeInputFrame mode={sessionMode} running={isStreaming}>
           {/* While the question panel is open, hide the text input — the panel owns
               ←→/↑↓/Space/Enter. Once the user picks ✎ 自填 (questionFreeText), reveal
               the box so they can type a free answer for the current question. */}
