@@ -9,19 +9,6 @@ export interface RecentUpdate {
 
 export const RECENT_UPDATES: RecentUpdate[] = [
   {
-    version: '0.10.6',
-    priority: 140,
-    persistent: false,
-    messages: {
-      en: 'Your input frame is alive now: a clockwise shimmer while Astraea works, a sparkle sweep when a task finishes, and a soft glow as you type — with rounded corners too.',
-      zh: '输入框活起来了：Astraea 工作时边框泛起顺时针流光，任务结束时星符扫过一圈，打字时柔和呼吸辉光，还换上了圆角。',
-      de: 'Dein Eingaberahmen lebt jetzt: ein Schimmer im Uhrzeigersinn, während Astraea arbeitet, ein Funkeln beim Abschluss einer Aufgabe und ein sanftes Glühen beim Tippen – jetzt mit runden Ecken.',
-      fr: 'Votre cadre de saisie s’anime : un miroitement dans le sens horaire pendant qu’Astraea travaille, une étincelle à la fin d’une tâche et une douce lueur quand vous tapez — avec des coins arrondis en prime.',
-      es: 'Tu marco de entrada cobra vida: un brillo en sentido horario mientras Astraea trabaja, un destello al terminar una tarea y un suave resplandor al escribir, ahora con esquinas redondeadas.',
-      ko: '입력창이 살아납니다: Astraea가 작업하는 동안 시계 방향으로 반짝이고, 작업이 끝나면 별빛이 스치며, 입력할 때 부드럽게 빛납니다 — 모서리도 둥글어졌어요.',
-    },
-  },
-  {
     version: '0.10.4',
     priority: 130,
     persistent: false,
