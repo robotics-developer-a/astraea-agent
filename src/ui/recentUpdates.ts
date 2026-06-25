@@ -9,16 +9,16 @@ export interface RecentUpdate {
 
 export const RECENT_UPDATES: RecentUpdate[] = [
   {
-    version: '0.10.3',
+    version: '0.10.4',
     priority: 130,
     persistent: false,
     messages: {
-      en: '/selection for quick research and task: run /selection, then select text anywhere and press your shortcut — a floating Astraea panel opens with your selection ready (macOS & Windows).',
-      zh: '/selection 让快速研究与任务随手可得：运行 /selection，然后在任意位置选中文字、按下快捷键，即可弹出已带入选区的 Astraea 悬浮窗（支持 macOS 与 Windows）。',
-      de: '/selection für schnelle Recherche und Aufgaben: /selection ausführen, dann irgendwo Text auswählen und den Kurzbefehl drücken – ein schwebendes Astraea-Fenster öffnet sich mit deiner Auswahl (macOS & Windows).',
-      fr: '/selection pour la recherche et les tâches rapides : lancez /selection, sélectionnez du texte n’importe où et appuyez sur votre raccourci — un panneau Astraea flottant s’ouvre avec votre sélection (macOS & Windows).',
-      es: '/selection para investigación y tareas rápidas: ejecuta /selection, selecciona texto en cualquier lugar y pulsa tu atajo: se abre un panel flotante de Astraea con tu selección (macOS y Windows).',
-      ko: '빠른 리서치와 작업을 위한 /selection: /selection을 실행하고 어디서든 텍스트를 선택한 뒤 단축키를 누르면 선택 내용이 채워진 Astraea 플로팅 창이 열립니다 (macOS & Windows).',
+      en: '/selection for quick research and task: run /selection start, then select text anywhere and press your shortcut — a floating Astraea panel opens with your selection ready (macOS & Windows).',
+      zh: '/selection 让快速研究与任务随手可得：运行 /selection start，然后在任意位置选中文字、按下快捷键，即可弹出已带入选区的 Astraea 悬浮窗（支持 macOS 与 Windows）。',
+      de: '/selection für schnelle Recherche und Aufgaben: /selection start ausführen, dann irgendwo Text auswählen und den Kurzbefehl drücken – ein schwebendes Astraea-Fenster öffnet sich mit deiner Auswahl (macOS & Windows).',
+      fr: '/selection pour la recherche et les tâches rapides : lancez /selection start, sélectionnez du texte n’importe où et appuyez sur votre raccourci — un panneau Astraea flottant s’ouvre avec votre sélection (macOS & Windows).',
+      es: '/selection para investigación y tareas rápidas: ejecuta /selection start, selecciona texto en cualquier lugar y pulsa tu atajo: se abre un panel flotante de Astraea con tu selección (macOS y Windows).',
+      ko: '빠른 리서치와 작업을 위한 /selection: /selection start를 실행하고 어디서든 텍스트를 선택한 뒤 단축키를 누르면 선택 내용이 채워진 Astraea 플로팅 창이 열립니다 (macOS & Windows).',
     },
   },
   {

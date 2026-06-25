@@ -8,6 +8,14 @@
 
 > **1.0.0 发布门槛**（达成后才从 0.x 升到 1.0 并打首个 `git tag v1.0.0`）：
 
+## [0.10.4] - 2026-06-25
+
+### 优化
+- **`/selection` 启动需显式 `start`**：裸 `/selection` 不再静默启动，而是打印用法（start/open/stop/status/setup）；
+  启动一律用 `/selection start`，避免误触。
+- **slash 子命令补全**：输入 `/selection ` 后在输入框下方灰色列出 start/open/stop/status/setup，↑↓ 选择、Tab
+  补全、Enter 运行；输入 `s` 会过滤到 start/stop/status/setup。`/mode`、`/reason` 同样支持子命令补全。
+
 ## [0.10.3] - 2026-06-25
 
 ### 新增

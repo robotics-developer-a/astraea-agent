@@ -106,7 +106,7 @@ import { onConfirmRequest, resolveConfirm, type ConfirmRequest } from '../tools/
 import { VigilPanel, VIGIL_ACTIONS } from './VigilPanel'
 import { GoalPanel, GoalHint } from './GoalPanel'
 import { assessGoalVerifiability } from '../services/goal-evaluator'
-import { SlashHint, allSlashCommands, matchSlashCommands } from './SlashHint'
+import { SlashHint, SubcommandHint, allSlashCommands, matchSlashCommands, matchSubcommands } from './SlashHint'
 import { ModeInputFrame } from './ModeBanner'
 import { ToolBatch, type ToolCall } from './ToolBatch'
 import { expandPasteTokens } from './pasteExpansion'
@@ -2417,6 +2417,27 @@ export function App() {
       }
     }
 
+    // ── 子命令补全：输入 "/selection " 后 ↑/↓ 选、Tab 补全 ─────────────────────
+    // 与上方 slash 列表互斥（那个要求无空格，这个要求恰好一个空格）。Tab 只补全，
+    // 不执行；补成 "/selection start" 后用户再按 Enter 才运行。
+    const subMatch = matchSubcommands(inputValue)
+    if (subMatch && subMatch.options.length > 0 && !isStreaming && !pendingQuestion) {
+      const len = subMatch.options.length
+      if (key.upArrow) {
+        setSlashIndex(i => { const n = (i - 1 + len) % len; slashIndexRef.current = n; return n })
+        return
+      }
+      if (key.downArrow) {
+        setSlashIndex(i => { const n = (i + 1) % len; slashIndexRef.current = n; return n })
+        return
+      }
+      if (key.tab) {
+        const pick = subMatch.options[Math.min(slashIndexRef.current, len - 1)]!
+        setInputValue(`${subMatch.name} ${pick}`)
+        return
+      }
+    }
+
     if (key.escape) {
       // Priority 1: ESC while streaming → cancel the AI request
       if (isStreaming && !pendingQuestion) {
@@ -2941,6 +2962,7 @@ export function App() {
                 </Box>
               )}
               {!pendingExportPath && <SlashHint input={inputValue} selectedIndex={slashIndex} />}
+              {!pendingExportPath && <SubcommandHint input={inputValue} selectedIndex={slashIndex} />}
               <GoalHint input={inputValue} />
               <Box>
                 <Text bold color={inputFocused && !isStreaming ? INDIGO : pendingQuestion ? 'yellow' : 'gray'}>

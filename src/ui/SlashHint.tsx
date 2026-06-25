@@ -19,6 +19,9 @@ export interface SlashCommand {
   summary: string      // short action label
   options: string[]    // inline option chips, empty if none
   enterAction: 'execute' | 'complete' | 'panel'
+  // Literal argument tokens this command accepts (e.g. /selection start|stop).
+  // When set, typing "/<name> <partial>" offers a gray, Tab-completable list.
+  subcommands?: string[]
 }
 
 export const SLASH_COMMANDS: SlashCommand[] = [
@@ -29,9 +32,19 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     enterAction: 'execute',
   },
   {
+    name: '/selection',
+    summary: 'floating selection UI — pick a subcommand',
+    options: ['start', 'open', 'stop', 'status', 'setup'],
+    subcommands: ['start', 'open', 'stop', 'status', 'setup'],
+    // complete → Enter on "/selection" fills "/selection " and waits for a
+    // subcommand, so starting is always explicit ("/selection start").
+    enterAction: 'complete',
+  },
+  {
     name: '/mode',
     summary: 'session mode',
     options: ['orbit', 'forge', 'counsel', 'default'],
+    subcommands: ['orbit', 'cruise', 'forge', 'counsel', 'default'],
     enterAction: 'panel',
   },
   {
@@ -79,6 +92,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     name: '/reason',
     summary: 'set reasoning effort',
     options: ['low', 'medium', 'high', 'max', 'auto'],
+    subcommands: ['low', 'medium', 'high', 'max', 'auto'],
     enterAction: 'execute',
   },
   {
@@ -184,6 +198,62 @@ export function allSlashCommands(): SlashCommand[] {
 export function matchSlashCommands(input: string): SlashCommand[] {
   if (!input.startsWith('/') || input.includes(' ')) return []
   return allSlashCommands().filter(c => c.name.startsWith(input))
+}
+
+export interface SubcommandMatch {
+  name: string         // '/selection'
+  partial: string      // 's' (what the user has typed after the space)
+  options: string[]    // declared subcommands filtered by the partial prefix
+}
+
+// Active when the input is "/<cmd> <partial>" with no further spaces and the
+// command declares subcommands. Powers the gray subcommand list + Tab complete.
+export function matchSubcommands(input: string): SubcommandMatch | null {
+  const m = /^(\/[\w-]+) ([\w-]*)$/.exec(input)
+  if (!m) return null
+  const name = m[1]!
+  const partial = m[2] ?? ''
+  const cmd = allSlashCommands().find(c => c.name === name)
+  if (!cmd?.subcommands?.length) return null
+  const options = partial
+    ? cmd.subcommands.filter(s => s.startsWith(partial))
+    : cmd.subcommands
+  return { name, partial, options }
+}
+
+interface SubcommandHintProps {
+  input: string
+  selectedIndex: number
+}
+
+// Gray, Tab-completable subcommand list shown under the input after "/cmd ".
+export function SubcommandHint({ input, selectedIndex }: SubcommandHintProps) {
+  const match = matchSubcommands(input)
+  if (!match || match.options.length === 0) return null
+
+  const len = match.options.length
+  const sel = Math.min(Math.max(selectedIndex, 0), len - 1)
+
+  return (
+    <Box flexDirection="column" marginLeft={2} marginBottom={0}>
+      {match.options.map((opt, i) => {
+        const isSelected = i === sel
+        return (
+          <Box key={opt} flexDirection="row">
+            <Text color={isSelected ? INDIGO : 'gray'} bold={isSelected}>
+              {isSelected ? ' ❯ ' : '   '}
+            </Text>
+            <Text color={isSelected ? INDIGO : 'gray'} bold={isSelected} dimColor={!isSelected}>
+              {`${match.name} ${opt}`}
+            </Text>
+          </Box>
+        )
+      })}
+      <Text color="gray" dimColor>
+        {'   '}↑↓ move · Tab complete · Enter run
+      </Text>
+    </Box>
+  )
 }
 
 interface SlashHintProps {

@@ -328,9 +328,9 @@ export function getBuiltinCommands(): Command[] {
       },
       { argumentHint: '[--project] [--allow|--deny] [--reason <type>] [--all] [--limit N]' }),
 
-    local('selection', 'floating selection UI: start the bridge service (bind a macOS shortcut to open it)',
+    local('selection', 'floating selection UI: /selection start to launch (bind a shortcut to open it)',
       async args => {
-        const sub = (args ?? '').trim().split(/\s+/)[0] || 'start'
+        const sub = (args ?? '').trim().split(/\s+/)[0] || ''
         const { bridgeUrl, isBridgeHealthy, ensureBridgeRunning, stopBridge } = await import('../services/selection-bridge-client')
 
         if (sub === 'stop') {
@@ -364,19 +364,36 @@ export function getBuiltinCommands(): Command[] {
           return { type: 'text', value: '⟦ok⟧ Opened the floating selection panel.' }
         }
 
-        // default / `start`: lazily start the bridge in the background, then point
-        // the user at the keyboard-shortcut workflow that actually opens the UI.
-        const already = await isBridgeHealthy()
-        await ensureBridgeRunning({ quiet: true })
+        if (sub === 'start') {
+          // Lazily start the bridge in the background, then point the user at the
+          // keyboard-shortcut workflow that actually opens the UI.
+          const already = await isBridgeHealthy()
+          await ensureBridgeRunning({ quiet: true })
+          return {
+            type: 'text',
+            value: [
+              already
+                ? `⟦ok⟧ Selection bridge already running at ${bridgeUrl()}`
+                : `⟦ok⟧ Selection bridge started in the background at ${bridgeUrl()}`,
+              '',
+              'Now bind a keyboard shortcut to open the floating panel — run `/selection setup` for the exact steps.',
+              'Other actions: `/selection status` · `/selection open` (open now) · `/selection stop` · `/selection setup`.',
+            ].join('\n'),
+          }
+        }
+
+        // No subcommand (or an unknown one): show usage. Starting is explicit —
+        // `/selection start` — so a bare `/selection` never silently launches.
         return {
           type: 'text',
           value: [
-            already
-              ? `⟦ok⟧ Selection bridge already running at ${bridgeUrl()}`
-              : `⟦ok⟧ Selection bridge started in the background at ${bridgeUrl()}`,
+            sub ? `⟦warn⟧ Unknown subcommand: ${sub}` : '**/selection** — floating selection UI',
             '',
-            'Now bind a macOS keyboard shortcut to open the floating panel — run `/selection setup` for the exact steps.',
-            'Other actions: `/selection status` · `/selection open` (open now) · `/selection stop` · `/selection setup`.',
+            '  `/selection start`   start the bridge service in the background',
+            '  `/selection open`    capture the selection and open the panel now',
+            '  `/selection stop`    stop the bridge service',
+            '  `/selection status`  check whether the bridge is running',
+            '  `/selection setup`   print the keyboard-shortcut setup steps',
           ].join('\n'),
         }
       },
