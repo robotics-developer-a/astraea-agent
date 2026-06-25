@@ -9,7 +9,7 @@ export interface RecentUpdate {
 
 export const RECENT_UPDATES: RecentUpdate[] = [
   {
-    version: '0.10.4',
+    version: '0.10.7',
     priority: 130,
     persistent: false,
     messages: {
@@ -22,7 +22,7 @@ export const RECENT_UPDATES: RecentUpdate[] = [
     },
   },
   {
-    version: '0.10.1',
+    version: '0.10.7',
     priority: 120,
     persistent: false,
     messages: {

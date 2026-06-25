@@ -10,6 +10,10 @@
 
 ## [0.10.7] - 2026-06-25
 
+### 优化
+- **欢迎面板「最近更新」主打 `/selection` 与 `/init`**：把这两条更新通知重新指向当前版本，
+  作为两个独立 bullet 排在最近更新最前面（位于常驻通知之上）。
+
 ### 文档
 - **README 补全 `/selection` 与 `/init` 命令介绍**：在 §3 In-REPL Configuration 的 slash-command
   表中新增 `/selection`（浮动选区 UI 的 start/open/stop/status/setup 子命令）和
