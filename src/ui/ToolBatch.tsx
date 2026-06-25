@@ -7,7 +7,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { Box, Text } from 'ink'
 import chalk from 'chalk'
 import { toolStatusColor, aggregateStatusColor, INDIGO, SILVER } from './theme'
-import { subscribeSweep, sweepPhase } from './sweepClock'
+import { subscribeSweep } from './sweepClock'
 
 // ── 扫光（Sweep）背景效果 ───────────────────────────────────────────────────
 // 运行中的工具块铺一条品牌靛蓝底带，一根星辉银「亮柱」按列横扫（扫描仪观感）。
@@ -15,16 +15,18 @@ import { subscribeSweep, sweepPhase } from './sweepClock'
 // grill 决议详见会话；关键约束：
 //   · 真 ANSI 背景色（chalk bgHex）；只在「有色终端」启用，CI/管道自动降级回现状。
 //   · 带宽 = clamp(块内最长行宽, 下限 48, 上限 = 终端宽-4)，文字不截断、封顶防软折行。
-//   · 所有 running 行共用一个 60ms 全局节拍（sweepClock）；但每个工具块各记基线相位，
-//     扫光各自「从头(最左)」起步（同块内多行仍同相 → 竖亮柱按列对齐，跨工具各自独立）。
+//   · 亮柱位置**时间驱动**：hlStart = floor(elapsed/SWEEP_PASS_MS*band) % band → 每个工具自其开始
+//     时刻起、固定 SWEEP_PASS_MS 扫满一趟（与带宽无关），起始帧在最左。共享节拍只催重绘、不定速度。
+//     同块内多行用同一 elapsed → 竖亮柱按列对齐；跨工具各自从头、各自计时。
 
 const SWEEP_BG = INDIGO     // 底色：品牌靛蓝 #6A5ACD
 const SWEEP_HL = SILVER     // 亮柱：星辉银 #C8D8FF
 const SWEEP_MIN_BAND = 48   // 带宽下限
 const SWEEP_HL_WIDTH = 4    // 亮柱宽（列）
-// 收尾保活：工具结束后扫光至少再播这么久才冻结落盘。否则瞬时工具（Read/Edit/Grep…
-// <120ms 就 done）只渲染第 1 帧、亮柱没动就被冻结 → 看着「没动画、不连贯」。720ms≈6 帧，
-// 亮柱明显扫一段后再定格 → 每个工具都有一段连贯可见的收尾动画。
+const SWEEP_PASS_MS = 300   // 亮柱扫满整条带一趟的时长（与带宽无关）→ 越小越快
+// 收尾保活：工具结束后扫光至少再播这么久才冻结落盘。否则瞬时工具（Read/Edit/Grep… <120ms 就 done）
+// 还没扫完就被冻结 → 看着「没动画、不连贯」。720ms 内（按 SWEEP_PASS_MS=300）能完整扫 ~2 趟，
+// 每个工具都有一段连贯可见的扫光后再定格。
 const SWEEP_GRACE_MS = 720
 
 // 终端是否支持背景色：无色（CI / 管道 / 哑终端）→ 降级回现状渲染，不扫光。
@@ -53,26 +55,22 @@ function paintSweepLine(plain: string, bandWidth: number, hlStart: number): stri
 //   · 直接以 done 挂载（<Static> 历史行，从没经历 running）→ 永不扫，回归现状。
 // 用「是否曾见过 running」(startRef) 自动区分 live 在途行与历史落盘行，无需外部传 isLive。
 // 订阅共享时钟仅在 animate 为真时进行；最后一条停扫即退订 → 全局时钟自动停。
-function useSweepLifecycle(running: boolean): { animate: boolean; phase: number } {
+function useSweepLifecycle(running: boolean): { animate: boolean; elapsed: number } {
   const startRef = useRef<number | null>(null)
-  const basePhaseRef = useRef<number | null>(null)  // 本块开始时的全局 phase → 扫光从头(最左)起步
-  if (running && startRef.current === null) {
-    startRef.current = Date.now()
-    basePhaseRef.current = sweepPhase()
-  }
+  if (running && startRef.current === null) startRef.current = Date.now()
   const sawRunning = startRef.current !== null
 
-  const [phase, setPhase] = useState(() => sweepPhase())
+  const [, tick] = useState(0)         // 仅作「催重绘」用，位置全由 elapsed 时间算
   const [, forceFreeze] = useState(0)  // 宽限期满后强制一次重渲染翻到冻结态
 
   const elapsed = startRef.current === null ? 0 : Date.now() - startRef.current
   const inGrace = !running && elapsed < SWEEP_GRACE_MS
   const animate = SWEEP_OK && sawRunning && (running || inGrace)
 
-  // 仅在 animate 期间订阅节拍；animate 转 false 时 cleanup 退订。
+  // 仅在 animate 期间订阅节拍催重绘；animate 转 false 时 cleanup 退订。
   useEffect(() => {
     if (!animate) return
-    return subscribeSweep(() => setPhase(sweepPhase()))
+    return subscribeSweep(() => tick(n => n + 1))
   }, [animate])
 
   // 工具刚结束时安排一次「宽限期满」的兜底重渲染：即便此时它是最后一条、共享时钟随即停，
@@ -85,17 +83,16 @@ function useSweepLifecycle(running: boolean): { animate: boolean; phase: number 
     return () => clearTimeout(t)
   }, [running])
 
-  // 本地相位 = 全局 phase − 本块基线 → 起始帧为 0（亮柱在最左），随后单调右移、收尾期延续。
-  const localPhase = basePhaseRef.current === null ? phase : phase - basePhaseRef.current
-  return { animate, phase: localPhase }
+  return { animate, elapsed }
 }
 
-// 扫光块：把一组纯文本行整体铺成同相的靛蓝底带，一根银亮柱按列横扫所有行（相位由父级传入）。
-function SweepBlock({ lines, phase }: { lines: string[]; phase: number }) {
+// 扫光块：把一组纯文本行整体铺成同相的靛蓝底带，一根银亮柱按列横扫所有行（elapsed 由父级传入）。
+function SweepBlock({ lines, elapsed }: { lines: string[]; elapsed: number }) {
   const cap = Math.max(8, termWidth() - 4)
   const maxLen = lines.reduce((m, l) => Math.max(m, Array.from(l).length), 0)
   const band = Math.min(Math.max(maxLen, SWEEP_MIN_BAND), cap)
-  const hlStart = phase % band
+  // 时间驱动：每 SWEEP_PASS_MS 扫满一趟（与 band 无关）；elapsed=0 → hlStart=0（最左、从头扫起）。
+  const hlStart = Math.floor((elapsed / SWEEP_PASS_MS) * band) % band
   return (
     <Box flexDirection="column">
       {lines.map((l, i) => (
@@ -190,11 +187,11 @@ function ToolCallRow({ call, liveOutput }: { call: ToolCall; liveOutput?: string
   const running = call.status === 'running'
   // 运行中 + 收尾保活窗口内 → 扫光块（头行 + 实时输出尾巴整块发光）；否则走下方现状渲染。
   // 收尾期里头行保持与运行时一致（含 " …"），让「运行→定格」无缝衔接，再 snap 成 done 行。
-  const { animate, phase } = useSweepLifecycle(running)
+  const { animate, elapsed } = useSweepLifecycle(running)
   if (animate) {
     const head = `⏺ ${call.name}(${call.argText}) …`
     const tail = liveOutput ? liveOutPlainLines(liveOutput) : []
-    return <SweepBlock lines={[head, ...tail]} phase={phase} />
+    return <SweepBlock lines={[head, ...tail]} elapsed={elapsed} />
   }
   // 克制上色：marker ⏺ 与工具名按状态色上色（作状态锚点），仅括号内参数留白
   // （running 黄（进行中）· done 绿（已落盘）· error 红（失败））。
@@ -219,7 +216,7 @@ function CollapsedGroup({ group, liveOutput }: { group: Group; liveOutput?: stri
   // 折叠组的聚合色：任一失败 → 红，否则任一在跑 → 黄，全部完成 → 绿。
   const headColor = aggregateStatusColor(group.calls.map(c => c.status))
   // 组内有调用在跑 + 收尾保活窗口内 → 扫光块（头行 + 各调用行 + 实时输出尾巴整块发光）。
-  const { animate, phase } = useSweepLifecycle(anyRunning)
+  const { animate, elapsed } = useSweepLifecycle(anyRunning)
   if (animate) {
     const head = `⏺ ${group.name} ×${total}${progress}`
     const childLines = group.calls.map(c => {
@@ -227,7 +224,7 @@ function CollapsedGroup({ group, liveOutput }: { group: Group; liveOutput?: stri
       return `    ⎿ ${c.argText} → ${summary}`
     })
     const tail = liveOutput ? liveOutPlainLines(liveOutput) : []
-    return <SweepBlock lines={[head, ...childLines, ...tail]} phase={phase} />
+    return <SweepBlock lines={[head, ...childLines, ...tail]} elapsed={elapsed} />
   }
   // 克制上色：marker ⏺ 与工具名按聚合状态色上色，仅 "×N (n/m)" 计数留白。
   return (

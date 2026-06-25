@@ -14,9 +14,12 @@ export function hasLiveBody(args: {
 }
 
 // INTENT: Live text is only a preview; the complete assistant reply is still accumulated in
-// memory and committed to Static history at turn end. Keeping preview publishes sparse makes
-// terminal mouse selection practical while Astraea continues running.
-export const COPY_FRIENDLY_PREVIEW_INTERVAL_MS = 1_200
+// memory and committed to Static history at turn end. We coalesce token bursts into one redraw
+// per interval (instead of redrawing on every token), but the interval must stay small enough
+// that streaming *reads as live typing*. 1.2s was far too coarse — it made each line appear one
+// fragment at a time with long pauses ("好，" … wait … rest). ~80ms ≈ 12 fps: smooth typing feel,
+// still coalesces fast bursts; full-text mouse selection remains available once it commits to Static.
+export const COPY_FRIENDLY_PREVIEW_INTERVAL_MS = 80
 
 export function shouldPublishLiveTextPreview(args: {
   now: number
