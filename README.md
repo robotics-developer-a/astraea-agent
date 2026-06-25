@@ -287,6 +287,8 @@ You can configure everything interactively — no need to hand-edit `.env`. On *
 | `/internet` | Choose a web-search provider (Bocha · Zhipu · Tavily · Brave · Exa) and paste the key. Saved to `~/.astraea/.env`. |
 | `/language` | Switch UI + reply language (English · Deutsch · Français · Español · 中文 · 한국어). Applies instantly, no restart. Also accepts a direct arg, e.g. `/language en`. |
 | `/reason` | Set reasoning effort: `low` · `medium` · `high` · `max` · `auto`. Controls how deeply the model "thinks" before answering — higher effort means deeper reasoning but slower responses and more tokens. Maps to Anthropic's thinking budget and OpenAI's `reasoning_effort` knob. `auto` clears the override and follows the provider default. The `max` level applies to this session only (not persisted). |
+| `/selection` | Floating selection UI — `/selection start` (launch bridge), `/selection open` (capture + open panel now), `/selection stop`, `/selection status`, `/selection setup` (keyboard-shortcut instructions). Auto-starts the bridge in the background on first use. |
+| `/init [focus]` | Scan the current repo and create/update AGENTS.md and AGENTS.local.md project instructions. Walks you through setting up project skills. Accepts an optional focus hint. |
 | `/usage` | Show session token usage and estimated cost in USD. Breaks down input, output, and prompt-cache tokens per model/provider, with a total and cost. Helps you monitor spending across a session. |
 | `/help` | List all available commands and skills. |
 

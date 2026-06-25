@@ -8,6 +8,13 @@
 
 > **1.0.0 发布门槛**（达成后才从 0.x 升到 1.0 并打首个 `git tag v1.0.0`）：
 
+## [0.10.7] - 2026-06-25
+
+### 文档
+- **README 补全 `/selection` 与 `/init` 命令介绍**：在 §3 In-REPL Configuration 的 slash-command
+  表中新增 `/selection`（浮动选区 UI 的 start/open/stop/status/setup 子命令）和
+  `/init [focus]`（项目初始化指令生成）两条条目。
+
 ## [0.10.6] - 2026-06-25
 
 ### 优化
