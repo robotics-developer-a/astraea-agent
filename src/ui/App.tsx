@@ -82,13 +82,15 @@ import {
   type Checkpoint,
 } from '../services/rewind/checkpointStore'
 import {
-  resetContextTokens,
-  markTokensUnknown,
   recordInputTokens,
   recordCompactionResult,
   recordCompactionFailure,
   getInputTokens,
 } from '../state/contextTokens'
+import {
+  resetSessionStates,
+  markSessionStale,
+} from '../state/sessionState'
 import {
   setGoal,
   clearGoal,
@@ -668,7 +670,7 @@ export function App() {
         loggedLenRef.current = msgs.length
         transcriptRef.current = reopenTranscript(process.cwd(), target.sessionId)
         setAuditSession(transcriptRef.current.sessionId)
-        markTokensUnknown()
+        markSessionStale()
         // microcompact：从 transcript 回填最后一条 assistant 时间，让 resume 后首轮也能算 gap。
         { const ts = getLastAssistantTimestamp(target.path); if (ts !== null) setLastAssistantTs(ts) }
         setHistory([
@@ -837,7 +839,7 @@ export function App() {
     transcriptRef.current = reopenTranscript(process.cwd(), target.sessionId)
     setAuditSession(transcriptRef.current.sessionId)
     resetCheckpoints()  // 切到别的会话 → 当前会话的 /rewind 检查点全部作废
-    markTokensUnknown()
+    markSessionStale()
     // microcompact：从 transcript 回填最后一条 assistant 时间，让 resume 后首轮也能算 gap。
     { const ts = getLastAssistantTimestamp(target.path); if (ts !== null) setLastAssistantTs(ts) }
     wipeStatic()  // 抹掉当前会话屏内容 + 重挂载 Static，再铺恢复出的历史
@@ -860,7 +862,7 @@ export function App() {
     conversationRef.current = conversationRef.current.slice(0, res.convLen)
     transcriptRef.current?.appendRewind(turn, res.convLen)
     loggedLenRef.current = res.convLen
-    markTokensUnknown()
+    markSessionStale()
     // 文件回滚回执
     const fileBits: string[] = []
     if (res.restored.length) fileBits.push(`${res.restored.length} file${res.restored.length === 1 ? '' : 's'} reverted`)
@@ -1481,9 +1483,7 @@ export function App() {
         setPendingQuestion(null)
 
         // ③ 全局单例 —— goal、todos、所有在跑/已结束的调度任务
-        clearGoal()                                   // 清除任何激活的目标
-        resetContextTokens()                          // 清空上下文 token 计数 + 压缩熔断状态
-        resetMicrocompactState()                      // 清空 microcompact 时间戳单例（新会话重新计时）
+        resetSessionStates()                             // 清除 goal/contextTokens/microcompactState                      // 清空 microcompact 时间戳单例（新会话重新计时）
         resetEclipse()                                // 清空 Eclipse 折叠 store（跨会话不残留）
         resetCheckpoints()                            // 清空 /rewind 检查点（新会话无可回滚点）
         transcriptRef.current = createTranscript(process.cwd())  // 新会话 → 新 transcript 文件
@@ -2038,7 +2038,7 @@ export function App() {
     if (!result) return
     const modelSelectionChanged = updateProviderConfig(result.provider, result.model, result.apiKey)
     resetAllApiClients()
-    markTokensUnknown()  // 换模型 → 旧分词器的 token 数作废，等新 usage 刷新（设计文档 §6）
+    markSessionStale()  // 换模型 → 旧分词器的 token 数作废，等新 usage 刷新（设计文档 §6）
     resetEclipse()       // 换模型 → 折叠的 spawn token 计数按旧分词器，作废重来
     setConfigVersion(v => v + 1)  // 让 modelId 重算 → 触发 system prompt 按新模型重建
     if (modelSelectionChanged) await persistReason({ message: '', disk: 'clear' })
