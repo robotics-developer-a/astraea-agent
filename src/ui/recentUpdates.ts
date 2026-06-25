@@ -9,16 +9,16 @@ export interface RecentUpdate {
 
 export const RECENT_UPDATES: RecentUpdate[] = [
   {
-    version: '0.10.9',
+    version: '0.10.10',
     priority: 140,
     persistent: false,
     messages: {
-      en: 'Tool calls now glow while they run: a sweeping indigo light traces every live Bash, Read or Write, then vanishes the instant it lands — purely a running-state cue, history stays clean.',
-      zh: '工具调用运行时会流光：一道靛蓝扫光划过正在执行的 Bash、Read、Write，落盘瞬间隐去——纯运行态提示，历史记录保持干净。',
-      de: 'Tool-Aufrufe leuchten jetzt während der Ausführung: ein wanderndes Indigo-Licht streicht über jedes laufende Bash, Read oder Write und verschwindet, sobald es fertig ist — nur ein Laufzeit-Hinweis, die Historie bleibt sauber.',
-      fr: 'Les appels d’outils brillent désormais pendant leur exécution : une lumière indigo balaie chaque Bash, Read ou Write en cours, puis disparaît dès qu’il se termine — un simple repère d’exécution, l’historique reste net.',
-      es: 'Las llamadas a herramientas ahora brillan mientras se ejecutan: una luz índigo recorre cada Bash, Read o Write en curso y desaparece en cuanto termina — solo una señal de ejecución, el historial se mantiene limpio.',
-      ko: '도구 호출이 실행 중에 빛납니다: 인디고 빛이 실행 중인 Bash, Read, Write를 훑고 지나간 뒤 완료되는 순간 사라집니다 — 순수한 실행 상태 신호로, 기록은 깔끔하게 유지됩니다.',
+      en: 'Tool calls now glow while they run: a sweeping indigo light traces every live Bash, Read or Write — even quick ones finish their sweep before freezing, so the motion always reads cleanly, then vanishes the instant they land.',
+      zh: '工具调用运行时会流光：一道靛蓝扫光划过正在执行的 Bash、Read、Write——再快的工具也会先把扫光播完再定格，动效始终连贯，落盘瞬间隐去、历史保持干净。',
+      de: 'Tool-Aufrufe leuchten jetzt während der Ausführung: ein wanderndes Indigo-Licht streicht über jedes laufende Bash, Read oder Write — selbst schnelle Aufrufe spielen ihren Sweep zu Ende, bevor sie einfrieren, sodass die Bewegung stets sauber wirkt und im Moment des Abschlusses verschwindet.',
+      fr: 'Les appels d’outils brillent désormais pendant leur exécution : une lumière indigo balaie chaque Bash, Read ou Write en cours — même les plus rapides terminent leur balayage avant de se figer, le mouvement reste donc toujours net, puis disparaît dès qu’ils se terminent.',
+      es: 'Las llamadas a herramientas ahora brillan mientras se ejecutan: una luz índigo recorre cada Bash, Read o Write en curso — incluso las más rápidas completan su barrido antes de congelarse, así el movimiento siempre se lee con claridad y desaparece en cuanto terminan.',
+      ko: '도구 호출이 실행 중에 빛납니다: 인디고 빛이 실행 중인 Bash, Read, Write를 훑고 지나갑니다 — 빠른 호출도 멈추기 전에 스윕을 끝까지 재생해 동작이 항상 매끄럽게 보이고, 완료되는 순간 사라집니다.',
     },
   },
   {
