@@ -9,6 +9,19 @@ export interface RecentUpdate {
 
 export const RECENT_UPDATES: RecentUpdate[] = [
   {
+    version: '0.10.9',
+    priority: 140,
+    persistent: false,
+    messages: {
+      en: 'Tool calls now glow while they run: a sweeping indigo light traces every live Bash, Read or Write, then vanishes the instant it lands — purely a running-state cue, history stays clean.',
+      zh: '工具调用运行时会流光：一道靛蓝扫光划过正在执行的 Bash、Read、Write，落盘瞬间隐去——纯运行态提示，历史记录保持干净。',
+      de: 'Tool-Aufrufe leuchten jetzt während der Ausführung: ein wanderndes Indigo-Licht streicht über jedes laufende Bash, Read oder Write und verschwindet, sobald es fertig ist — nur ein Laufzeit-Hinweis, die Historie bleibt sauber.',
+      fr: 'Les appels d’outils brillent désormais pendant leur exécution : une lumière indigo balaie chaque Bash, Read ou Write en cours, puis disparaît dès qu’il se termine — un simple repère d’exécution, l’historique reste net.',
+      es: 'Las llamadas a herramientas ahora brillan mientras se ejecutan: una luz índigo recorre cada Bash, Read o Write en curso y desaparece en cuanto termina — solo una señal de ejecución, el historial se mantiene limpio.',
+      ko: '도구 호출이 실행 중에 빛납니다: 인디고 빛이 실행 중인 Bash, Read, Write를 훑고 지나간 뒤 완료되는 순간 사라집니다 — 순수한 실행 상태 신호로, 기록은 깔끔하게 유지됩니다.',
+    },
+  },
+  {
     version: '0.10.7',
     priority: 130,
     persistent: false,
