@@ -8,12 +8,66 @@
 
 > **1.0.0 发布门槛**（达成后才从 0.x 升到 1.0 并打首个 `git tag v1.0.0`）：
 
+## [0.10.3] - 2026-06-25
+
+### 新增
+- **`/selection` 命令（REPL 内置）**：在交互式 REPL 里敲 `/selection` 即可**后台自动拉起** bridge 服务并提示如何绑
+  macOS 快捷指令；配套 `/selection open`（立即弹面板）、`/selection stop`（关闭服务）、`/selection status`（健康
+  检查）、`/selection setup`（打印带本机绝对路径的快捷指令配置）。与 `astraea selection` CLI 子命令共享同一套自愈逻辑。
+- **Windows / Linux 适配**：选区捕获与开窗改为按平台分发——Windows 用 PowerShell（保存剪贴板→发 Ctrl+C→读取→
+  还原，隐藏窗口不抢焦点）捕获选区，并以 Edge/Chrome 的 `--app` 无边框窗口作为悬浮面板的等价物（取不到则回退默认
+  浏览器）；Linux 直接读 X11/Wayland 的 PRIMARY 选区（`xclip`/`wl-paste`），用 `xdg-open` 开窗。`selection setup`
+  现按平台输出对应快捷键绑定指引（Windows 给 AutoHotkey 与 .lnk 两种方案）。
+- **`selection stop` 关闭服务**：bridge 新增 `POST /shutdown` 路由，`astraea selection stop` 与 `/selection stop`
+  可一键关闭后台常驻的 bridge 服务并释放端口。
+- **`astraea selection` 命令行入口**：新增 `astraea selection` 子命令，作为 floating selection UI 的统一入口。
+  `astraea selection`（= `open`）会先检测本地 bridge 服务是否在跑，没跑则**自动在后台拉起**再捕获选区、弹出悬浮
+  面板——单条命令即可，无需再单独常驻 `bun run bridge:selection`。把它绑到 macOS 快捷指令上即可一键唤起。
+  配套子命令：`start`（前台常驻 bridge）、`status`（健康检查）、`setup`（打印带本机绝对路径的快捷指令配置说明）。
+  自愈逻辑抽到 `src/services/selection-bridge-client.ts`，`bridge:selection:open` 直接入口也共享，因此无论从
+  哪个入口触发，「打开 UI 即自动起服务」的行为完全一致。
+- **macOS 原生悬浮命令面板**：`bridge:selection:open` 在 macOS 上不再跳转浏览器标签页，而是弹出一个
+  无边框、置顶、跟随鼠标出现的小窗口（Swift `NSPanel` + `WKWebView`，源码 `macos/AstraeaPanel.swift`）。
+  选中文本自动带入，用户只需输入命令并点发送；按 `Esc`、点 `✕` 或点窗外即可关闭，全程不离开当前 app。
+  Swift 面板首次运行经 `swiftc` 编译并缓存到 `macos/.build/astraea-panel`，仅在源码变更时重建。
+  可用 `ASTRAEA_SELECTION_UI=browser` 回退到旧的浏览器标签页行为。
+- **极简单输入框命令 UI**：companion 重做为以一个精致大圆角输入框为唯一核心的界面（白 + indigo 微光、
+  圆形发送键、淡入动效）。选区文本自动预填在输入框里，用户在后面追加一句指令即可发送；回复**默认不展开**，
+  发送后才在输入框下方淡入。新增 `?embedded=1` 视图供悬浮面板加载，通过 `webkit.messageHandlers` 与原生
+  宿主通信。
+- **悬浮窗随回复动态增高 + 可拖动**：回复不再固定高度，窗口高度随内容**顶部锚定向下增长**，接近屏幕高才滚动；
+  顶部留出透明拖动条，可用鼠标拖动整窗到任意位置（右上 ✕ 关闭按钮保持可点）。
+- **选区/指令自动拆分**：发送时自动把「预填的选区原文」与「用户追加的指令」分离，分别作为 `selection`（不可信
+  上下文）与 `instruction`（权威命令）提交；不追加指令也能发送（使用默认指令兜底），不再出现 “need command”。
+
+### 优化
+- **悬浮面板 UI 极简重做**：去掉外层卡片那一层，整个界面收敛为**单个描边输入框**——「✦ Astraea · 来自 macOS
+  selection」标题嵌进输入框顶部描边线（`<legend>` 缺口），关闭 ✕ 收进框内右上角，回复区默认隐藏（修复了
+  `[hidden]` 被 `display:flex` 盖过导致回复区常驻的问题），发送后才在下方淡入。输入框更紧凑、文字垂直居中。
+  原生面板尺寸相应收窄（440→400），最小高度下调。
+- **关闭键改为清晰的「ESC ✕」**：右上角换成带 X 描边图标 + “esc” 文字的关闭键（白底嵌在描边线上），同时提示
+  按 Esc 可关闭。
+- **标题不再被裁/发灰**：给标题 chip 加白底并禁止换行，「✦ Astraea · 来自 macOS selection」完整可读；移除
+  WKWebView 的 16px 圆角遮罩（它会裁掉落在左上角的标题文字），改由白色输入框自身的圆角呈现。
+- **悬浮面板可鼠标拖动**：顶部拖动条加厚到覆盖整条标题行（避开右侧 ESC✕ 与下方输入框），标题行即拖拽手柄，
+  修复收窄后窗口无法用鼠标拖动移动的问题。
+- **ESC 关闭键与发送键分开**：增大输入框上内边距、上移 ESC chip，消除右上角 ESC✕ 与右侧发送圆钮的轻微重合。
+
+### 修复
+- **draft 创建不再要求 instruction**：`/draft` 此前误用 `/ask` 的校验逻辑，对空 `instruction` 报
+  “instruction is required”，导致快捷键捕获选区后无法建 draft。现在 draft 允许空命令（命令在 UI 里再输入），
+  `/ask` 仍要求非空 instruction。
+
 ## [0.10.1] - 2026-06-24
 
 ### 新增
 - **本地选区命令桥接服务**：新增 `bridge:selection` 启动脚本和 `/ask` 本地 HTTP 入口，接收任意捕获端传入的
   `instruction`、`selection` 与来源元数据，并把选区文本作为不可信上下文交给 Astraea 回复。该入口为后续
   桌面全局快捷键、浏览器右键菜单、PDF/doc/web 选区浮窗以及 Obsidian/Codex/Claude Code adapter 打底。
+- **Selection Companion 白色/indigo 命令面板**：本地 bridge 现在直接提供高级小窗口 UI，支持选区预填、
+  命令输入、回复展示与复制；新增 draft 暂存机制，供快捷键或右键入口传递长选区文本而不塞进 URL。
+- **选区快捷键与浏览器右键入口雏形**：新增 `bridge:selection:open` macOS 选区捕获启动脚本，以及
+  `extensions/astraea-selection` 浏览器扩展骨架，网页选中文本后可右键打开 Astraea 小窗口。
 - **/init 项目初始化命令**：新增内置 prompt command `/init [focus]`，会引导 Astraea 扫描当前仓库的
   `package.json` / README / `.mcp.json` / `.cursor/rules` / 既有 AI 指令等高信号文件，询问用户要创建
   团队共享 `AGENTS.md`、个人私有 `AGENTS.local.md` 还是两者，并按 Astraea 真实加载规则生成精简项目说明。

@@ -28,6 +28,13 @@ if (argv[0] === 'plugin') {
   await runPluginCommand(argv.slice(1))
   process.exit(0)
 }
+// `astraea selection …` — floating selection UI：自动拉起 bridge + 弹浮窗面板。
+// 在进 Ink UI 之前拦截，跑完即退（供 macOS 快捷指令绑定）。
+if (argv[0] === 'selection') {
+  const { runSelectionCommand } = await import('./cli/selectionCommand')
+  await runSelectionCommand(argv.slice(1))
+  process.exit(0)
+}
 
 // 缺 API Key 不再阻塞启动，也不打印 provider 横幅——照常进 UI，由 App 自动弹 /login 向导
 // 引导配置（见 App 的 showLogin 初值）。

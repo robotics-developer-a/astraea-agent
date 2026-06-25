@@ -46,3 +46,6 @@ CLAUDE.md
 .agents/
 .codex/
 AGENTS.md
+
+# compiled macOS floating panel binary
+macos/.build/

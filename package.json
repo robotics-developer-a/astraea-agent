@@ -1,6 +1,6 @@
 {
   "name": "astraea",
-  "version": "0.10.1",
+  "version": "0.10.3",
   "module": "index.ts",
   "type": "module",
   "private": true,
@@ -10,7 +10,9 @@
   "scripts": {
     "cli": "bun run src/cli.ts",
     "repl": "bun run src/repl.tsx",
+    "selection": "bun run src/cli.ts selection",
     "bridge:selection": "bun run src/services/run-local-selection-bridge.ts",
+    "bridge:selection:open": "bun run src/services/open-selection-companion.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "setup:wechat": "bun run scripts/setup-wechat.ts",

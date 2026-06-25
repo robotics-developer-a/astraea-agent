@@ -53,8 +53,8 @@ describe('recent updates', () => {
     expect(getRecentUpdates(pkg.version, 'en').length).toBeLessThanOrEqual(4)
   })
 
-  test('/init onboarding update is the first welcome notice', () => {
+  test('the current version ships a dedicated welcome notice as the first item', () => {
     const updates = getRecentUpdates(pkg.version, 'en')
-    expect(updates[0]).toContain('/init')
+    expect(updates[0]).toContain('floating Astraea panel')
   })
 })

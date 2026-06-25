@@ -33,6 +33,12 @@ if (args[0] === 'plugin') {
   await runPluginCommand(args.slice(1))
   process.exit(0)
 }
+// ── selection 子命令：floating selection UI（自动拉起 bridge + 弹浮窗面板）──────
+if (args[0] === 'selection') {
+  const { runSelectionCommand } = await import('./cli/selectionCommand.js')
+  await runSelectionCommand(args.slice(1))
+  process.exit(0)
+}
 
 // ── --headless --task 模式：执行单个 vigil 任务 ──────────────────────────────
 if (args.includes('--headless') && args.includes('--task')) {

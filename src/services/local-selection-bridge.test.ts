@@ -1,8 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import {
   buildSelectionPrompt,
+  createSelectionDraft,
+  handleSelectionBridgeRequest,
   handleSelectionAskRequest,
   parseSelectionAskPayload,
+  readSelectionDraft,
 } from './local-selection-bridge'
 
 describe('local selection bridge', () => {
@@ -68,5 +71,33 @@ describe('local selection bridge', () => {
     expect(response.status).toBe(204)
     expect(response.headers.get('Access-Control-Allow-Methods')).toContain('POST')
     expect(response.headers.get('Access-Control-Allow-Headers')).toContain('Content-Type')
+  })
+
+  test('serves the white-indigo companion UI', async () => {
+    const response = await handleSelectionBridgeRequest(
+      new Request('http://127.0.0.1:8765/'),
+      async () => 'unused',
+    )
+    const html = await response.text()
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Content-Type')).toContain('text/html')
+    expect(html).toContain('Astraea')
+    expect(html).toContain('selection.css')
+    expect(html).toContain('selection.js')
+  })
+
+  test('stores and reads a captured selection draft for shortcut launchers', async () => {
+    const draft = createSelectionDraft({
+      instruction: 'Explain',
+      selection: 'A long captured passage',
+      source: { kind: 'app', app: 'Preview' },
+    })
+
+    expect(readSelectionDraft(draft.id)).toEqual({
+      instruction: 'Explain',
+      selection: 'A long captured passage',
+      source: { kind: 'app', app: 'Preview' },
+    })
   })
 })

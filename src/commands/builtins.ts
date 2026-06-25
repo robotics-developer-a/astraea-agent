@@ -328,6 +328,60 @@ export function getBuiltinCommands(): Command[] {
       },
       { argumentHint: '[--project] [--allow|--deny] [--reason <type>] [--all] [--limit N]' }),
 
+    local('selection', 'floating selection UI: start the bridge service (bind a macOS shortcut to open it)',
+      async args => {
+        const sub = (args ?? '').trim().split(/\s+/)[0] || 'start'
+        const { bridgeUrl, isBridgeHealthy, ensureBridgeRunning, stopBridge } = await import('../services/selection-bridge-client')
+
+        if (sub === 'stop') {
+          const stopped = await stopBridge()
+          return {
+            type: 'text',
+            value: stopped
+              ? '⟦ok⟧ Selection bridge stopped.'
+              : '⟦warn⟧ Selection bridge was not running.',
+          }
+        }
+
+        if (sub === 'status') {
+          const ok = await isBridgeHealthy()
+          return {
+            type: 'text',
+            value: ok
+              ? `⟦ok⟧ Selection bridge healthy at ${bridgeUrl()}`
+              : `⟦err⟧ Selection bridge not reachable at ${bridgeUrl()} — run \`/selection\` to start it.`,
+          }
+        }
+
+        if (sub === 'setup') {
+          const { selectionSetupInstructions } = await import('../services/selection-bridge-client')
+          return { type: 'text', value: selectionSetupInstructions() }
+        }
+
+        if (sub === 'open') {
+          const { runOpenCompanion } = await import('../services/open-selection-companion')
+          await runOpenCompanion()
+          return { type: 'text', value: '⟦ok⟧ Opened the floating selection panel.' }
+        }
+
+        // default / `start`: lazily start the bridge in the background, then point
+        // the user at the keyboard-shortcut workflow that actually opens the UI.
+        const already = await isBridgeHealthy()
+        await ensureBridgeRunning({ quiet: true })
+        return {
+          type: 'text',
+          value: [
+            already
+              ? `⟦ok⟧ Selection bridge already running at ${bridgeUrl()}`
+              : `⟦ok⟧ Selection bridge started in the background at ${bridgeUrl()}`,
+            '',
+            'Now bind a macOS keyboard shortcut to open the floating panel — run `/selection setup` for the exact steps.',
+            'Other actions: `/selection status` · `/selection open` (open now) · `/selection stop` · `/selection setup`.',
+          ].join('\n'),
+        }
+      },
+      { argumentHint: '[start|open|stop|status|setup]' }),
+
     local('export', 'export current conversation to a Markdown file',
       async args => {
         const { exportConversation } = await import('./export')
