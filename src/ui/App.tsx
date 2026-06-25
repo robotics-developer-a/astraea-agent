@@ -108,7 +108,7 @@ import { onConfirmRequest, resolveConfirm, type ConfirmRequest } from '../tools/
 import { VigilPanel, VIGIL_ACTIONS } from './VigilPanel'
 import { GoalPanel, GoalHint } from './GoalPanel'
 import { assessGoalVerifiability } from '../services/goal-evaluator'
-import { SlashHint, SubcommandHint, allSlashCommands, matchSlashCommands, matchSubcommands } from './SlashHint'
+import { SlashHint, SubcommandHint, allSlashCommands, matchSlashCommands, matchSubcommands, trailingSlashToken } from './SlashHint'
 import { ModeInputFrame } from './ModeBanner'
 import { ToolBatch, type ToolCall } from './ToolBatch'
 import { expandPasteTokens } from './pasteExpansion'
@@ -567,6 +567,10 @@ export function App() {
     setLiveTools(next)
   }, [])
   const lastLiveTextPreviewAtRef = useRef<number | null>(null)
+  // 最近一次工具落 done/error 的时刻 —— 给「最短驻留」用：快工具（Read/Grep/Write <120ms）结束后，
+  // 模型常立刻接着输出文字 → commitLiveTools 立即把它冻结，扫光还没播完就被截断。提交前在此基础上
+  // 补足 SWEEP_DWELL_MS 的停留，让每个工具都看得到完整扫光再落盘。
+  const lastToolDoneAtRef = useRef<number>(0)
   const resetStreamingPreview = useCallback(() => {
     lastLiveTextPreviewAtRef.current = null
     setStreamingText('')
@@ -979,7 +983,16 @@ export function App() {
 
             case 'text':
               // 工具批结束、叙述恢复 → 先把在途批落盘，保证时序：…文本→工具批→文本…
-              if (liveToolsRef.current.length > 0) commitLiveTools()
+              if (liveToolsRef.current.length > 0) {
+                // 最短驻留：快工具刚结束就被落盘会截断扫光。落盘前补足 ~一趟扫光的停留（仅有色 TTY；
+                // 工具早已结束则 dwell≤0 不等）。await 同时延后「落盘 + 累积该段文字」，时序天然不乱。
+                const SWEEP_DWELL_MS = 320
+                const dwell = SWEEP_DWELL_MS - (Date.now() - lastToolDoneAtRef.current)
+                if (dwell > 0 && process.stdout.isTTY && !controller.signal.aborted) {
+                  await new Promise(r => setTimeout(r, dwell))
+                }
+                commitLiveTools()  // 无条件落盘（与原逻辑一致；abort 仅用于跳过等待）
+              }
               accumulated += event.text
               // 常驻状态行的实时输出量「估算」（非 API 真值，仅作活跃度指示）。
               // token ≈ chars/4，统计口径含叙述文本 + 工具入参（见 tool_use 分支）。
@@ -1027,6 +1040,7 @@ export function App() {
                   ? { ...c, status: event.isError ? 'error' : 'done', resultLines: lines }
                   : c,
               ))
+              lastToolDoneAtRef.current = Date.now()  // 记录完成时刻 → 落盘前据此补足最短驻留
 
               const currentSingletonMode = getMode()
               setSessionModeState(prev => {
@@ -2412,7 +2426,9 @@ export function App() {
       }
       if (key.tab) {
         const cmd = slashMatches[Math.min(slashIndexRef.current, len - 1)]!
-        setInputValue(cmd.name)  // 只补全高亮项，永不执行
+        // 只替换末尾正在输入的 slash token，保留前面已有文字（句中补全）："我爱 /fron" → "我爱 /frontend-design"
+        const prefix = trailingSlashToken(inputValue)?.prefix ?? ''
+        setInputValue(prefix + cmd.name)  // 只补全高亮项，永不执行
         return
       }
     }

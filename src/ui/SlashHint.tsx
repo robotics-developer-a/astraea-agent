@@ -194,10 +194,25 @@ export function allSlashCommands(): SlashCommand[] {
   return [...SLASH_COMMANDS, ...derived]
 }
 
-// 前缀匹配 + 声明顺序；input === '/' 时列出全部。精确匹配也保留（单一路径）。
+// 提取输入末尾「正在输入」的 slash token —— 支持句中识别（前面有文字也认）。
+// 规则：token 必须在「行首或一个空白」之后紧跟 `/`，且到行尾全是 word/-（不含第二个 `/`）。
+//   "/cl"          → { prefix:'',     token:'/cl'   }   ← 行首，等价旧行为
+//   "我爱 /fron"    → { prefix:'我爱 ', token:'/fron' }   ← 句中：保留前缀、只认末尾 token
+//   "cd src/foo"   → null                               ← 斜杠不在词首（src/foo）
+//   "看看 /tmp/foo" → null                               ← 含第二个 `/`（像路径，不弹命令）
+//   "/goal foo"    → null                               ← 末尾不是 slash token（带参，交给精确路由）
+export function trailingSlashToken(input: string): { prefix: string; token: string } | null {
+  const m = /(?:^|\s)(\/[\w-]*)$/.exec(input)
+  if (!m) return null
+  const token = m[1]!
+  return { prefix: input.slice(0, input.length - token.length), token }
+}
+
+// 前缀匹配 + 声明顺序；token === '/' 时列出全部。句中末尾 token 同样生效（见 trailingSlashToken）。
 export function matchSlashCommands(input: string): SlashCommand[] {
-  if (!input.startsWith('/') || input.includes(' ')) return []
-  return allSlashCommands().filter(c => c.name.startsWith(input))
+  const t = trailingSlashToken(input)
+  if (!t) return []
+  return allSlashCommands().filter(c => c.name.startsWith(t.token))
 }
 
 export interface SubcommandMatch {
