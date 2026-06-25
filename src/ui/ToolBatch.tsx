@@ -15,7 +15,8 @@ import { subscribeSweep, sweepPhase } from './sweepClock'
 // grill 决议详见会话；关键约束：
 //   · 真 ANSI 背景色（chalk bgHex）；只在「有色终端」启用，CI/管道自动降级回现状。
 //   · 带宽 = clamp(块内最长行宽, 下限 48, 上限 = 终端宽-4)，文字不截断、封顶防软折行。
-//   · 所有 running 行共用一个 120ms 全局时钟（sweepClock），同相 → 亮柱按列对齐。
+//   · 所有 running 行共用一个 60ms 全局节拍（sweepClock）；但每个工具块各记基线相位，
+//     扫光各自「从头(最左)」起步（同块内多行仍同相 → 竖亮柱按列对齐，跨工具各自独立）。
 
 const SWEEP_BG = INDIGO     // 底色：品牌靛蓝 #6A5ACD
 const SWEEP_HL = SILVER     // 亮柱：星辉银 #C8D8FF
@@ -54,7 +55,11 @@ function paintSweepLine(plain: string, bandWidth: number, hlStart: number): stri
 // 订阅共享时钟仅在 animate 为真时进行；最后一条停扫即退订 → 全局时钟自动停。
 function useSweepLifecycle(running: boolean): { animate: boolean; phase: number } {
   const startRef = useRef<number | null>(null)
-  if (running && startRef.current === null) startRef.current = Date.now()
+  const basePhaseRef = useRef<number | null>(null)  // 本块开始时的全局 phase → 扫光从头(最左)起步
+  if (running && startRef.current === null) {
+    startRef.current = Date.now()
+    basePhaseRef.current = sweepPhase()
+  }
   const sawRunning = startRef.current !== null
 
   const [phase, setPhase] = useState(() => sweepPhase())
@@ -64,7 +69,7 @@ function useSweepLifecycle(running: boolean): { animate: boolean; phase: number 
   const inGrace = !running && elapsed < SWEEP_GRACE_MS
   const animate = SWEEP_OK && sawRunning && (running || inGrace)
 
-  // 仅在 animate 期间订阅 120ms 节拍；animate 转 false 时 cleanup 退订。
+  // 仅在 animate 期间订阅节拍；animate 转 false 时 cleanup 退订。
   useEffect(() => {
     if (!animate) return
     return subscribeSweep(() => setPhase(sweepPhase()))
@@ -80,7 +85,9 @@ function useSweepLifecycle(running: boolean): { animate: boolean; phase: number 
     return () => clearTimeout(t)
   }, [running])
 
-  return { animate, phase }
+  // 本地相位 = 全局 phase − 本块基线 → 起始帧为 0（亮柱在最左），随后单调右移、收尾期延续。
+  const localPhase = basePhaseRef.current === null ? phase : phase - basePhaseRef.current
+  return { animate, phase: localPhase }
 }
 
 // 扫光块：把一组纯文本行整体铺成同相的靛蓝底带，一根银亮柱按列横扫所有行（相位由父级传入）。

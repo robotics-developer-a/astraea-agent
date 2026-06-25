@@ -1,12 +1,13 @@
-// 扫光共享时钟 —— 所有 running 工具行共用「一个」120ms 节拍器。
+// 扫光共享时钟 —— 所有 running 工具行共用「一个」60ms 节拍器。
 //
 // 为什么共享而非各行各自 setInterval：并行跑 N 个工具时，N 个独立定时器相位错开会让
-// live frame 在不同时刻被多次触发重绘，抖动且费 CPU。共享一个 tick → 所有行同一相位
-// （Q11「一根竖亮柱」要求按列对齐，本就必须同相）→ 每 120ms 只触发一轮重绘。
+// live frame 在不同时刻被多次触发重绘，抖动且费 CPU。共享一个 tick → 每拍只触发一轮重绘。
+// 注意：共享的是「节拍 + 单调递增的全局 phase」，不代表所有行同相——每个工具块在 useSweepLifecycle
+// 里记录自己开始时的全局 phase 作基线，扫光各自「从头（最左）」起步（见该钩子）。
 //
 // 生命周期：有订阅者（至少一条 running 行）才开钟；最后一条落盘退订后自动停钟，空闲零开销。
 
-const TICK_MS = 120
+const TICK_MS = 60
 
 let phase = 0
 let timer: ReturnType<typeof setInterval> | null = null
