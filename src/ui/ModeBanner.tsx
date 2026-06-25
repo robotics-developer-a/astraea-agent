@@ -69,16 +69,30 @@ const FLASH_TICK   = 50    // 闪光帧间隔（ms）
 const FLASH_MS     = 800   // 闪光总时长（约扫一圈）
 const SPARKLES     = ['✦', '✧']
 
+// 打字呼吸辉光：每次按键边框整体亮成品牌靛蓝，GLOW_MS 内渐隐回模式色。仅非流式时生效。
+const GLOW_MS     = 420    // 一次按键辉光的衰减时长
+const GLOW_TICK   = 60     // 辉光衰减重绘帧间隔
+const GLOW_BRIGHT = '#9C8CFF' // 辉光峰值色（亮靛蓝）
+// 模式静态色的 hex 近似 —— 仅供辉光「模式色 ↔ 亮靛蓝」插值用（静态边框仍用具名色，保留各终端熟悉观感）。
+const MODE_HEX: Record<SessionMode, string> = {
+  orbit:   '#22c3d6',
+  cruise:  '#3cb043',
+  forge:   '#d4c020',
+  counsel: '#c060c0',
+  default: '#808080',
+}
+
 // ── 输入框四边手绘框 ────────────────────────────────────────────────────────
 interface ModeInputFrameProps {
   mode: SessionMode
   running?: boolean          // 任务进行中（isStreaming）→ 跑马灯；其 true→false 转变触发闪光
+  value?: string             // 当前输入框文本：每次变化（非流式时）触发一次打字呼吸辉光
   children: React.ReactNode
 }
 
 interface Cell { ch: string; color: string; dim: boolean; bold: boolean }
 
-export function ModeInputFrame({ mode, running = false, children }: ModeInputFrameProps) {
+export function ModeInputFrame({ mode, running = false, value, children }: ModeInputFrameProps) {
   const { columns } = useWindowSize()
   // 用 cols-1 而非 cols：占满整行宽度的字符串在 Windows 终端会触发自动换行、多占一行物理行，
   // Ink 重绘时按逻辑行数回退光标却少算这行，导致上一帧没被擦掉、边框一层层堆叠。留 1 列即避免。
@@ -100,6 +114,28 @@ export function ModeInputFrame({ mode, running = false, children }: ModeInputFra
   const prevRunning = useRef(running)
   const flashStartRef = useRef(0)
   const pRef = useRef(1)      // 当前周长（供定时器内读取最新值，避免过期闭包）
+
+  // 打字呼吸辉光：typedAt = 最近一次按键时刻；glowTick 仅用于驱动衰减期间的重绘。
+  const [typedAt, setTypedAt] = useState(0)
+  const [, setGlowTick] = useState(0)
+  const valueMounted = useRef(false)
+
+  // value 变化（非流式时）→ 记一次按键时刻。跳过首帧挂载，避免打开就辉光。
+  useEffect(() => {
+    if (!valueMounted.current) { valueMounted.current = true; return }
+    if (running) return
+    setTypedAt(Date.now())
+  }, [value])
+
+  // 辉光衰减定时器：仅在「有未衰减完的辉光且非流式/闪光」时挂载，逐帧重绘到熄灭。
+  useEffect(() => {
+    if (running || flashing || !typedAt) return
+    const id = setInterval(() => {
+      if (Date.now() - typedAt >= GLOW_MS) { setTypedAt(0); return }
+      setGlowTick(t => t + 1)
+    }, GLOW_TICK)
+    return () => clearInterval(id)
+  }, [typedAt, running, flashing])
 
   // running 转变：true→false 触发闪光；false→true 重置彗星并取消残留闪光。
   useEffect(() => {
@@ -143,10 +179,18 @@ export function ModeInputFrame({ mode, running = false, children }: ModeInputFra
   const animated = running || flashing
   const isFlash = flashing && !running
 
-  // 某个周长格在当前帧的样式：未动画 → 模式色静态；动画中 → 落在彗星拖尾内则取 ramp 亮色，
-  // 否则回退模式色。闪光彗星头两格替换成 ✦/✧ 星符。
+  // 打字辉光强度（1=刚按键 .. 0=熄灭）。仅静态态（非跑马灯/闪光）才叠加。
+  const sinceType = typedAt ? Date.now() - typedAt : Infinity
+  const glowT = sinceType < GLOW_MS ? 1 - sinceType / GLOW_MS : 0
+  const glowColor = glowT > 0 ? lerpHex(MODE_HEX[mode], GLOW_BRIGHT, Math.pow(glowT, 0.7)) : null
+
+  // 某个周长格在当前帧的样式：未动画 → 模式色静态（或打字辉光混色）；动画中 → 落在彗星拖尾内
+  // 取 ramp 亮色，否则回退模式色。闪光彗星头两格替换成 ✦/✧ 星符。
   function styleFor(perim: number, baseCh: string): Cell {
-    if (!animated) return { ch: baseCh, color: meta.color, dim: meta.dim, bold: false }
+    if (!animated) {
+      if (glowColor) return { ch: baseCh, color: glowColor, dim: false, bold: glowT > 0.55 }
+      return { ch: baseCh, color: meta.color, dim: meta.dim, bold: false }
+    }
     const d = ((offset - perim) % P + P) % P     // 落后彗星头的顺时针距离
     const ramp = isFlash ? FLASH_RAMP : MARQUEE_RAMP
     if (d < ramp.length) {
@@ -193,15 +237,15 @@ export function ModeInputFrame({ mode, running = false, children }: ModeInputFra
   const dashRight = Math.max(0, innerW - label.length - dashLeft)
   const midStr = '─'.repeat(dashLeft) + label + '─'.repeat(dashRight)
 
-  // 上边各格 → 周长 0..W-1
-  const topCells: Cell[] = [styleFor(0, '┌')]
+  // 上边各格 → 周长 0..W-1（四角用圆角 ╭╮╰╯）
+  const topCells: Cell[] = [styleFor(0, '╭')]
   for (let x = 0; x < midStr.length; x++) topCells.push(styleFor(1 + x, midStr[x]!))
-  topCells.push(styleFor(W - 1, '┐'))
+  topCells.push(styleFor(W - 1, '╮'))
 
   // 下边各格（渲染左→右，周长右→左）→ x 处周长 = W + H + (W-1-x)
   const botCells: Cell[] = []
   for (let x = 0; x < W; x++) {
-    const ch = x === 0 ? '└' : x === W - 1 ? '┘' : '─'
+    const ch = x === 0 ? '╰' : x === W - 1 ? '╯' : '─'
     botCells.push(styleFor(W + H + (W - 1 - x), ch))
   }
 
