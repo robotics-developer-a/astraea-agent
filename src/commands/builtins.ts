@@ -301,13 +301,18 @@ export function getBuiltinCommands(): Command[] {
 
     local('model', 'show current provider, model, and endpoint', async () => {
       const p = config.provider
-      const model = (config as unknown as Record<string, { model?: string }>)[p]?.model ?? 'unknown'
-      const lines = [
-        `**Provider:** ${p}`,
-        `**Model:** ${model}`,
-        `**Context window:** ${activeContextWindow().toLocaleString()} tokens`,
-      ]
-      return { type: 'text', value: lines.join('\n') }
+      const providerCfg = (config as unknown as Record<string, { model?: string; endpoint?: string }>)[p]
+      const model = providerCfg?.model ?? 'unknown'
+      const endpoint = providerCfg?.endpoint ?? ''
+      const ctx = activeContextWindow().toLocaleString()
+      const parts = ['**Model configuration**', '']
+      parts.push('| Key | Value |')
+      parts.push('|---|---|')
+      parts.push(`| Provider | ${p} |`)
+      parts.push(`| Model | ${model} |`)
+      if (endpoint) parts.push(`| Endpoint | ${endpoint} |`)
+      parts.push(`| Context window | ${ctx} tokens |`)
+      return { type: 'text', value: parts.join('\n') }
     }),
 
     local('usage', 'show session token usage & cost (USD)', async () => {

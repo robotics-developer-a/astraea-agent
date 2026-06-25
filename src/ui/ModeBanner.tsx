@@ -102,11 +102,13 @@ export function ModeInputFrame({ mode, running = false, value, children }: ModeI
   // 内容实际高度（输入行 + 可选的 SlashHint/GoalHint/Esc 提示），决定左右 │ 画几行。
   const contentRef = useRef<DOMElement | null>(null)
   const [contentH, setContentH] = useState(1)
+  // 只在 mount 时测一次高度。不加 dep 数组会导致每次渲染后都 re-measure，
+  // 重渲染时机差让测量值轻微波动 → contentH 变化 → 左右边框行数 H 变化 → 整个框"变大"。
   useEffect(() => {
     if (!contentRef.current) return
     const { height } = measureElement(contentRef.current)
-    if (height > 0 && height !== contentH) setContentH(height)
-  })
+    if (height > 0) setContentH(height)
+  }, [])
 
   // 动画状态：offset = 彗星头当前所在的「周长格」位置；flashing = 正在播放结束闪光。
   const [offset, setOffset] = useState(0)
