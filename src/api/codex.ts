@@ -135,7 +135,8 @@ export function buildCodexRequestBody(
     model,
     store: false,
     stream: true,
-    max_output_tokens: options.maxTokens ?? config.codex.maxTokens,
+    // The ChatGPT-backend Codex endpoint rejects max_output_tokens (400 "Unsupported parameter"),
+    // so we deliberately don't send it — the backend applies its own output cap.
     ...(options.system ? { instructions: options.system } : {}),
     input: convertMessagesToInput(messages),
     tool_choice: 'auto',

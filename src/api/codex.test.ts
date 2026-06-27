@@ -50,13 +50,13 @@ test('convertTools is flat (name/description/parameters at top level)', () => {
   expect(convertTools([])).toBeUndefined()
 })
 
-test('buildCodexRequestBody sends the configured max output token cap', () => {
+test('buildCodexRequestBody omits max_output_tokens (Codex backend rejects it)', () => {
   const body = buildCodexRequestBody(
     [{ role: 'user', content: 'hello' }],
     { model: 'gpt-5.4-mini', maxTokens: 4096 },
   )
 
-  expect(body.max_output_tokens).toBe(4096)
+  expect(body.max_output_tokens).toBeUndefined()
 })
 
 // ─── SSE parsing ────────────────────────────────────────────────────────────────
