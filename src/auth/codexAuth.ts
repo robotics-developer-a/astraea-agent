@@ -1,7 +1,7 @@
-// Codex 凭据存储 + 刷新 —— OAuth access/refresh token 落盘到 ~/.astraea/auth.json，
-// 过期前自动用 refresh_token 换新（单飞，防并发子 agent 重复刷新）。
+// Codex credential storage + refresh —— OAuth access/refresh token persisted to ~/.astraea/auth.json,
+// auto-renewed via refresh_token before expiry (single-flight, prevents concurrent sub-agents from refreshing redundantly).
 //
-// 文件结构（与 pi 对齐，预留其它 oauth provider）：
+// File structure (aligned with pi, reserving room for other oauth providers):
 //   { "openai-codex": { type, access, refresh, expires, accountId } }
 
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
@@ -18,28 +18,28 @@ export interface CodexCredentials {
   type: 'oauth'
   access: string
   refresh: string
-  expires: number // epoch ms；access token 失效时间点
+  expires: number // epoch ms; point in time when the access token expires
   accountId: string
 }
 
-// auth.json 里 codex 凭据的 key（其它 oauth provider 后续可加同级 key）。
+// Key for the codex credentials in auth.json (other oauth providers can add sibling keys later).
 const CODEX_KEY = 'openai-codex'
 
 export const authPath = join(homedir(), '.astraea', 'auth.json')
 
-// access token 过期前这个余量内就提前刷新（避免边界竞争）。
+// Refresh ahead of time once within this margin of the access token's expiry (avoids boundary races).
 const REFRESH_SKEW_MS = 60_000
 
 function readAuthFile(path: string): Record<string, unknown> | null {
   try {
     return JSON.parse(readFileSync(path, 'utf-8'))
   } catch {
-    // 文件不存在 / JSON 损坏 → 视为未登录
+    // File missing / corrupt JSON → treat as not logged in
     return null
   }
 }
 
-// path 参数仅为可测性而设（默认即真实 authPath）；生产调用方一律走默认值。
+// The path parameter exists only for testability (defaults to the real authPath); production callers always use the default.
 export function loadCodexCredentials(path: string = authPath): CodexCredentials | null {
   const data = readAuthFile(path)
   const entry = data?.[CODEX_KEY] as Partial<CodexCredentials> | undefined
@@ -58,23 +58,23 @@ export function loadCodexCredentials(path: string = authPath): CodexCredentials 
 
 export function saveCodexCredentials(creds: CodexCredentials, path: string = authPath): void {
   mkdirSync(dirname(path), { mode: 0o700, recursive: true })
-  // 保留 auth.json 里其它 provider 的条目（只覆写 codex 这一块）。
+  // Preserve other providers' entries in auth.json (only overwrite the codex block).
   const existing = readAuthFile(path) ?? {}
   existing[CODEX_KEY] = creds
-  // 同步写盘后立刻收紧权限到 0600（避免 Bun.write 异步与 chmodSync 的竞态）。
+  // Tighten permissions to 0600 immediately after the synchronous write (avoids a race between async Bun.write and chmodSync).
   writeFileSync(path, JSON.stringify(existing, null, 2))
   chmodSync(path, 0o600)
-  // 写盘后让内存缓存失效，下次 getValidAccessToken 读到最新值。
+  // Update the in-memory cache after persisting so the next getValidAccessToken reads the latest value.
   _cached = creds
 }
 
-// access token 是 JWT：base64url(header).base64url(payload).signature。
-// accountId 在 payload 的自定义 claim 下。
+// The access token is a JWT: base64url(header).base64url(payload).signature.
+// accountId lives under a custom claim in the payload.
 export function extractAccountId(jwt: string): string {
   const parts = jwt.split('.')
   if (parts.length < 2) throw new Error('Malformed access token (not a JWT)')
   const payloadRaw = parts[1]!
-  // JWT 用 base64url；补齐 padding 后用 Buffer 解码。
+  // JWT uses base64url; restore padding then decode with Buffer.
   const padded = payloadRaw.replace(/-/g, '+').replace(/_/g, '/')
   const payload = JSON.parse(Buffer.from(padded, 'base64').toString('utf-8'))
   const claim = payload[ACCOUNT_ID_CLAIM]
@@ -85,7 +85,7 @@ export function extractAccountId(jwt: string): string {
   return accountId
 }
 
-// ─── 刷新 ─────────────────────────────────────────────────────────────────────
+// ─── Refresh ─────────────────────────────────────────────────────────────────────
 
 interface TokenResponse {
   access_token: string
@@ -116,7 +116,7 @@ export async function refreshToken(refresh: string): Promise<CodexCredentials> {
   }
   const data = (await resp.json()) as TokenResponse
   const access = data.access_token
-  // 部分实现刷新时不回传新 refresh_token —— 沿用旧的。
+  // Some implementations don't return a new refresh_token on refresh —— reuse the old one.
   const newRefresh = data.refresh_token || refresh
   return {
     type: 'oauth',
@@ -127,12 +127,12 @@ export async function refreshToken(refresh: string): Promise<CodexCredentials> {
   }
 }
 
-// ─── 取有效 token（单飞）─────────────────────────────────────────────────────
+// ─── Get a valid token (single-flight) ─────────────────────────────────────────────────────
 
 let _cached: CodexCredentials | null = null
 let _inFlight: Promise<CodexCredentials> | null = null
 
-// path 参数仅为可测性而设（默认即真实 authPath）；生产调用方一律走默认值。
+// The path parameter exists only for testability (defaults to the real authPath); production callers always use the default.
 export async function getValidAccessToken(
   path: string = authPath,
 ): Promise<{ access: string; accountId: string }> {
@@ -142,16 +142,16 @@ export async function getValidAccessToken(
   }
   _cached = creds
 
-  // 仍在有效期内（含提前量）→ 直接用。
+  // Still within validity (including the head start) → use it directly.
   if (Date.now() < creds.expires - REFRESH_SKEW_MS) {
     return { access: creds.access, accountId: creds.accountId }
   }
 
-  // 已有刷新在途 → 复用同一个 promise（并发子 agent 不重复刷新）。
+  // A refresh is already in flight → reuse the same promise (concurrent sub-agents don't refresh redundantly).
   if (!_inFlight) {
     _inFlight = refreshToken(creds.refresh)
       .then((fresh) => {
-        saveCodexCredentials(fresh, path) // 同步落盘并更新 _cached
+        saveCodexCredentials(fresh, path) // synchronously persist to disk and update _cached
         return fresh
       })
       .finally(() => {
@@ -162,7 +162,7 @@ export async function getValidAccessToken(
   return { access: fresh.access, accountId: fresh.accountId }
 }
 
-// 切换 provider / 重新登录时清空内存缓存，让下次调用重新读盘。
+// Clear the in-memory cache when switching providers / re-logging in, so the next call re-reads from disk.
 export function clearCodexTokenCache(): void {
   _cached = null
   _inFlight = null

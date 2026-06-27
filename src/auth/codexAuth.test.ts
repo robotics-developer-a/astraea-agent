@@ -13,7 +13,7 @@ import {
 } from './codexAuth'
 import { ACCOUNT_ID_CLAIM } from './codexConstants'
 
-// 构造一个合法 JWT（仅 header.payload.sig，签名不校验）。
+// Construct a valid JWT (header.payload.sig only; the signature is not verified).
 function makeJwt(payload: Record<string, unknown>): string {
   const b64 = (o: unknown) =>
     Buffer.from(JSON.stringify(o)).toString('base64').replace(/=+$/, '')
@@ -71,7 +71,7 @@ test('refreshToken raises a clear re-login error on 401', async () => {
   await expect(refreshToken('dead')).rejects.toThrow(/session expired.*\/login/i)
 })
 
-// ─── 凭据落盘 / 读取（隔离到临时文件，绝不碰真实 ~/.astraea/auth.json）─────────
+// ─── Credential persistence / loading (isolated to a temp file, never touches the real ~/.astraea/auth.json) ─────────
 
 function tmpAuthFile(): string {
   const dir = mkdtempSync(join(tmpdir(), 'astraea-codex-'))
@@ -125,14 +125,14 @@ test('loadCodexCredentials returns null when the file is absent', () => {
   expect(loadCodexCredentials(join(tmpdir(), 'astraea-codex-does-not-exist', 'auth.json'))).toBeNull()
 })
 
-// ─── getValidAccessToken：skew + 单飞刷新 ────────────────────────────────────
+// ─── getValidAccessToken: skew + single-flight refresh ────────────────────────────────────
 
 beforeEach(() => {
-  clearCodexTokenCache() // 清掉上一个测试在内存里留下的凭据
+  clearCodexTokenCache() // clear credentials left in memory by the previous test
 })
 
-const FUTURE = () => Date.now() + 10 * 60_000 // 远未过期
-const PAST = () => Date.now() - 1000          // 已过期
+const FUTURE = () => Date.now() + 10 * 60_000 // far from expiry
+const PAST = () => Date.now() - 1000          // already expired
 
 test('getValidAccessToken returns the cached token without refreshing when still valid', async () => {
   const file = tmpAuthFile()
@@ -148,7 +148,7 @@ test('getValidAccessToken returns the cached token without refreshing when still
 
 test('getValidAccessToken refreshes when within the 60s expiry skew', async () => {
   const file = tmpAuthFile()
-  // 距过期不到 60s（仍在 expires 之前，但落在 skew 窗口内）→ 应触发刷新。
+  // Less than 60s from expiry (still before expires, but within the skew window) → should trigger a refresh.
   saveCodexCredentials(creds({ access: 'old', refresh: 'r1', expires: Date.now() + 30_000 }), file)
   clearCodexTokenCache()
   const newAccess = makeJwt({ [ACCOUNT_ID_CLAIM]: { chatgpt_account_id: 'acct_new' } })
@@ -158,7 +158,7 @@ test('getValidAccessToken refreshes when within the 60s expiry skew', async () =
 
   const { access } = await getValidAccessToken(file)
   expect(access).toBe(newAccess)
-  // 刷新结果已落盘
+  // The refresh result has been persisted to disk
   expect(loadCodexCredentials(file)?.access).toBe(newAccess)
   rmSync(file, { force: true })
 })
@@ -171,7 +171,7 @@ test('concurrent getValidAccessToken calls trigger exactly one refresh (single-f
   let calls = 0
   globalThis.fetch = mock(async () => {
     calls++
-    await new Promise((r) => setTimeout(r, 20)) // 让并发调用都赶在刷新完成前进入
+    await new Promise((r) => setTimeout(r, 20)) // let all concurrent calls arrive before the refresh completes
     return new Response(JSON.stringify({ access_token: newAccess, refresh_token: 'r2', expires_in: 3600 }), { status: 200 })
   }) as unknown as typeof fetch
 

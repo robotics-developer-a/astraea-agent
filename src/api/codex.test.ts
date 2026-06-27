@@ -4,7 +4,7 @@ import { setSessionEffort, unsetSessionEffort } from '../state/reasoningEffort'
 import type { Message, StreamEvent } from '../types/message'
 import type { ToolSchema } from '../tools/Tool'
 
-// ─── 消息 → Responses input 转换 ─────────────────────────────────────────────
+// ─── message → Responses input conversion ─────────────────────────────────────────────
 
 test('user string → message item with input_text', () => {
   const msgs: Message[] = [{ role: 'user', content: 'hello' }]
@@ -50,18 +50,18 @@ test('convertTools is flat (name/description/parameters at top level)', () => {
   expect(convertTools([])).toBeUndefined()
 })
 
-test('buildCodexRequestBody sends the configured max output token cap', () => {
+test('buildCodexRequestBody omits max_output_tokens (Codex backend rejects it)', () => {
   const body = buildCodexRequestBody(
     [{ role: 'user', content: 'hello' }],
     { model: 'gpt-5.4-mini', maxTokens: 4096 },
   )
 
-  expect(body.max_output_tokens).toBe(4096)
+  expect(body.max_output_tokens).toBeUndefined()
 })
 
-// ─── SSE 解析 ────────────────────────────────────────────────────────────────
+// ─── SSE parsing ────────────────────────────────────────────────────────────────
 
-// 把 SSE 文本包成 ReadableStream（可分片以验证跨 chunk 缓冲）。
+// wrap SSE text into a ReadableStream (can be chunked to verify cross-chunk buffering).
 function sseStream(text: string, chunkSize = 9999): ReadableStream<Uint8Array> {
   const bytes = new TextEncoder().encode(text)
   let offset = 0
@@ -135,7 +135,7 @@ test('parseCodexSSE survives event boundaries split across read chunks', async (
     'data: {"type":"response.completed","response":{"usage":{"input_tokens":0,"output_tokens":0}}}',
     '',
   ].join('\n')
-  // 每次只吐 5 字节，强制事件被切碎、跨 chunk 重组。
+  // emit only 5 bytes at a time, forcing events to be split apart and reassembled across chunks.
   const events = await collect(parseCodexSSE(sseStream(fixture, 5)))
   expect(events[0]).toEqual({ type: 'text', text: 'chunked' })
 })
@@ -206,7 +206,7 @@ test('parseCodexSSE throws on a response.failed event', async () => {
   await expect(collect(parseCodexSSE(sseStream(fixture)))).rejects.toThrow(/boom/)
 })
 
-// ─── 更多消息转换 ────────────────────────────────────────────────────────────
+// ─── more message conversion ────────────────────────────────────────────────────────────
 
 test('tool_result with array content concatenates the text blocks', () => {
   const msgs: Message[] = [
@@ -238,7 +238,7 @@ test('an assistant message with only a tool_use (no text) converts to a single f
   ])
 })
 
-// ─── reasoning 参数映射 ──────────────────────────────────────────────────────
+// ─── reasoning param mapping ──────────────────────────────────────────────────────
 
 const savedEffortEnv = process.env.ASTRAEA_REASONING_EFFORT
 afterEach(() => {

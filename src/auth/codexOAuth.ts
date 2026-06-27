@@ -1,7 +1,7 @@
-// Codex 登录流程 —— 自包含 OAuth（PKCE），不依赖官方 codex CLI。
-// 两种方式：
-//   loginBrowser     —— 本地起 127.0.0.1:1455 回调服务器，开浏览器完成授权（桌面）。
-//   loginDeviceCode  —— 设备码轮询，显示 user_code + URL，用户在别处完成（headless/SSH）。
+// Codex login flow —— self-contained OAuth (PKCE), no dependency on the official codex CLI.
+// Two methods:
+//   loginBrowser     —— spins up a local 127.0.0.1:1455 callback server, opens the browser to complete authorization (desktop).
+//   loginDeviceCode  —— device-code polling, shows user_code + URL, user completes it elsewhere (headless/SSH).
 
 import { createHash, randomBytes } from 'crypto'
 import { spawn } from 'child_process'
@@ -25,7 +25,7 @@ import {
   type CodexCredentials,
 } from './codexAuth'
 
-// ─── PKCE 辅助 ────────────────────────────────────────────────────────────────
+// ─── PKCE helpers ─────────────────────────────────────────────────────────────
 
 function base64url(buf: Buffer): string {
   return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
@@ -43,7 +43,7 @@ export function randomState(): string {
   return base64url(randomBytes(32))
 }
 
-// ─── 令牌交换 ─────────────────────────────────────────────────────────────────
+// ─── Token exchange ───────────────────────────────────────────────────────────
 
 interface TokenResponse {
   access_token: string
@@ -51,7 +51,7 @@ interface TokenResponse {
   expires_in: number
 }
 
-// authorization_code → token（浏览器 / 设备码共用，仅 redirect_uri 不同）。
+// authorization_code → token (shared by browser / device-code flows, only redirect_uri differs).
 async function exchangeCode(params: {
   code: string
   verifier: string
@@ -104,7 +104,7 @@ function buildAuthorizeUrl(opts: {
   return `${AUTHORIZE_URL}?${q.toString()}`
 }
 
-// 平台对应的「打开 URL」命令；失败不抛（用户可手动复制 URL）。
+// Per-platform "open URL" command; never throws on failure (user can copy the URL manually).
 function openInBrowser(url: string): void {
   const cmd = platform() === 'darwin' ? 'open' : platform() === 'win32' ? 'start' : 'xdg-open'
   try {
@@ -112,16 +112,16 @@ function openInBrowser(url: string): void {
     child.on('error', () => {})
     child.unref()
   } catch {
-    // 忽略：调用方已把 URL 打印给用户
+    // Ignore: the caller has already printed the URL for the user
   }
 }
 
-// ─── 浏览器登录 ───────────────────────────────────────────────────────────────
+// ─── Browser login ────────────────────────────────────────────────────────────
 
 export interface BrowserLoginOptions {
-  // 通知调用方授权 URL（供 UI 显示）。无论是否提供，本函数都会尝试自动打开浏览器。
+  // Notifies the caller of the authorize URL (for the UI to display). Whether or not it is provided, this function still tries to open the browser automatically.
   onAuthUrl?: (url: string) => void
-  // 取消信号（用户 ESC 退出向导）→ 关闭本地回调服务器，释放端口。
+  // Cancellation signal (user presses ESC to exit the wizard) → close the local callback server, release the port.
   signal?: AbortSignal
 }
 
@@ -131,7 +131,7 @@ export async function loginBrowser(options: BrowserLoginOptions = {}): Promise<C
   const state = randomState()
   const authorizeUrl = buildAuthorizeUrl({ challenge, state, redirectUri: BROWSER_REDIRECT_URI })
 
-  // 用一个 promise 把回调结果导出到 await 点。
+  // Use a promise to surface the callback result at the await point.
   let resolveCode!: (code: string) => void
   let rejectCode!: (err: Error) => void
   const codePromise = new Promise<string>((resolve, reject) => {
@@ -167,7 +167,7 @@ export async function loginBrowser(options: BrowserLoginOptions = {}): Promise<C
     },
   })
 
-  // 取消信号 → 拒绝等待中的 promise，触发 finally 里的 server.stop。
+  // Cancellation signal → reject the pending promise, triggering server.stop in the finally block.
   if (options.signal) {
     if (options.signal.aborted) rejectCode(new Error('Login cancelled'))
     else options.signal.addEventListener('abort', () => rejectCode(new Error('Login cancelled')), { once: true })
@@ -177,7 +177,7 @@ export async function loginBrowser(options: BrowserLoginOptions = {}): Promise<C
     options.onAuthUrl?.(authorizeUrl)
     openInBrowser(authorizeUrl)
 
-    // 15 分钟内必须完成，否则超时。
+    // Must complete within 15 minutes, otherwise it times out.
     const code = await withTimeout(codePromise, 15 * 60 * 1000, 'Browser login timed out')
     const creds = await exchangeCode({ code, verifier, redirectUri: BROWSER_REDIRECT_URI })
     saveCodexCredentials(creds)
@@ -194,7 +194,7 @@ function htmlResponse(message: string): Response {
   )
 }
 
-// ─── 设备码登录 ───────────────────────────────────────────────────────────────
+// ─── Device-code login ────────────────────────────────────────────────────────
 
 interface UserCodeResponse {
   device_code?: string
@@ -207,9 +207,9 @@ interface UserCodeResponse {
 }
 
 export interface DeviceLoginOptions {
-  // 拿到 user_code + 验证 URL 后回调给 UI 展示。
+  // Once the user_code + verification URL are obtained, calls back to the UI to display them.
   onUserCode: (info: { userCode: string; verificationUri: string }) => void
-  // 取消信号（用户 ESC 退出向导）→ 停止轮询。
+  // Cancellation signal (user presses ESC to exit the wizard) → stop polling.
   signal?: AbortSignal
 }
 
@@ -217,7 +217,7 @@ export async function loginDeviceCode(options: DeviceLoginOptions): Promise<Code
   const verifier = generateVerifier()
   const challenge = challengeS256(verifier)
 
-  // 请求设备码 —— 同样带 PKCE challenge，最终交换时回传 verifier。
+  // Request a device code —— also carries the PKCE challenge, replaying the verifier in the final exchange.
   const startBody = new URLSearchParams({
     client_id: CLIENT_ID,
     scope: SCOPE,
@@ -262,7 +262,7 @@ export async function loginDeviceCode(options: DeviceLoginOptions): Promise<Code
       body: pollBody.toString(),
     })
 
-    // 403 / authorization_pending → 用户还没批准，继续轮询。
+    // 403 / authorization_pending → user has not approved yet, keep polling.
     if (pollResp.status === 403) continue
 
     const data = (await pollResp.json().catch(() => ({}))) as Record<string, unknown>
@@ -277,10 +277,10 @@ export async function loginDeviceCode(options: DeviceLoginOptions): Promise<Code
       throw new Error(`Device login failed: ${errorCode}`)
     }
 
-    // 完成：响应里带 authorization_code（+ 服务端回传的 code_verifier）。
+    // Done: the response carries authorization_code (+ the code_verifier returned by the server).
     const code = (data.authorization_code as string) || (data.code as string)
     const returnedVerifier = (data.code_verifier as string) || verifier
-    if (!code) continue // 偶发空响应，继续轮询
+    if (!code) continue // occasional empty response, keep polling
 
     const creds = await exchangeCode({
       code,
@@ -294,7 +294,7 @@ export async function loginDeviceCode(options: DeviceLoginOptions): Promise<Code
   throw new Error('Device login timed out (15 min). Run /login to try again.')
 }
 
-// ─── 小工具 ───────────────────────────────────────────────────────────────────
+// ─── Utilities ────────────────────────────────────────────────────────────────
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
