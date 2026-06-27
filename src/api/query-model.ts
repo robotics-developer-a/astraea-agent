@@ -15,7 +15,7 @@ import { isReasoningModel } from './openai'
 const ANTHROPIC_SMALL_MODEL = 'claude-haiku-4-5-20251001'
 const OPENAI_SMALL_MODEL = 'gpt-4o-mini'
 const DEEPSEEK_SMALL_MODEL = 'deepseek-v4-flash'
-// Codex 订阅没有独立计价的小模型，挑个更便宜的 mini 档。CODEX_MODEL 之外可用 env 覆盖。
+// Codex subscription has no separately-priced small model, so pick a cheaper mini tier. Overridable via env beyond CODEX_MODEL.
 const CODEX_SMALL_MODEL = 'gpt-5.4-mini'
 const STRUCTURED_JSON_SYSTEM_HINT =
   'Return ONLY valid JSON. Do not wrap it in markdown fences, do not add prose, and do not leave the response empty.'
@@ -100,7 +100,7 @@ export async function querySmallModel(
     return retryBlock && 'text' in retryBlock ? retryBlock.text : firstText
   }
 
-  // Codex（ChatGPT 订阅）—— 不是 chat/completions，复用 codex 流式适配器累积文本。
+  // Codex (ChatGPT subscription) — not chat/completions; reuse the codex streaming adapter and accumulate text.
   if (provider === 'codex') {
     const { streamMessageCodex } = await import('./codex')
     const run = async (): Promise<string> => {

@@ -176,7 +176,7 @@ export const config = {
     reasoningEffort: process.env.OPENAI_REASONING_EFFORT?.trim() || undefined,
   },
 
-  // Codex（ChatGPT 订阅）—— 走 OAuth + Responses API，无 apiKey（凭据在 ~/.astraea/auth.json）。
+  // Codex (ChatGPT subscription) — uses OAuth + the Responses API, no apiKey (credentials live in ~/.astraea/auth.json).
   codex: {
     model: process.env.CODEX_MODEL ?? 'gpt-5.4',
     baseUrl: 'https://chatgpt.com/backend-api',
@@ -269,7 +269,7 @@ export function updateProviderConfig(provider: Provider, model: string, apiKey: 
       config.openai.model = model
       break
     case 'codex':
-      // 凭据在 auth.json，apiKey 参数对 codex 无意义，仅记录所选模型。
+      // Credentials live in auth.json; the apiKey arg is meaningless for codex, so we only record the chosen model.
       config.codex.model = model
       break
   }
@@ -381,8 +381,8 @@ export async function saveConfigToEnv(destination: string = globalEnvPath): Prom
     `OPENAI_MODEL=${config.openai.model}`,
     `OPENAI_BASE_URL=${config.openai.baseUrl}`,
     '',
-    '# ─── Codex（ChatGPT 订阅，OAuth）────────────────────────',
-    '# 凭据经 /login 写入 ~/.astraea/auth.json，此处无 secret。',
+    '# ─── Codex (ChatGPT subscription, OAuth) ──────────────────',
+    '# Credentials are written to ~/.astraea/auth.json via /login; no secret here.',
     `# PROVIDER=codex`,
     `CODEX_MODEL=${config.codex.model}`,
     '',
@@ -418,7 +418,7 @@ function loginEnvUpdates(): Record<string, string> {
       updates.OLLAMA_BASE_URL = config.ollama.baseUrl
       break
     case 'codex':
-      // 无 secret 写入 .env —— token 在 ~/.astraea/auth.json，只记 provider + 模型。
+      // No secret written to .env — the token lives in ~/.astraea/auth.json; we only record provider + model.
       updates.CODEX_MODEL = config.codex.model
       break
   }

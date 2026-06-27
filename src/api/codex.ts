@@ -1,13 +1,13 @@
-// Codex（ChatGPT 订阅）流式适配器 —— OpenAI Responses API，非 chat/completions。
+// Codex (ChatGPT subscription) streaming adapter — OpenAI Responses API, not chat/completions.
 //
-// 与 src/api/openai.ts 的结构一致（streamMessageCodex → withIdleWatchdog + linkAbort），
-// 但有三处根本不同：
-//   ① 认证走 OAuth（getValidAccessToken），不是 API Key；用裸 fetch，不经 OpenAI SDK。
-//   ② 端点是 chatgpt.com/backend-api/codex/responses（Responses API），请求/SSE 形状不同。
-//   ③ 需要 codex 专属请求头（chatgpt-account-id / originator / OpenAI-Beta）。
+// Mirrors the structure of src/api/openai.ts (streamMessageCodex → withIdleWatchdog + linkAbort),
+// but differs in three fundamental ways:
+//   ① auth goes through OAuth (getValidAccessToken), not an API key; uses bare fetch, not the OpenAI SDK.
+//   ② the endpoint is chatgpt.com/backend-api/codex/responses (Responses API), with different request/SSE shapes.
+//   ③ it needs codex-specific request headers (chatgpt-account-id / originator / OpenAI-Beta).
 //
-// 简化（v1）：我们请求 reasoning.encrypted_content，但暂不把它回灌到后续轮次的 input。
-// 多轮加密推理连续性留作后续跟进项（见 plan 的 follow-ups）。
+// Simplification (v1): we request reasoning.encrypted_content but do not yet feed it back into the input on subsequent turns.
+// Multi-turn encrypted reasoning continuity is left as a follow-up (see the plan's follow-ups).
 
 import { config } from '../config'
 import type { Message, StreamEvent, StopReason } from '../types/message'
@@ -22,18 +22,18 @@ import {
   buildUserAgent,
 } from '../auth/codexConstants'
 
-// gpt-5.x / o 系是推理模型，给它们下发 reasoning 参数。
+// gpt-5.x / o-series are reasoning models; send them the reasoning param.
 function isReasoningModel(model: string): boolean {
   return /^o\d/i.test(model) || /^gpt-5/i.test(model)
 }
 
-// 没有缓存的 SDK client —— 仅清内存里的 token 缓存，确保重新登录后生效。
+// No cached SDK client — just clear the in-memory token cache so a re-login takes effect.
 export function resetCodexClient(): void {
   clearCodexTokenCache()
 }
 
-// ─── 消息转换：Anthropic 风格块 → Responses API input 项 ─────────────────────
-// 这是最易出错的一块。Responses 的 input 是「item」数组，角色/工具调用各有专属 type。
+// ─── message conversion: Anthropic-style blocks → Responses API input items ─────────────────────
+// This is the most error-prone part. The Responses input is an array of "items", and roles / tool calls each have their own type.
 type ResponsesInputItem = Record<string, unknown>
 
 export function convertMessagesToInput(messages: Message[]): ResponsesInputItem[] {
@@ -90,7 +90,7 @@ export function convertMessagesToInput(messages: Message[]): ResponsesInputItem[
   return items
 }
 
-// 工具：Responses API 是扁平结构（不像 chat/completions 把字段塞进嵌套 function 对象）。
+// tools: the Responses API is flat (unlike chat/completions, which nests the fields inside a function object).
 export function convertTools(tools: ToolSchema[] | undefined): ResponsesInputItem[] | undefined {
   if (!tools?.length) return undefined
   return tools.map((t) => ({
@@ -101,7 +101,7 @@ export function convertTools(tools: ToolSchema[] | undefined): ResponsesInputIte
   }))
 }
 
-// reasoning 参数：仅推理模型下发。effort 走 /reason 链；max → high 安全降级。
+// reasoning param: only sent for reasoning models. effort follows the /reason chain; max → high safe downgrade.
 export function buildReasoningParam(model: string): { effort: string; summary: 'auto' } | undefined {
   if (!isReasoningModel(model)) return undefined
   const applied = resolveAppliedEffort()
@@ -120,8 +120,8 @@ export function streamMessageCodex(
   return withIdleWatchdog({
     stream: streamRawCodex(body, linked.signal),
     abort: linked.abort,
-    // Responses API 只有流式形态（无 stream:false 等价），故看门狗超时后的兜底就是
-    // 用 fallbackSignal 重发一次同样的流式请求（半开连接多为瞬时，重连通常即恢复）。
+    // The Responses API only has a streaming form (no stream:false equivalent), so the fallback after an idle-watchdog
+    // timeout is to resend the same streaming request with fallbackSignal (half-open connections are usually transient, and a reconnect typically recovers).
     fallback: () => streamRawCodex(body, linked.fallbackSignal),
   })
 }
@@ -150,9 +150,9 @@ export function buildCodexRequestBody(
   return body
 }
 
-// ─── SSE 解析 ────────────────────────────────────────────────────────────────
-// Responses API 以 SSE 推送：每个事件由 `event:` 与 `data:` 行组成，事件间用空行分隔。
-// 没有 SDK 替我们解析，手写一个 ReadableStream 读取器。
+// ─── SSE parsing ────────────────────────────────────────────────────────────────
+// The Responses API streams over SSE: each event is made of `event:` and `data:` lines, with a blank line between events.
+// There's no SDK to parse it for us, so we hand-write a ReadableStream reader.
 
 async function* streamRawCodex(
   body: Record<string, unknown>,
@@ -186,12 +186,12 @@ async function* streamRawCodex(
   yield* parseCodexSSE(resp.body)
 }
 
-// Responses API SSE 解析（独立导出，便于对捕获的 fixture 做单测）。
-// 输入是 response.body 的 ReadableStream<Uint8Array>，产出与其它适配器同构的 StreamEvent。
+// Responses API SSE parsing (exported separately so captured fixtures can be unit-tested).
+// Input is the ReadableStream<Uint8Array> from response.body; output is StreamEvent values, isomorphic to the other adapters.
 export async function* parseCodexSSE(
   body: ReadableStream<Uint8Array>,
 ): AsyncGenerator<StreamEvent> {
-  // function_call 累积缓冲：call_id → { name, args }
+  // function_call accumulation buffer: call_id → { name, args }
   const toolCalls = new Map<string, { name: string; args: string }>()
   let inputTokens = 0
   let outputTokens = 0
@@ -202,14 +202,14 @@ export async function* parseCodexSSE(
   const decoder = new TextDecoder()
   let buffer = ''
 
-  // 单个 SSE 事件块 → StreamEvent（可能 0 或多个）。复用于循环内与流尾 flush。
+  // single SSE event block → StreamEvent (possibly 0 or more). Reused inside the loop and for the end-of-stream flush.
   async function* handleEvent(rawEvent: string): AsyncGenerator<StreamEvent> {
       let dataStr = ''
       for (const line of rawEvent.split('\n')) {
         if (line.startsWith('data:')) {
           dataStr += line.slice(5).trimStart()
         }
-        // event: 行类型也藏在 data 的 "type" 字段里，这里以 data 为准。
+        // the event: line type is also carried in data's "type" field, so we treat data as authoritative.
       }
       if (!dataStr || dataStr === '[DONE]') return
 
@@ -217,27 +217,27 @@ export async function* parseCodexSSE(
       try {
         data = JSON.parse(dataStr)
       } catch {
-        return // 残缺 JSON（理论上不会，事件以空行边界切分）
+        return // malformed JSON (shouldn't happen in theory, since events are split on blank-line boundaries)
       }
 
       const type = data.type as string | undefined
       if (!type) return
 
-      // 正文文本增量
+      // body text delta
       if (type === 'response.output_text.delta') {
         const delta = data.delta as string | undefined
         if (delta) yield { type: 'text', text: delta }
         return
       }
 
-      // 推理摘要 / 推理正文增量 → thinking（仅作心跳，不回灌历史）
+      // reasoning summary / reasoning body delta → thinking (heartbeat only, not fed back into history)
       if (type === 'response.reasoning_summary_text.delta' || type === 'response.reasoning_text.delta') {
         const delta = data.delta as string | undefined
         if (delta) yield { type: 'thinking', text: delta }
         return
       }
 
-      // 新增 output item：可能是 function_call（登记 call_id + name）
+      // new output item: may be a function_call (register call_id + name)
       if (type === 'response.output_item.added') {
         const item = data.item as Record<string, unknown> | undefined
         if (item?.type === 'function_call') {
@@ -249,7 +249,7 @@ export async function* parseCodexSSE(
         return
       }
 
-      // function_call 入参增量
+      // function_call arguments delta
       if (type === 'response.function_call_arguments.delta') {
         const callId = (data.call_id as string) || (data.item_id as string) || ''
         const delta = data.delta as string | undefined
@@ -261,13 +261,13 @@ export async function* parseCodexSSE(
         return
       }
 
-      // output item 完成：function_call 落地 → emit tool_use
+      // output item done: function_call finalized → emit tool_use
       if (type === 'response.output_item.done') {
         const item = data.item as Record<string, unknown> | undefined
         if (item?.type === 'function_call') {
           const callId = (item.call_id as string) || (item.id as string) || ''
           const buf = toolCalls.get(callId)
-          // 完整 arguments 优先取 item.arguments；否则用累积的增量。
+          // prefer the complete item.arguments; otherwise use the accumulated deltas.
           const argsStr = (item.arguments as string) ?? buf?.args ?? ''
           const name = (item.name as string) || buf?.name || ''
           let input: Record<string, unknown> = {}
@@ -280,7 +280,7 @@ export async function* parseCodexSSE(
         return
       }
 
-      // 完成事件：读 usage + 判定 stopReason
+      // completion event: read usage + determine stopReason
       if (type === 'response.completed' || type === 'response.incomplete') {
         const response = data.response as Record<string, unknown> | undefined
         const usage = response?.usage as Record<string, unknown> | undefined
@@ -297,7 +297,7 @@ export async function* parseCodexSSE(
         return
       }
 
-      // 错误事件
+      // error event
       if (type === 'response.failed' || type === 'error') {
         const response = data.response as Record<string, unknown> | undefined
         const err = (response?.error ?? data.error) as Record<string, unknown> | undefined
@@ -310,7 +310,7 @@ export async function* parseCodexSSE(
     const { done, value } = await reader.read()
     if (done) break
     buffer += decoder.decode(value, { stream: true })
-    // 以空行分隔事件块；逐个完整事件处理。
+    // split event blocks on blank lines; process each complete event one at a time.
     let sep: number
     while ((sep = buffer.indexOf('\n\n')) !== -1) {
       const rawEvent = buffer.slice(0, sep)
@@ -318,7 +318,7 @@ export async function* parseCodexSSE(
       yield* handleEvent(rawEvent)
     }
   }
-  // 流结束：处理残留缓冲里最后一个未以空行收尾的事件（如 response.completed）。
+  // end of stream: handle the last event left in the buffer that didn't end with a blank line (e.g. response.completed).
   if (buffer.trim()) yield* handleEvent(buffer)
 
   yield {
