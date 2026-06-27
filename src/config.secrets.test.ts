@@ -9,11 +9,13 @@ import { setSessionEffort, unsetSessionEffort } from './state/reasoningEffort'
 const originalProvider = config.provider
 const originalDeepSeekKey = config.deepseek.apiKey
 const originalDeepSeekModel = config.deepseek.model
+const originalCodexModel = config.codex.model
 
 afterEach(() => {
   config.provider = originalProvider
   config.deepseek.apiKey = originalDeepSeekKey
   config.deepseek.model = originalDeepSeekModel
+  config.codex.model = originalCodexModel
   delete process.env.ASTRAEA_REASONING_EFFORT
   unsetSessionEffort()
 })
@@ -43,6 +45,20 @@ test('/login updates project env overrides as well as the global env', async () 
   expect(readFileSync(projectDestination, 'utf8')).toContain('DEEPSEEK_MODEL=deepseek-v4-pro')
   expect(statSync(globalDestination).mode & 0o777).toBe(0o600)
   expect(statSync(projectDestination).mode & 0o777).toBe(0o600)
+})
+
+test('codex model is persisted as an active env value', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'astraea-codex-env-'))
+  const destination = join(dir, '.env')
+  config.provider = 'codex'
+  config.codex.model = 'gpt-5.4-mini'
+
+  await saveConfigToEnv(destination)
+
+  const content = readFileSync(destination, 'utf8')
+  expect(content).toContain('PROVIDER=codex')
+  expect(content).toContain('CODEX_MODEL=gpt-5.4-mini')
+  expect(content).not.toContain('# CODEX_MODEL=')
 })
 
 test('/login model switch clears stale session reasoning so the selected model wins', () => {

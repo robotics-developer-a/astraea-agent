@@ -15,6 +15,8 @@ import { isReasoningModel } from './openai'
 const ANTHROPIC_SMALL_MODEL = 'claude-haiku-4-5-20251001'
 const OPENAI_SMALL_MODEL = 'gpt-4o-mini'
 const DEEPSEEK_SMALL_MODEL = 'deepseek-v4-flash'
+// Codex 订阅没有独立计价的小模型，挑个更便宜的 mini 档。CODEX_MODEL 之外可用 env 覆盖。
+const CODEX_SMALL_MODEL = 'gpt-5.4-mini'
 const STRUCTURED_JSON_SYSTEM_HINT =
   'Return ONLY valid JSON. Do not wrap it in markdown fences, do not add prose, and do not leave the response empty.'
 
@@ -33,6 +35,7 @@ export function smallModelName(provider = config.provider): string {
     case 'openai': return OPENAI_SMALL_MODEL
     case 'deepseek': return deepseekSmallModelName()
     case 'kimi': return config.kimi.model
+    case 'codex': return CODEX_SMALL_MODEL
     default: return config.ollama.model
   }
 }
@@ -95,6 +98,29 @@ export async function querySmallModel(
     const retry = await runAnthropic()
     const retryBlock = retry.content[0]
     return retryBlock && 'text' in retryBlock ? retryBlock.text : firstText
+  }
+
+  // Codex（ChatGPT 订阅）—— 不是 chat/completions，复用 codex 流式适配器累积文本。
+  if (provider === 'codex') {
+    const { streamMessageCodex } = await import('./codex')
+    const run = async (): Promise<string> => {
+      let text = ''
+      for await (const ev of streamMessageCodex(
+        [{ role: 'user', content: userPrompt }],
+        {
+          ...(effectiveSystemPrompt ? { system: effectiveSystemPrompt } : {}),
+          model: CODEX_SMALL_MODEL,
+          maxTokens: 4096,
+          ...(signal ? { abortSignal: signal } : {}),
+        },
+      )) {
+        if (ev.type === 'text') text += ev.text
+      }
+      return text
+    }
+    const firstText = await run()
+    if (!shouldRetryStructuredJson(firstText, options)) return firstText
+    return run()
   }
 
   // OpenAI-compatible providers (openai, deepseek, kimi, ollama)

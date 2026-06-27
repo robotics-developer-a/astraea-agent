@@ -134,6 +134,7 @@ const EN: Dict = {
   mGpt55: 'most capable · 128K output',
   mGpt54: 'recommended · value',
   mGpt54mini: 'fast · subtasks',
+  mGpt53spark: 'codex spark · agentic',
   mGpt4o: 'legacy · balanced',
   mO3: 'legacy · reasoning',
   // /help
@@ -218,6 +219,7 @@ const ZH: Dict = {
   mGpt55: '最强 · 128K 输出',
   mGpt54: '推荐 · 性价比',
   mGpt54mini: '快速 · 子任务',
+  mGpt53spark: 'codex spark · 智能体',
   mGpt4o: '旧 · 均衡',
   mO3: '旧 · 推理',
   helpCommands: '命令',

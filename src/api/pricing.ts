@@ -63,6 +63,13 @@ const PRICING: Record<string, ModelPrice> = {
   // ── OpenAI（公开价目近似，请核对）。自动缓存命中 0.5×，无写入费 ──
   'gpt-4o-mini':       { inputPerMTok: 0.15, outputPerMTok: 0.60, cacheReadMult: 0.5, cacheWriteMult: 0 },
   'gpt-4o':            { inputPerMTok: 2.50, outputPerMTok: 10,   cacheReadMult: 0.5, cacheWriteMult: 0 },
+
+  // ── Codex（ChatGPT 订阅）。订阅按月计费、非按 token，故全部记 0，仅让 /usage 不报「未定价」缺口。
+  //   若日后想按等效 gpt-5 API 费率估算，把这些 0 换成对应单价即可。
+  'gpt-5.5':              { inputPerMTok: 0, outputPerMTok: 0, cacheReadMult: 0, cacheWriteMult: 0 },
+  'gpt-5.4':              { inputPerMTok: 0, outputPerMTok: 0, cacheReadMult: 0, cacheWriteMult: 0 },
+  'gpt-5.4-mini':         { inputPerMTok: 0, outputPerMTok: 0, cacheReadMult: 0, cacheWriteMult: 0 },
+  'gpt-5.3-codex-spark':  { inputPerMTok: 0, outputPerMTok: 0, cacheReadMult: 0, cacheWriteMult: 0 },
 }
 
 /** 本地 provider（无 API 计费）。这些模型成本恒为 $0。 */

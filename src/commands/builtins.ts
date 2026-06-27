@@ -301,7 +301,7 @@ export function getBuiltinCommands(): Command[] {
 
     local('model', 'show current provider, model, and endpoint', async () => {
       const p = config.provider
-      const providerCfg = (config as unknown as Record<string, { model?: string; endpoint?: string }>)[p]
+      const providerCfg = (config as unknown as Record<string, { model?: string; endpoint?: string; baseUrl?: string }>)[p]
       const model = providerCfg?.model ?? 'unknown'
       const endpoint = providerCfg?.endpoint ?? ''
       const ctx = activeContextWindow().toLocaleString()
@@ -311,6 +311,12 @@ export function getBuiltinCommands(): Command[] {
       parts.push(`| Provider | ${p} |`)
       parts.push(`| Model | ${model} |`)
       if (endpoint) parts.push(`| Endpoint | ${endpoint} |`)
+      if (p === 'codex') {
+        const { loadCodexCredentials } = await import('../auth/codexAuth')
+        const creds = loadCodexCredentials()
+        parts.push(`| Endpoint | ${config.codex.baseUrl}/codex/responses |`)
+        parts.push(`| Auth | ${creds ? `subscription (logged in as ${creds.accountId})` : 'not logged in — run /login'} |`)
+      }
       parts.push(`| Context window | ${ctx} tokens |`)
       return { type: 'text', value: parts.join('\n') }
     }),
