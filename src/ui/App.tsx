@@ -110,6 +110,7 @@ import { GoalPanel, GoalHint } from './GoalPanel'
 import { assessGoalVerifiability } from '../services/goal-evaluator'
 import { SlashHint, SubcommandHint, allSlashCommands, matchSlashCommands, matchSubcommands, trailingSlashToken } from './SlashHint'
 import { ModeInputFrame } from './ModeBanner'
+import { useResizeRedraw } from './useResizeRedraw'
 import { ToolBatch, type ToolCall } from './ToolBatch'
 import { expandPasteTokens } from './pasteExpansion'
 import { STATUS_COLOR, splitStatusLine, INDIGO, DEEP, type AgentStatus } from './theme'
@@ -837,6 +838,11 @@ export function App() {
     stdout?.write(CLEAR_TERMINAL)
     setStaticEpoch(e => e + 1)
   }, [stdout])
+
+  // Terminal resize (columns/rows change) -> debounced full-screen redraw; otherwise <Static>
+  // history re-wraps at the old width and ghosts/misaligns. The live frame and input box live
+  // outside <Static> and already re-render reactively with columns; this only repaints scrollback.
+  useResizeRedraw(columns, rows, wipeStatic)
 
   const restoreSession = useCallback((target: SessionSummary) => {
     const msgs = loadSessionMessages(target.path)
