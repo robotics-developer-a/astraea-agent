@@ -1,18 +1,19 @@
-// useResizeRedraw 验收 —— 锁定「终端 resize → 去抖后整屏重铺」的行为契约：
-//   · 挂载帧不触发（避免开屏就清屏闪一下）
-//   · 尺寸变化 → 去抖后触发一次
-//   · 一次拖拽里的快速连变 → 只触发一次（去抖）
-//   · 同值重渲（尺寸没变）→ 不触发
-//   · 变化后立即卸载 → 定时器被清理，不触发
-// 断言落在 onResize 这个副作用回调上（不看渲染帧）——绕开 Ink 测试环境对 effect/定时器
-// 重渲的输出节流（见 ModeBanner.test.tsx 注），故稳定不抖。
+// useResizeRedraw acceptance — locks the "terminal resize -> debounced full redraw" contract:
+//   · no redraw on the mount frame (don't flash-clear on open)
+//   · a size change triggers exactly one redraw after the debounce
+//   · rapid changes within one drag coalesce to a single redraw
+//   · a re-render with unchanged dimensions does not trigger
+//   · unmounting before the debounce fires clears the timer (no redraw)
+// Assertions observe the onResize side-effect callback (not the rendered frame), which sidesteps
+// Ink's test-env throttling of effect/timer-driven re-renders (see ModeBanner.test.tsx note), so
+// they stay stable.
 import React from 'react'
 import { test, expect, afterEach, mock } from 'bun:test'
 import { render } from 'ink-testing-library'
 import { Text } from 'ink'
 import { useResizeRedraw } from './useResizeRedraw'
 
-const DELAY = 30                                  // 测试用短去抖窗口，加速跑测
+const DELAY = 30                                  // short debounce window to keep tests fast
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
 
 function Harness({ columns, rows, onResize }: { columns: number; rows: number; onResize: () => void }) {
@@ -23,7 +24,7 @@ function Harness({ columns, rows, onResize }: { columns: number; rows: number; o
 let cleanup: (() => void) | null = null
 afterEach(() => { cleanup?.(); cleanup = null })
 
-test('挂载帧不触发重铺', async () => {
+test('no redraw on the mount frame', async () => {
   const onResize = mock(() => {})
   const { unmount } = render(<Harness columns={80} rows={24} onResize={onResize} />)
   cleanup = unmount
@@ -31,7 +32,7 @@ test('挂载帧不触发重铺', async () => {
   expect(onResize.mock.calls.length).toBe(0)
 })
 
-test('尺寸变化 → 去抖后触发一次', async () => {
+test('a size change triggers one redraw after the debounce', async () => {
   const onResize = mock(() => {})
   const { rerender, unmount } = render(<Harness columns={80} rows={24} onResize={onResize} />)
   cleanup = unmount
@@ -40,7 +41,7 @@ test('尺寸变化 → 去抖后触发一次', async () => {
   expect(onResize.mock.calls.length).toBe(1)
 })
 
-test('rows 变化（仅高度）也触发', async () => {
+test('a rows-only change (height) also triggers', async () => {
   const onResize = mock(() => {})
   const { rerender, unmount } = render(<Harness columns={80} rows={24} onResize={onResize} />)
   cleanup = unmount
@@ -49,11 +50,12 @@ test('rows 变化（仅高度）也触发', async () => {
   expect(onResize.mock.calls.length).toBe(1)
 })
 
-test('快速连变（模拟拖拽）只触发一次', async () => {
+test('rapid changes (simulated drag) trigger only once', async () => {
   const onResize = mock(() => {})
   const { rerender, unmount } = render(<Harness columns={80} rows={24} onResize={onResize} />)
   cleanup = unmount
-  // 连发多次尺寸变化、之间不等待 → 每次都清掉上一个定时器重计时，只末尾那次该落地。
+  // Fire several size changes back to back with no wait between them -> each clears the previous
+  // timer and restarts it, so only the last one should land.
   rerender(<Harness columns={90} rows={24} onResize={onResize} />)
   rerender(<Harness columns={100} rows={24} onResize={onResize} />)
   rerender(<Harness columns={70} rows={30} onResize={onResize} />)
@@ -61,7 +63,7 @@ test('快速连变（模拟拖拽）只触发一次', async () => {
   expect(onResize.mock.calls.length).toBe(1)
 })
 
-test('同值重渲（尺寸未变）不触发', async () => {
+test('a re-render with unchanged dimensions does not trigger', async () => {
   const onResize = mock(() => {})
   const { rerender, unmount } = render(<Harness columns={80} rows={24} onResize={onResize} />)
   cleanup = unmount
@@ -70,11 +72,11 @@ test('同值重渲（尺寸未变）不触发', async () => {
   expect(onResize.mock.calls.length).toBe(0)
 })
 
-test('变化后立即卸载 → 定时器被清理，不触发', async () => {
+test('unmounting before the debounce fires clears the timer (no redraw)', async () => {
   const onResize = mock(() => {})
   const { rerender, unmount } = render(<Harness columns={80} rows={24} onResize={onResize} />)
   rerender(<Harness columns={120} rows={24} onResize={onResize} />)
-  unmount()                       // 去抖窗口未到就卸载 → cleanup 应 clearTimeout
+  unmount()                       // unmount before the debounce window elapses -> cleanup should clearTimeout
   cleanup = null
   await sleep(DELAY * 3)
   expect(onResize.mock.calls.length).toBe(0)

@@ -839,8 +839,9 @@ export function App() {
     setStaticEpoch(e => e + 1)
   }, [stdout])
 
-  // 终端 resize（columns/rows 变化）→ 去抖后整屏重铺，否则 <Static> 历史按旧宽折行会重影/错位。
-  // live frame 与输入框在 <Static> 之外、本就随 columns 反应式重渲；这里只补滚动区的重绘。
+  // Terminal resize (columns/rows change) -> debounced full-screen redraw; otherwise <Static>
+  // history re-wraps at the old width and ghosts/misaligns. The live frame and input box live
+  // outside <Static> and already re-render reactively with columns; this only repaints scrollback.
   useResizeRedraw(columns, rows, wipeStatic)
 
   const restoreSession = useCallback((target: SessionSummary) => {

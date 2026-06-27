@@ -102,10 +102,12 @@ export function ModeInputFrame({ mode, running = false, value, children }: ModeI
   // 内容实际高度（输入行 + 可选的 SlashHint/GoalHint/Esc 提示），决定左右 │ 画几行。
   const contentRef = useRef<DOMElement | null>(null)
   const [contentH, setContentH] = useState(1)
-  // 在 mount 时、以及列宽变化时各测一次高度。不加 dep 数组会导致每次渲染后都 re-measure，
-  // 重渲染时机差让测量值轻微波动 → contentH 变化 → 左右边框行数 H 变化 → 整个框"变大"。
-  // 但终端 resize 后内容按新列宽重新折行，高度会变——只在 columns 变化（有界、刻意的事件，
-  // 非每帧）时重测，让左右 │ 行数与新宽度下的输入内容折行保持一致。
+  // Measure height on mount and whenever the column width changes. Omitting a dep array would
+  // re-measure after every render; the slightly different render timing makes the measured value
+  // wobble -> contentH changes -> the left/right border row count H changes -> the whole box
+  // "grows". But after a terminal resize the content re-wraps to the new width and its height
+  // genuinely changes, so we re-measure only when columns changes (a bounded, deliberate event,
+  // not every frame) to keep the left/right │ counts in sync with how the input wraps.
   useEffect(() => {
     if (!contentRef.current) return
     const { height } = measureElement(contentRef.current)
