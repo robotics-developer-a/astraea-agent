@@ -1,5 +1,5 @@
 // /login 交互式配置向导 — 分步选择 provider → model → API Key
-// Codex（ChatGPT 订阅）走分支流程：provider → model → 登录方式（浏览器 / 设备码）→ OAuth。
+// Codex (ChatGPT subscription) takes a branching flow: provider → model → login method (browser / device code) → OAuth.
 import React, { useState, useEffect } from 'react'
 import { Box, Text, useInput } from 'ink'
 import TextInput from './TextInput'
@@ -104,7 +104,7 @@ export function LoginWizard({ onDone }: Props): React.ReactNode {
   const [provider, setProvider] = useState<Exclude<Provider, 'ollama'>>('anthropic')
   const [model, setModel] = useState('')
   const [apiKey, setApiKey] = useState('')
-  // Codex OAuth 进度态
+  // Codex OAuth progress state
   const [oauthMethod, setOauthMethod] = useState<'browser' | 'device' | null>(null)
   const [oauthStatus, setOauthStatus] = useState('')
   const [authUrl, setAuthUrl] = useState('')
@@ -114,10 +114,10 @@ export function LoginWizard({ onDone }: Props): React.ReactNode {
   const models = MODELS[provider]
   const providerLabel = PROVIDERS.find(p => p.value === provider)?.label ?? provider
   // INTENT: Credential reuse is provider-scoped, so switching models never borrows another provider's secret.
-  // codex 无 apiKey 字段（凭据在 auth.json），用空串占位避免读到 undefined。
+  // codex has no apiKey field (credentials live in auth.json); use an empty-string placeholder to avoid reading undefined.
   const existingApiKey = provider === 'codex' ? '' : config[provider].apiKey
 
-  // Codex OAuth 流程：进入 oauthRunning 步骤后按所选方式发起登录，完成即 onDone。
+  // Codex OAuth flow: once in the oauthRunning step, start login via the chosen method and call onDone when complete.
   useEffect(() => {
     if (step !== 'oauthRunning' || !oauthMethod) return
     const controller = new AbortController()
@@ -150,7 +150,7 @@ export function LoginWizard({ onDone }: Props): React.ReactNode {
       cancelled = true
       controller.abort()
     }
-    // model 在进入此步前已定，无需进依赖；onDone 来自父组件稳定引用。
+    // model is already set before this step, so it needn't be a dependency; onDone is a stable reference from the parent.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, oauthMethod])
 
@@ -163,7 +163,7 @@ export function LoginWizard({ onDone }: Props): React.ReactNode {
 
     // apikey 步骤：只处理 ESC，其余交给 TextInput
     if (step === 'apikey') return
-    // OAuth 进行中：除 ESC（上面已处理）外不接受任何键。
+    // OAuth in progress: accept no keys other than ESC (handled above).
     if (step === 'oauthRunning') return
 
     if (key.upArrow) {
@@ -183,7 +183,7 @@ export function LoginWizard({ onDone }: Props): React.ReactNode {
       } else if (step === 'model') {
         setModel(models[modelIdx]!.value)
         setCredentialIdx(0)
-        // codex 走 OAuth 登录方式选择，不走 API Key 粘贴。
+        // codex goes through OAuth login-method selection, not API key paste.
         if (provider === 'codex') setStep('loginMethod')
         else setStep(existingApiKey ? 'credential' : 'apikey')
       } else if (step === 'loginMethod') {
@@ -264,7 +264,7 @@ export function LoginWizard({ onDone }: Props): React.ReactNode {
         </>
       )}
 
-      {/* Codex: 选择登录方式（浏览器 / 设备码） */}
+      {/* Codex: choose login method (browser / device code) */}
       {step === 'loginMethod' && (
         <>
           <Box>
@@ -285,7 +285,7 @@ export function LoginWizard({ onDone }: Props): React.ReactNode {
         </>
       )}
 
-      {/* Codex: OAuth 进行中（显示状态 / 设备码 / 错误） */}
+      {/* Codex: OAuth in progress (shows status / device code / errors) */}
       {step === 'oauthRunning' && (
         <>
           <Box marginBottom={1}>
@@ -363,7 +363,7 @@ export function LoginWizard({ onDone }: Props): React.ReactNode {
 // ─── 成功提示（在历史中显示） ─────────────────────────────────────────────────
 
 export function formatLoginSuccess(result: LoginResult): string {
-  // codex 无 API Key（OAuth 凭据在 ~/.astraea/auth.json），单独提示。
+  // codex has no API key (OAuth credentials in ~/.astraea/auth.json); show a separate notice.
   if (result.provider === 'codex') {
     return `✓ ${t('loginSavedTitle')}\n  Provider: ${result.provider}\n  Model:    ${result.model}\n  Auth:     ChatGPT subscription (OAuth → ~/.astraea/auth.json)`
   }

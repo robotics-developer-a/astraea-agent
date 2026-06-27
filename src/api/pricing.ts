@@ -64,8 +64,8 @@ const PRICING: Record<string, ModelPrice> = {
   'gpt-4o-mini':       { inputPerMTok: 0.15, outputPerMTok: 0.60, cacheReadMult: 0.5, cacheWriteMult: 0 },
   'gpt-4o':            { inputPerMTok: 2.50, outputPerMTok: 10,   cacheReadMult: 0.5, cacheWriteMult: 0 },
 
-  // ── Codex（ChatGPT 订阅）。订阅按月计费、非按 token，故全部记 0，仅让 /usage 不报「未定价」缺口。
-  //   若日后想按等效 gpt-5 API 费率估算，把这些 0 换成对应单价即可。
+  // ── Codex (ChatGPT subscription). Billed monthly, not per token, so all entries are 0 — only so /usage doesn't report an "unpriced" gap.
+  //   If you later want to estimate at equivalent gpt-5 API rates, just replace these 0s with the corresponding unit prices.
   'gpt-5.5':              { inputPerMTok: 0, outputPerMTok: 0, cacheReadMult: 0, cacheWriteMult: 0 },
   'gpt-5.4':              { inputPerMTok: 0, outputPerMTok: 0, cacheReadMult: 0, cacheWriteMult: 0 },
   'gpt-5.4-mini':         { inputPerMTok: 0, outputPerMTok: 0, cacheReadMult: 0, cacheWriteMult: 0 },
