@@ -110,6 +110,7 @@ import { GoalPanel, GoalHint } from './GoalPanel'
 import { assessGoalVerifiability } from '../services/goal-evaluator'
 import { SlashHint, SubcommandHint, allSlashCommands, matchSlashCommands, matchSubcommands, trailingSlashToken } from './SlashHint'
 import { ModeInputFrame } from './ModeBanner'
+import { useResizeRedraw } from './useResizeRedraw'
 import { ToolBatch, type ToolCall } from './ToolBatch'
 import { expandPasteTokens } from './pasteExpansion'
 import { STATUS_COLOR, splitStatusLine, INDIGO, DEEP, type AgentStatus } from './theme'
@@ -838,20 +839,9 @@ export function App() {
     setStaticEpoch(e => e + 1)
   }, [stdout])
 
-  // 终端尺寸变化时整屏重铺。<Static> 是 append-only、已落地的历史行永不重绘——终端 resize
-  // 后旧行按新列宽自动折行，Ink 擦不掉committed的旧帧，于是滚动区重影/错位、输入框边框也错。
-  // useWindowSize() 内部已监听 resize，这里只对它产出的 columns/rows 变化做反应：拖拽会连发
-  // 几十次 resize，用 ~150ms 去抖把一整次拖拽收敛成一次 wipeStatic（物理清屏 + 重挂载 <Static>，
-  // 按当前尺寸从头重渲全部 history）。live frame 与输入框在 <Static> 之外、本就随 columns 重渲。
-  const prevDimsRef = useRef({ columns, rows })
-  useEffect(() => {
-    if (prevDimsRef.current.columns === columns && prevDimsRef.current.rows === rows) return
-    const id = setTimeout(() => {
-      prevDimsRef.current = { columns, rows }
-      wipeStatic()
-    }, 150)
-    return () => clearTimeout(id)
-  }, [columns, rows, wipeStatic])
+  // 终端 resize（columns/rows 变化）→ 去抖后整屏重铺，否则 <Static> 历史按旧宽折行会重影/错位。
+  // live frame 与输入框在 <Static> 之外、本就随 columns 反应式重渲；这里只补滚动区的重绘。
+  useResizeRedraw(columns, rows, wipeStatic)
 
   const restoreSession = useCallback((target: SessionSummary) => {
     const msgs = loadSessionMessages(target.path)
