@@ -6,6 +6,7 @@ import { streamMessageDeepSeek } from './deepseek'
 import { streamMessageKimi } from './kimi'
 import { streamMessageOllama } from './ollama'
 import { streamMessageOpenAI, resetOpenAIClient } from './openai'
+import { streamMessageCodex, resetCodexClient } from './codex'
 import { resetAnthropicClient } from './client'
 import { recordUsage } from '../state/usageStats'
 
@@ -18,6 +19,7 @@ function dispatch(messages: Message[], options: StreamOpts): AsyncGenerator<Stre
   if (config.provider === 'kimi') return streamMessageKimi(messages, options)
   if (config.provider === 'ollama') return streamMessageOllama(messages, options)
   if (config.provider === 'openai') return streamMessageOpenAI(messages, options)
+  if (config.provider === 'codex') return streamMessageCodex(messages, options)
   return streamMessageAnthropic(messages, options)
 }
 
@@ -40,5 +42,6 @@ export async function* streamMessage(
 export function resetAllApiClients(): void {
   resetAnthropicClient()
   resetOpenAIClient()
+  resetCodexClient()
   // deepseek 每次调用都创建新 client，无需 reset
 }

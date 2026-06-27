@@ -1,10 +1,12 @@
 // /login 交互式配置向导 — 分步选择 provider → model → API Key
-import React, { useState } from 'react'
+// Codex（ChatGPT 订阅）走分支流程：provider → model → 登录方式（浏览器 / 设备码）→ OAuth。
+import React, { useState, useEffect } from 'react'
 import { Box, Text, useInput } from 'ink'
 import TextInput from './TextInput'
 import { config, type Provider } from '../config'
 import { t } from '../i18n'
 import { INDIGO, SILVER } from './theme'
+import { loginBrowser, loginDeviceCode } from '../auth/codexOAuth'
 
 const DIM = '#7A8AAA'
 const GREEN = '#5AF78E'
@@ -22,6 +24,7 @@ const PROVIDERS: ProviderOption[] = [
   { label: 'DeepSeek', value: 'deepseek', hint: 'V4 chat · R1 reasoning' },
   { label: 'Kimi (Moonshot)', value: 'kimi', hint: 'kimi-k2 · 256K context' },
   { label: 'OpenAI (GPT)', value: 'openai', hint: 'gpt-5.5 · gpt-5.4 · o3' },
+  { label: 'OpenAI Codex (ChatGPT sub)', value: 'codex', hint: 'gpt-5.x · subscription OAuth' },
 ]
 
 interface ModelOption { label: string; value: string; hint: string }
@@ -52,6 +55,12 @@ const MODELS: Record<Exclude<Provider, 'ollama'>, ModelOption[]> = {
     { label: 'gpt-4o', value: 'gpt-4o', hint: 'mGpt4o' },
     { label: 'o3', value: 'o3', hint: 'mO3' },
   ],
+  codex: [
+    { label: 'gpt-5.5', value: 'gpt-5.5', hint: 'mGpt55' },
+    { label: 'gpt-5.4', value: 'gpt-5.4', hint: 'mGpt54' },
+    { label: 'gpt-5.4-mini', value: 'gpt-5.4-mini', hint: 'mGpt54mini' },
+    { label: 'gpt-5.3-codex-spark', value: 'gpt-5.3-codex-spark', hint: 'mGpt53spark' },
+  ],
 }
 
 // ─── 类型 ────────────────────────────────────────────────────────────────────
@@ -66,7 +75,12 @@ interface Props {
   onDone: (result: LoginResult | null) => void
 }
 
-type Step = 'provider' | 'model' | 'credential' | 'apikey'
+type Step = 'provider' | 'model' | 'credential' | 'apikey' | 'loginMethod' | 'oauthRunning'
+
+const LOGIN_METHODS = [
+  { label: 'Browser', hint: 'opens a browser tab (desktop)' },
+  { label: 'Device code', hint: 'enter a code on another device (headless / SSH)' },
+] as const
 
 // ─── 子组件：列表选择行 ────────────────────────────────────────────────────────
 
@@ -90,11 +104,55 @@ export function LoginWizard({ onDone }: Props): React.ReactNode {
   const [provider, setProvider] = useState<Exclude<Provider, 'ollama'>>('anthropic')
   const [model, setModel] = useState('')
   const [apiKey, setApiKey] = useState('')
+  // Codex OAuth 进度态
+  const [oauthMethod, setOauthMethod] = useState<'browser' | 'device' | null>(null)
+  const [oauthStatus, setOauthStatus] = useState('')
+  const [authUrl, setAuthUrl] = useState('')
+  const [deviceInfo, setDeviceInfo] = useState<{ userCode: string; verificationUri: string } | null>(null)
+  const [oauthError, setOauthError] = useState<string | null>(null)
 
   const models = MODELS[provider]
   const providerLabel = PROVIDERS.find(p => p.value === provider)?.label ?? provider
   // INTENT: Credential reuse is provider-scoped, so switching models never borrows another provider's secret.
-  const existingApiKey = config[provider].apiKey
+  // codex 无 apiKey 字段（凭据在 auth.json），用空串占位避免读到 undefined。
+  const existingApiKey = provider === 'codex' ? '' : config[provider].apiKey
+
+  // Codex OAuth 流程：进入 oauthRunning 步骤后按所选方式发起登录，完成即 onDone。
+  useEffect(() => {
+    if (step !== 'oauthRunning' || !oauthMethod) return
+    const controller = new AbortController()
+    let cancelled = false
+    ;(async () => {
+      try {
+        if (oauthMethod === 'browser') {
+          setOauthStatus('Waiting for browser… complete the sign-in there.')
+          await loginBrowser({
+            signal: controller.signal,
+            onAuthUrl: (url) => { if (!cancelled) setAuthUrl(url) },
+          })
+        } else {
+          setOauthStatus('Requesting device code…')
+          await loginDeviceCode({
+            signal: controller.signal,
+            onUserCode: (info) => {
+              if (cancelled) return
+              setDeviceInfo(info)
+              setOauthStatus('Enter the code at the URL below, then waiting for approval…')
+            },
+          })
+        }
+        if (!cancelled) onDone({ provider: 'codex', model, apiKey: '' })
+      } catch (e) {
+        if (!cancelled) setOauthError(e instanceof Error ? e.message : String(e))
+      }
+    })()
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+    // model 在进入此步前已定，无需进依赖；onDone 来自父组件稳定引用。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, oauthMethod])
 
   useInput((_, key) => {
     // ESC 始终取消
@@ -105,6 +163,8 @@ export function LoginWizard({ onDone }: Props): React.ReactNode {
 
     // apikey 步骤：只处理 ESC，其余交给 TextInput
     if (step === 'apikey') return
+    // OAuth 进行中：除 ESC（上面已处理）外不接受任何键。
+    if (step === 'oauthRunning') return
 
     if (key.upArrow) {
       if (step === 'provider') setProviderIdx(i => Math.max(0, i - 1))
@@ -123,7 +183,13 @@ export function LoginWizard({ onDone }: Props): React.ReactNode {
       } else if (step === 'model') {
         setModel(models[modelIdx]!.value)
         setCredentialIdx(0)
-        setStep(existingApiKey ? 'credential' : 'apikey')
+        // codex 走 OAuth 登录方式选择，不走 API Key 粘贴。
+        if (provider === 'codex') setStep('loginMethod')
+        else setStep(existingApiKey ? 'credential' : 'apikey')
+      } else if (step === 'loginMethod') {
+        setOauthError(null)
+        setOauthMethod(credentialIdx === 0 ? 'browser' : 'device')
+        setStep('oauthRunning')
       } else if (step === 'credential') {
         if (credentialIdx === 0) onDone({ provider, model, apiKey: existingApiKey })
         else setStep('apikey')
@@ -198,6 +264,69 @@ export function LoginWizard({ onDone }: Props): React.ReactNode {
         </>
       )}
 
+      {/* Codex: 选择登录方式（浏览器 / 设备码） */}
+      {step === 'loginMethod' && (
+        <>
+          <Box>
+            <Text color={DIM}>{t('labelProvider')} </Text>
+            <Text color={SILVER}>{providerLabel}</Text>
+          </Box>
+          <Box marginBottom={1}>
+            <Text color={DIM}>{t('labelModel')} </Text>
+            <Text color={SILVER}>{model}</Text>
+          </Box>
+          <Text color={SILVER}>Choose login method:</Text>
+          <Box flexDirection="column" marginY={1}>
+            {LOGIN_METHODS.map((m, i) => (
+              <ListRow key={m.label} label={m.label} hint={m.hint} active={i === credentialIdx} />
+            ))}
+          </Box>
+          <Text color={DIM}>{t('navHint')}</Text>
+        </>
+      )}
+
+      {/* Codex: OAuth 进行中（显示状态 / 设备码 / 错误） */}
+      {step === 'oauthRunning' && (
+        <>
+          <Box marginBottom={1}>
+            <Text color={DIM}>{t('labelProvider')} </Text>
+            <Text color={SILVER}>{providerLabel}</Text>
+            <Text color={DIM}>  ·  {model}</Text>
+          </Box>
+          {oauthError ? (
+            <>
+              <Text color="#FF6B6B">✗ {oauthError}</Text>
+              <Box marginTop={1}><Text color={DIM}>Press Esc to close, then run /login to retry.</Text></Box>
+            </>
+          ) : (
+            <>
+              <Text color={GREEN}>{oauthStatus || 'Starting…'}</Text>
+              {deviceInfo && (
+                <Box flexDirection="column" marginTop={1}>
+                  <Box>
+                    <Text color={DIM}>Code: </Text>
+                    <Text color={SILVER} bold>{deviceInfo.userCode}</Text>
+                  </Box>
+                  {deviceInfo.verificationUri && (
+                    <Box>
+                      <Text color={DIM}>URL:  </Text>
+                      <Text color={SILVER}>{deviceInfo.verificationUri}</Text>
+                    </Box>
+                  )}
+                </Box>
+              )}
+              {authUrl && !deviceInfo && (
+                <Box flexDirection="column" marginTop={1}>
+                  <Text color={DIM}>If the browser didn't open, visit:</Text>
+                  <Text color={SILVER}>{authUrl}</Text>
+                </Box>
+              )}
+              <Box marginTop={1}><Text color={DIM}>Press Esc to cancel.</Text></Box>
+            </>
+          )}
+        </>
+      )}
+
       {/* Step 4: 输入 API Key */}
       {step === 'apikey' && (
         <>
@@ -234,6 +363,10 @@ export function LoginWizard({ onDone }: Props): React.ReactNode {
 // ─── 成功提示（在历史中显示） ─────────────────────────────────────────────────
 
 export function formatLoginSuccess(result: LoginResult): string {
+  // codex 无 API Key（OAuth 凭据在 ~/.astraea/auth.json），单独提示。
+  if (result.provider === 'codex') {
+    return `✓ ${t('loginSavedTitle')}\n  Provider: ${result.provider}\n  Model:    ${result.model}\n  Auth:     ChatGPT subscription (OAuth → ~/.astraea/auth.json)`
+  }
   const masked = result.apiKey.length > 8
     ? result.apiKey.slice(0, 4) + '***' + result.apiKey.slice(-4)
     : '***'

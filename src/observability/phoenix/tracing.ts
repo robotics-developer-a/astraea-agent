@@ -50,6 +50,8 @@ function activeModel(): string {
       return config.ollama.model
     case 'openai':
       return config.openai.model
+    case 'codex':
+      return config.codex.model
     default:
       return config.anthropic.model
   }

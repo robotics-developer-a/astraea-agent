@@ -11,6 +11,7 @@ import { homedir } from 'os'
 import { fileURLToPath } from 'url'
 import { getSettings } from './settings'
 import { unsetSessionEffort } from './state/reasoningEffort'
+import { loadCodexCredentials } from './auth/codexAuth'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 export const envPath = join(__dirname, '..', '.env')
@@ -52,11 +53,12 @@ applySettingsEnv()         // 先吃 settings.json 的 env，让它占位（shel
 loadEnvFile(envPath)       // 再加载项目级，只填它没设的 key
 loadEnvFile(globalEnvPath) // 最后全局，只填仍缺的 key
 
-export type Provider = 'anthropic' | 'deepseek' | 'kimi' | 'ollama' | 'openai'
+export type Provider = 'anthropic' | 'deepseek' | 'kimi' | 'ollama' | 'openai' | 'codex'
 
 function detectProvider(): Provider {
   const raw = process.env.PROVIDER?.toLowerCase()
   if (raw === 'ollama') return 'ollama'
+  if (raw === 'codex') return 'codex'
   if (raw === 'openai') return 'openai'
   if (raw === 'deepseek') return 'deepseek'
   if (raw === 'kimi' || raw === 'moonshot') return 'kimi'
@@ -173,6 +175,14 @@ export const config = {
     // gpt-5.x 推理强度：none|low|medium|high|xhigh，默认 medium。仅对 reasoning 模型生效。
     reasoningEffort: process.env.OPENAI_REASONING_EFFORT?.trim() || undefined,
   },
+
+  // Codex（ChatGPT 订阅）—— 走 OAuth + Responses API，无 apiKey（凭据在 ~/.astraea/auth.json）。
+  codex: {
+    model: process.env.CODEX_MODEL ?? 'gpt-5.4',
+    baseUrl: 'https://chatgpt.com/backend-api',
+    maxTokens: maxTokensFrom('CODEX_MAX_TOKENS', 32000),
+    contextWindow: contextWindowFrom('CODEX_CONTEXT_WINDOW', 256_000),
+  },
 }
 
 // 当前激活 provider 的窗口与输出上限 —— 阈值每次现算时调用（设计文档 §6：阈值现算随 provider）。
@@ -182,6 +192,7 @@ export function activeContextWindow(): number {
     case 'kimi':     return config.kimi.contextWindow
     case 'ollama':   return config.ollama.contextWindow
     case 'openai':   return config.openai.contextWindow
+    case 'codex':    return config.codex.contextWindow
     default:         return config.anthropic.contextWindow
   }
 }
@@ -192,6 +203,7 @@ export function activeMaxTokens(): number {
     case 'kimi':     return config.kimi.maxTokens
     case 'ollama':   return config.ollama.maxTokens
     case 'openai':   return config.openai.maxTokens
+    case 'codex':    return config.codex.maxTokens
     default:         return config.anthropic.maxTokens
   }
 }
@@ -205,6 +217,7 @@ export function hasValidConfig(): boolean {
     case 'kimi':      return !!config.kimi.apiKey
     case 'openai':    return !!config.openai.apiKey
     case 'ollama':    return true
+    case 'codex':     return loadCodexCredentials() !== null
     default:          return false
   }
 }
@@ -224,6 +237,10 @@ export function assertConfig(): void {
   }
   if (config.provider === 'openai' && !config.openai.apiKey) {
     console.error('Error: OPENAI_API_KEY is not set (or run /login)')
+    process.exit(1)
+  }
+  if (config.provider === 'codex' && loadCodexCredentials() === null) {
+    console.error('Error: not logged in to Codex — run /login and choose OpenAI Codex')
     process.exit(1)
   }
 }
@@ -250,6 +267,10 @@ export function updateProviderConfig(provider: Provider, model: string, apiKey: 
     case 'openai':
       config.openai.apiKey = apiKey
       config.openai.model = model
+      break
+    case 'codex':
+      // 凭据在 auth.json，apiKey 参数对 codex 无意义，仅记录所选模型。
+      config.codex.model = model
       break
   }
   if (modelSelectionChanged) {
@@ -360,6 +381,11 @@ export async function saveConfigToEnv(destination: string = globalEnvPath): Prom
     `OPENAI_MODEL=${config.openai.model}`,
     `OPENAI_BASE_URL=${config.openai.baseUrl}`,
     '',
+    '# ─── Codex（ChatGPT 订阅，OAuth）────────────────────────',
+    '# 凭据经 /login 写入 ~/.astraea/auth.json，此处无 secret。',
+    `# PROVIDER=codex`,
+    `CODEX_MODEL=${config.codex.model}`,
+    '',
   ].join('\n')
   mkdirSync(dirname(destination), { recursive: true })
   await Bun.write(destination, content)
@@ -390,6 +416,10 @@ function loginEnvUpdates(): Record<string, string> {
     case 'ollama':
       updates.OLLAMA_MODEL = config.ollama.model
       updates.OLLAMA_BASE_URL = config.ollama.baseUrl
+      break
+    case 'codex':
+      // 无 secret 写入 .env —— token 在 ~/.astraea/auth.json，只记 provider + 模型。
+      updates.CODEX_MODEL = config.codex.model
       break
   }
   return updates

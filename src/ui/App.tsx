@@ -617,11 +617,13 @@ export function App() {
       ? config.ollama.model
       : p === 'openai'
         ? config.openai.model
-        : p === 'deepseek'
-          ? config.deepseek?.model ?? ''
-          : p === 'kimi'
-            ? config.kimi?.model ?? ''
-            : config.anthropic.model
+        : p === 'codex'
+          ? config.codex.model
+          : p === 'deepseek'
+            ? config.deepseek?.model ?? ''
+            : p === 'kimi'
+              ? config.kimi?.model ?? ''
+              : config.anthropic.model
     // configVersion 在 /login 后变化，触发 modelId 重算（config 是模块级可变对象，
     // 非 React state，必须靠版本号手动让 memo 失效）
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1453,12 +1455,14 @@ export function App() {
         const baseUrl =
           p === 'ollama' ? config.ollama.baseUrl
           : p === 'openai' ? config.openai.baseUrl
+          : p === 'codex' ? `${config.codex.baseUrl}/codex/responses`
           : p === 'deepseek' ? config.deepseek.baseUrl
           : p === 'kimi' ? config.kimi.baseUrl
           : 'https://api.anthropic.com'
         const maxTokens =
           p === 'ollama' ? config.ollama.maxTokens
           : p === 'openai' ? config.openai.maxTokens
+          : p === 'codex' ? config.codex.maxTokens
           : p === 'deepseek' ? config.deepseek.maxTokens
           : p === 'kimi' ? config.kimi.maxTokens
           : config.anthropic.maxTokens
@@ -2615,11 +2619,13 @@ export function App() {
       ? config.ollama.model
       : config.provider === 'openai'
         ? config.openai.model
-        : config.provider === 'deepseek'
-          ? deepseekResolveModel(resolveAppliedEffort(), config.deepseek?.model ?? '')
-          : config.provider === 'kimi'
-            ? config.kimi?.model ?? ''
-            : config.anthropic.model
+        : config.provider === 'codex'
+          ? config.codex.model
+          : config.provider === 'deepseek'
+            ? deepseekResolveModel(resolveAppliedEffort(), config.deepseek?.model ?? '')
+            : config.provider === 'kimi'
+              ? config.kimi?.model ?? ''
+              : config.anthropic.model
 
   // 执行中输入框保持可用（不锁定）：用户可随时 /mode 切换。仅在模式/面板覆盖层时让出焦点。
   const inputFocused = !pendingReasonSelect && !pendingModeSelect && !pendingVigilPanel && !pendingConfirm && !pendingResumePicker && !pendingRewindPicker && (!pendingExportPanel || pendingExportPath)
