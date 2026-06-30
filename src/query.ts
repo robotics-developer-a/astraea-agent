@@ -46,6 +46,8 @@ import { drainInterjects, hasPendingInterjects } from './services/interject-queu
 import { hasRunningAgents } from './services/agent-state'
 import { getTodos, type Todo } from './services/todo-state'
 import { recordToolEvidence, getToolEvidence } from './services/evidence-registry'
+import { buildReplanDirective } from './services/task-graph'
+import { getTaskRecords } from './tools/TaskCreateTool'
 import {
   getActiveGoal,
   recordGoalEvaluation,
@@ -230,6 +232,8 @@ async function* runQuery(
   let turnCount = 1
   // Todo 收尾 Stop-hook 只提醒一次，避免模型反复留尾导致死循环
   let todoNudged = false
+  // TaskGraph re-plan Stop-hook（改动②）同样只提醒一次，绝不死循环
+  let taskGraphNudged = false
   // 周期性 TodoWrite 提醒的两个游标：lastTodoActivityTurn=0 表示「尚未用过」，到第 N 轮即
   // 触发首次提醒；lastTodoReminderTurn 让两次提醒至少隔 N 轮（详见 TODO_REMINDER_* 常量）。
   let lastTodoActivityTurn = 0
@@ -682,6 +686,25 @@ async function* runQuery(
                 `tell the user explicitly what remains — never silently abandon an in_progress task.\n` +
                 `</system-reminder>`,
             }],
+          }
+          messages = [...messages, assistantMessage, directive]
+          turnCount++
+          continue
+        }
+      }
+
+      // ── TaskGraph re-plan Stop-hook（改动②）──────────────────────────────
+      // reconcile 只会把坏掉的计划点亮成 failed / invalidated，却不主动叫模型回来修。
+      // 这里在真正停止点检查任务图：若仍有坏节点，注入一次「失败→复盘→再分解 /
+      // 失效→重验证」的指令并再跑一轮，逼模型把计划对齐。和 todo 钩子同构：仅主对话
+      // 生效、仅提醒一次、受 turnCap 兜底，绝不死循环。
+      if (compactionEnabled && !taskGraphNudged && turnCount < turnCap()) {
+        const directiveText = buildReplanDirective(getTaskRecords())
+        if (directiveText) {
+          taskGraphNudged = true
+          const directive: UserMessage = {
+            role: 'user',
+            content: [{ type: 'text', text: directiveText }],
           }
           messages = [...messages, assistantMessage, directive]
           turnCount++

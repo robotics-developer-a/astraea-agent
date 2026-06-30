@@ -75,6 +75,56 @@ export function missingEvidence(
   return criteria.filter(criterion => !proven.has(criterion.id)).map(criterion => criterion.id)
 }
 
+// ── re-plan 停止钩子（改动②）────────────────────────────────────────────────
+// reconcile 只「搬状态」：把坏掉的计划点亮成 failed / invalidated，却不会主动把模型
+// 拽回来修——指望模型下一轮自己想起。本函数把这些坏节点收集成一段 directive：
+//   failed       → 复盘：重试 / 换方法 / 拆成更小的子任务（别静默放弃）
+//   invalidated  → 重验证：上游依赖变了，已完成的证据已失效，需要重跑验证
+// 返回 null 表示没有坏节点、无需打扰。文案为 high-level 指令，决策权仍在模型。
+export function buildReplanDirective(records: TaskRecordState[]): string | null {
+  const failed = records.filter(t => t.status === 'failed')
+  const invalidated = records.filter(t => t.status === 'invalidated')
+  if (failed.length === 0 && invalidated.length === 0) return null
+
+  const map: TaskMap = {}
+  for (const t of records) map[t.id] = t
+
+  const lines: string[] = []
+  lines.push('<system-reminder>')
+  lines.push(
+    'You are ending your turn, but your task graph still has unresolved nodes. ' +
+      'Reconciliation flagged them — it does not fix them. Resolve each one before stopping; ' +
+      'never silently abandon a broken task.',
+  )
+
+  if (failed.length > 0) {
+    lines.push('')
+    lines.push(`FAILED (${failed.length}) — diagnose, then retry, change approach, or decompose into smaller subtasks:`)
+    for (const t of failed) {
+      const note = t.notes.length > 0 ? ` — last note: ${t.notes[t.notes.length - 1]}` : ''
+      lines.push(`  - [${t.id}] ${t.subject}${note}`)
+    }
+  }
+
+  if (invalidated.length > 0) {
+    lines.push('')
+    lines.push(
+      `INVALIDATED (${invalidated.length}) — a dependency changed after this task was completed, so its ` +
+        'evidence is stale. Re-run the verification (or redo the work) and re-submit evidence via TaskUpdate:',
+    )
+    for (const t of invalidated) {
+      const stale = incompleteDependencies(map, t)
+      const because = stale.length > 0 ? ` — upstream changed: ${stale.join(', ')}` : ''
+      lines.push(`  - [${t.id}] ${t.subject}${because}`)
+    }
+  }
+
+  lines.push('')
+  lines.push('If a node truly cannot be resolved, tell the user explicitly what is blocked and why.')
+  lines.push('</system-reminder>')
+  return lines.join('\n')
+}
+
 export function reconcileTaskGraph(tasks: TaskMap): TaskMap {
   let next = { ...tasks }
   let changed = true

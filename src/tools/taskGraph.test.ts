@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
 import { clearAllTasks } from '../services/agent-state'
+import type { TaskRecordState } from '../services/agent-state'
+import { buildReplanDirective } from '../services/task-graph'
 import { TaskCreateTool } from './TaskCreateTool'
 import { TaskGetTool } from './TaskGetTool'
 import { TaskUpdateTool } from './TaskUpdateTool'
@@ -37,6 +39,52 @@ function proof(criterionId = 'criterion-1') {
     assumptions: ['The test exercises the production task state.'],
   }
 }
+
+function record(over: Partial<TaskRecordState> & Pick<TaskRecordState, 'id' | 'subject' | 'status'>): TaskRecordState {
+  return {
+    kind: 'task',
+    dependencies: [],
+    acceptanceCriteria: [{ id: 'criterion-1', description: 'verified' }],
+    evidence: [],
+    notes: [],
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...over,
+  }
+}
+
+describe('buildReplanDirective（改动②）', () => {
+  test('returns null when there are no broken nodes', () => {
+    const tasks = [
+      record({ id: 't1', subject: 'A', status: 'completed' }),
+      record({ id: 't2', subject: 'B', status: 'in_progress' }),
+    ]
+    expect(buildReplanDirective(tasks)).toBeNull()
+  })
+
+  test('failed nodes prompt postmortem and surface the last note', () => {
+    const tasks = [
+      record({ id: 't1', subject: 'Run migration', status: 'failed', notes: ['exit 1: column missing'] }),
+    ]
+    const out = buildReplanDirective(tasks)!
+    expect(out).toContain('FAILED (1)')
+    expect(out).toContain('Run migration')
+    expect(out).toContain('exit 1: column missing')
+    expect(out).toContain('decompose')
+  })
+
+  test('invalidated nodes name the upstream dependency that changed', () => {
+    const tasks = [
+      record({ id: 'up', subject: 'Schema', status: 'in_progress' }),
+      record({ id: 'down', subject: 'API', status: 'invalidated', dependencies: ['up'] }),
+    ]
+    const out = buildReplanDirective(tasks)!
+    expect(out).toContain('INVALIDATED (1)')
+    expect(out).toContain('API')
+    expect(out).toContain('up')
+    expect(out).toContain('Re-run the verification')
+  })
+})
 
 describe('task graph dependencies', () => {
   test('a dependent task stays blocked until its dependency is completed with evidence', async () => {

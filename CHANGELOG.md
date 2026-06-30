@@ -8,6 +8,27 @@
 
 > **1.0.0 发布门槛**（达成后才从 0.x 升到 1.0 并打首个 `git tag v1.0.0`）：
 
+## [0.10.15] - 2026-06-30
+
+### 优化
+- **Evidence critique 直接消费证据真值（改动①）**：收尾的 `critiqueGoalEvidence` 此前只读截断到 16k
+  的对话 transcript，长任务中早期的关键证据（如 `npm test → exit 0`）会滚出窗口，导致 critique 盲判、
+  把已完成的工作误判为「证据不足」逼着重做。现在让它直接消费 `evidence-registry` 里**永不裁剪**的工具真值：
+  - `evidence-registry` 新增 `getToolEvidence(namespace)` 回读接口。
+  - `goal-evaluator` 新增 `serializeEvidenceLedger`：把 registry 真值序列化成一份「证据账本」——
+    按时间序、单条只保留结论所在的尾部、整体设字符上限以控延迟，优先保留近期记录。
+  - `critiqueGoalEvidence` 接收账本并优先于 transcript 判断；`CRITIQUE_SYSTEM` 边界改为「以账本为
+    ground truth」。`query.ts` 在 `/goal` 停止钩子里把 `getToolEvidence(todoNamespace)` 喂给它。
+
+### 新增
+- **TaskGraph re-plan 停止钩子（改动②）**：`reconcileTaskGraph` 只会把坏掉的计划点亮成 `failed` /
+  `invalidated`，却不主动把模型拽回来修——此前指望模型下一轮自己想起，失败任务容易被静默遗忘。新增
+  `buildReplanDirective`，在真正停止点（模型给最终回复、无 tool call）检查任务图，若仍有坏节点则注入一次
+  指令并再跑一轮：
+  - `failed` → 复盘：重试 / 换方法 / 拆成更小的子任务；
+  - `invalidated` → 重验证：点名是哪个上游依赖变了导致证据失效，要求重跑验证并经 `TaskUpdate` 重交证据。
+  - 与 Todo 收尾钩子同构：仅主对话生效、仅提醒一次（`taskGraphNudged`）、受 `turnCap` 兜底，绝不死循环。
+
 ## [0.10.14] - 2026-06-25
 
 ### 新增
