@@ -1,6 +1,7 @@
 import { test, expect } from 'bun:test'
-import { parseCritiqueDecision, parseDecision, serializeTranscript } from './goal-evaluator'
+import { parseCritiqueDecision, parseDecision, serializeTranscript, serializeEvidenceLedger } from './goal-evaluator'
 import type { AssistantMessage, UserMessage } from '../types/message'
+import type { ToolEvidenceRecord } from './evidence-registry'
 
 // ── parseDecision ────────────────────────────────────────────────────────────
 
@@ -83,6 +84,47 @@ test('truncates very long transcripts but keeps the tail', () => {
   expect(out.length).toBeLessThan(20_000)
   expect(out).toContain('FINAL_MARKER')
   expect(out).toContain('truncated')
+})
+
+// ── serializeEvidenceLedger（改动①）─────────────────────────────────────────
+
+test('empty ledger serializes to empty string', () => {
+  expect(serializeEvidenceLedger([])).toBe('')
+})
+
+test('ledger keeps the tool name and full output in chronological order', () => {
+  const records: ToolEvidenceRecord[] = [
+    { id: 't1', tool: 'Bash', output: 'npm test → exit 0', recordedAt: '2026-06-30T00:00:00Z' },
+    { id: 't2', tool: 'Bash', output: 'tsc → no errors', recordedAt: '2026-06-30T00:01:00Z' },
+  ]
+  const out = serializeEvidenceLedger(records)
+  expect(out).toContain('[Bash]')
+  expect(out).toContain('npm test → exit 0')
+  expect(out).toContain('tsc → no errors')
+  // 时间顺序：先 exit 0，后 tsc
+  expect(out.indexOf('exit 0')).toBeLessThan(out.indexOf('tsc'))
+})
+
+test('ledger preserves the tail of an oversized single record', () => {
+  const big = 'X'.repeat(5_000) + 'EXIT_CODE_0'
+  const out = serializeEvidenceLedger([{ id: 't1', tool: 'Bash', output: big }])
+  expect(out).toContain('EXIT_CODE_0')
+  expect(out).toContain('head truncated')
+  expect(out.length).toBeLessThan(3_000)
+})
+
+test('ledger caps total size but keeps the most recent records', () => {
+  const records: ToolEvidenceRecord[] = Array.from({ length: 50 }, (_, i) => ({
+    id: `t${i}`,
+    tool: 'Bash',
+    output: 'Y'.repeat(1_000) + ` RECORD_${i}`,
+  }))
+  const out = serializeEvidenceLedger(records)
+  expect(out.length).toBeLessThanOrEqual(12_000 + 200)
+  // 最近的记录必须保留
+  expect(out).toContain('RECORD_49')
+  // 最早的记录被预算挤掉
+  expect(out).not.toContain('RECORD_0 ')
 })
 
 // ── parseCritiqueDecision ────────────────────────────────────────────────────

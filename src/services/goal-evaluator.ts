@@ -12,6 +12,7 @@
 
 import { querySmallModel } from '../api/query-model'
 import type { AssistantMessage, UserMessage } from '../types/message'
+import type { ToolEvidenceRecord } from './evidence-registry'
 
 export interface GoalDecision {
   met: boolean
@@ -83,6 +84,33 @@ export function serializeTranscript(messages: (UserMessage | AssistantMessage)[]
 
 function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n) + '…' : s
+}
+
+// ── 证据账本（改动①）────────────────────────────────────────────────────────
+// evidence-registry 里存着每个工具调用的「真值」输出（exit code、测试结果…），
+// 永不随对话滚出窗口。critique 过去只读截断到 16k 的 transcript，长任务里早期的
+// 关键证据会丢失 → 盲判。这里把 registry 里的真值序列化成一份结构化账本喂给 critique：
+// 单条保留尾部（结论/exit code 通常在末尾），整体封顶以控延迟，优先保留近期记录。
+const MAX_EVIDENCE_LEDGER_CHARS = 12_000
+const MAX_EVIDENCE_RECORD_CHARS = 1_500
+
+export function serializeEvidenceLedger(records: ToolEvidenceRecord[]): string {
+  if (records.length === 0) return ''
+  const entries: string[] = []
+  let used = 0
+  // 倒序遍历（最新的证据最可能证明完成条件），按预算累积，再反转回时间顺序便于阅读。
+  for (let i = records.length - 1; i >= 0; i--) {
+    const r = records[i]!
+    const body = r.output.length > MAX_EVIDENCE_RECORD_CHARS
+      ? '…(head truncated)…\n' + r.output.slice(-MAX_EVIDENCE_RECORD_CHARS)
+      : r.output
+    const stamp = r.recordedAt ? ` @${r.recordedAt}` : ''
+    const entry = `[${r.tool}]${stamp}\n${body}`
+    if (used + entry.length > MAX_EVIDENCE_LEDGER_CHARS) break
+    entries.push(entry)
+    used += entry.length
+  }
+  return entries.reverse().join('\n\n')
 }
 
 const EVALUATOR_SYSTEM = [
@@ -157,7 +185,10 @@ const CRITIQUE_SYSTEM = [
   '  from the stated goal are not covered by the evidence in the transcript.',
   '- Critique is supplementary. It cannot replace external evidence; it can only reject weak or suspicious',
   '  evidence and tell the agent what proof to gather next.',
-  '- Judge ONLY from the transcript. Do not assume files or commands succeeded unless their output appears.',
+  '- Judge ONLY from the EVIDENCE LEDGER and the transcript. The LEDGER holds the durable, untruncated tool',
+  '  outputs (exit codes, test/build results) and is the ground truth — prefer it over the transcript, which',
+  '  may have scrolled past early proof. Do not assume files or commands succeeded unless their output appears',
+  '  in one of them.',
   '',
   'Respond with ONLY a single JSON object, no prose, no code fences:',
   '{"pass": <true|false>, "reason": "<one concise sentence>", "findings": [{"kind": "insufficient_evidence|risk_coverage_gap|goalpost_shift", "detail": "<specific issue>"}]}',
@@ -170,12 +201,21 @@ const CRITIQUE_SYSTEM = [
 export async function critiqueGoalEvidence(
   condition: string,
   transcript: string,
+  evidence: ToolEvidenceRecord[] = [],
   signal?: AbortSignal,
 ): Promise<CritiqueDecision> {
+  const ledger = serializeEvidenceLedger(evidence)
   const userPrompt = [
     'COMPLETION CONDITION:',
     condition,
     '',
+    ...(ledger
+      ? [
+          'EVIDENCE LEDGER (durable tool outputs, never truncated out of the window):',
+          ledger,
+          '',
+        ]
+      : []),
     'CONVERSATION TRANSCRIPT:',
     transcript,
     '',

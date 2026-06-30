@@ -45,7 +45,7 @@ import { drainNotifications, hasPendingNotifications } from './services/notifica
 import { drainInterjects, hasPendingInterjects } from './services/interject-queue'
 import { hasRunningAgents } from './services/agent-state'
 import { getTodos, type Todo } from './services/todo-state'
-import { recordToolEvidence } from './services/evidence-registry'
+import { recordToolEvidence, getToolEvidence } from './services/evidence-registry'
 import {
   getActiveGoal,
   recordGoalEvaluation,
@@ -592,7 +592,13 @@ async function* runQuery(
         }
         if (decision.met) {
           try {
-            const critique = await critiqueGoalEvidence(goal.condition, transcript)
+            // 改动①：把 evidence-registry 里的真值（未截断的工具输出）一并喂给 critique，
+            // 而不是只给截断到 16k 的 transcript —— 长任务里早期的 exit code 不再丢失。
+            const critique = await critiqueGoalEvidence(
+              goal.condition,
+              transcript,
+              getToolEvidence(todoNamespace),
+            )
             if (!critique.pass) {
               const findings = critique.findings
                 .map(f => `${f.kind}: ${f.detail}`)
