@@ -13,6 +13,7 @@ import {
   readMaxTokens,
 } from './limits'
 import { extractPdfText, formatPdfOutput, parsePagesParam } from './pdf'
+import { readImageInfo } from './image'
 
 export const FileReadTool = buildTool({
   name: 'Read',
@@ -57,7 +58,11 @@ export const FileReadTool = buildTool({
         return { output: `File not found: ${filePath}`, isError: true }
       }
 
-      // ── 方案 B: PDF 走专用抽取路径（§5-#10: 用 pages，忽略 offset/limit）──
+      // ── 方案 B: 图片文件返回元信息（格式、尺寸、大小），不视为错误 ──
+      const imgResult = await readImageInfo(filePath, file)
+      if (imgResult) return imgResult
+
+      // ── 方案 C: PDF 走专用抽取路径（§5-#10: 用 pages，忽略 offset/limit）──
       if (filePath.toLowerCase().endsWith('.pdf')) {
         return await readPdf(filePath, file, pages)
       }

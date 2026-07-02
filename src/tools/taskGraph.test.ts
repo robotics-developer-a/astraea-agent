@@ -54,12 +54,24 @@ function record(over: Partial<TaskRecordState> & Pick<TaskRecordState, 'id' | 's
 }
 
 describe('buildReplanDirective（改动②）', () => {
-  test('returns null when there are no broken nodes', () => {
+  test('returns null when every node is completed', () => {
     const tasks = [
       record({ id: 't1', subject: 'A', status: 'completed' }),
-      record({ id: 't2', subject: 'B', status: 'in_progress' }),
     ]
     expect(buildReplanDirective(tasks)).toBeNull()
+  })
+
+  test('unfinished nodes prevent the turn from ending silently', () => {
+    const tasks = [
+      record({ id: 't1', subject: 'Queued work', status: 'pending' }),
+      record({ id: 't2', subject: 'Active work', status: 'in_progress' }),
+      record({ id: 't3', subject: 'Waiting on dependency', status: 'blocked' }),
+    ]
+    const out = buildReplanDirective(tasks)!
+    expect(out).toContain('UNFINISHED (3)')
+    expect(out).toContain('Queued work')
+    expect(out).toContain('Active work')
+    expect(out).toContain('Waiting on dependency')
   })
 
   test('failed nodes prompt postmortem and surface the last note', () => {

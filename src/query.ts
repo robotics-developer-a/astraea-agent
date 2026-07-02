@@ -58,6 +58,11 @@ import {
   GOAL_MAX_TOKEN_SPEND,
 } from './state/goalState'
 import { critiqueGoalEvidence, evaluateGoal, serializeTranscript } from './services/goal-evaluator'
+import {
+  assessCompletion,
+  buildCommitmentDirective,
+  type CompletionAssessment,
+} from './services/completion-guard'
 import { isAbortError } from './utils/abortError'
 
 import { config, activeContextWindow } from './config'
@@ -123,6 +128,11 @@ export interface QueryOptions {
   autocompact?: boolean
   // 单次模型覆盖（skill frontmatter 的 model 经此 per-query 生效，实现文档 §1.6）。缺省用全局 config。
   model?: string
+  completionAssessor?: (input: {
+    userText: string
+    assistantText: string
+    signal?: AbortSignal
+  }) => Promise<CompletionAssessment>
 }
 
 // 任务追踪提醒（对照 Claude Code TODO_REMINDER_CONFIG）：连续 N 轮没用过 TodoWrite 就注入
@@ -172,6 +182,7 @@ async function* runQuery(
   const cwd = options.cwd ?? process.cwd()
   const budget = options.tokenBudget ?? null
   const agentId = options.agentId ?? 'default'
+  const completionAssessor = options.completionAssessor ?? assessCompletion
 
   // 每个 query() 调用创建独立的 tracker，防止跨调用（父/子 agent）间的 token 计数污染
   let tracker = createBudgetTracker(agentId)
@@ -234,6 +245,8 @@ async function* runQuery(
   let todoNudged = false
   // TaskGraph re-plan Stop-hook（改动②）同样只提醒一次，绝不死循环
   let taskGraphNudged = false
+  // 自然语言行动承诺只桥接一次；唤回后要求模型转入 Todo/Task 的结构化约束。
+  let commitmentNudged = false
   // 周期性 TodoWrite 提醒的两个游标：lastTodoActivityTurn=0 表示「尚未用过」，到第 N 轮即
   // 触发首次提醒；lastTodoReminderTurn 让两次提醒至少隔 N 轮（详见 TODO_REMINDER_* 常量）。
   let lastTodoActivityTurn = 0
@@ -693,11 +706,10 @@ async function* runQuery(
         }
       }
 
-      // ── TaskGraph re-plan Stop-hook（改动②）──────────────────────────────
-      // reconcile 只会把坏掉的计划点亮成 failed / invalidated，却不主动叫模型回来修。
-      // 这里在真正停止点检查任务图：若仍有坏节点，注入一次「失败→复盘→再分解 /
-      // 失效→重验证」的指令并再跑一轮，逼模型把计划对齐。和 todo 钩子同构：仅主对话
-      // 生效、仅提醒一次、受 turnCap 兜底，绝不死循环。
+      // ── TaskGraph Stop-hook ───────────────────────────────────────────────
+      // 真正停止点仍有 pending / blocked / in_progress / failed / invalidated 节点时，
+      // 注入一次继续或重规划指令。和 todo 钩子同构：仅主对话生效、仅提醒一次，
+      // 受 turnCap 兜底，绝不死循环。
       if (compactionEnabled && !taskGraphNudged && turnCount < turnCap()) {
         const directiveText = buildReplanDirective(getTaskRecords())
         if (directiveText) {
@@ -709,6 +721,36 @@ async function* runQuery(
           messages = [...messages, assistantMessage, directive]
           turnCount++
           continue
+        }
+      }
+
+      // 模型可能只输出“开始执行”之类的 pre-action intent，却没有真正调用工具。
+      // 结构化任务为空时 Goal/Todo/TaskGraph 都看不见这笔行动债务，因此在最终 done 前
+      // 用一次语义分类把未兑现承诺桥接回下一轮，并要求后续转入结构化任务追踪。
+      if (compactionEnabled && !commitmentNudged && turnCount < turnCap()) {
+        const assistantText = assistantMessage.content
+          .filter((block): block is TextBlock => block.type === 'text')
+          .map(block => block.text)
+          .join('')
+        if (assistantText.trim()) {
+          const assessment = await completionAssessor({
+            userText: latestUserText(messages),
+            assistantText,
+            signal: options.abortSignal,
+          })
+          if (assessment.verdict === 'unfulfilled_commitment') {
+            commitmentNudged = true
+            const directive: UserMessage = {
+              role: 'user',
+              content: [{
+                type: 'text',
+                text: buildCommitmentDirective(assessment.reason),
+              }],
+            }
+            messages = [...messages, assistantMessage, directive]
+            turnCount++
+            continue
+          }
         }
       }
 

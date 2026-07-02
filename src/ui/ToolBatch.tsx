@@ -185,13 +185,17 @@ function LiveOut({ text }: { text: string }) {
 // 非折叠：经典两段式——⏺ 调用行 + 其 result 块。running 时缀 " …"。
 function ToolCallRow({ call, liveOutput }: { call: ToolCall; liveOutput?: string }) {
   const running = call.status === 'running'
-  // 运行中 + 收尾保活窗口内 → 扫光块（头行 + 实时输出尾巴整块发光）；否则走下方现状渲染。
+  // 运行中 + 收尾保活窗口内 → ⏺ 头行单独扫光（聚焦工具名一行），实时输出独立渲染。
   // 收尾期里头行保持与运行时一致（含 " …"），让「运行→定格」无缝衔接，再 snap 成 done 行。
   const { animate, elapsed } = useSweepLifecycle(running)
   if (animate) {
     const head = `⏺ ${call.name}(${call.argText}) …`
-    const tail = liveOutput ? liveOutPlainLines(liveOutput) : []
-    return <SweepBlock lines={[head, ...tail]} elapsed={elapsed} />
+    return (
+      <Box flexDirection="column">
+        <SweepBlock lines={[head]} elapsed={elapsed} />
+        {liveOutput ? <LiveOut text={liveOutput} /> : null}
+      </Box>
+    )
   }
   // 克制上色：marker ⏺ 与工具名按状态色上色（作状态锚点），仅括号内参数留白
   // （running 黄（进行中）· done 绿（已落盘）· error 红（失败））。
@@ -215,7 +219,7 @@ function CollapsedGroup({ group, liveOutput }: { group: Group; liveOutput?: stri
   const anyRunning = doneN < total
   // 折叠组的聚合色：任一失败 → 红，否则任一在跑 → 黄，全部完成 → 绿。
   const headColor = aggregateStatusColor(group.calls.map(c => c.status))
-  // 组内有调用在跑 + 收尾保活窗口内 → 扫光块（头行 + 各调用行 + 实时输出尾巴整块发光）。
+  // 组内有调用在跑 + 收尾保活窗口内 → ⏺ 头行单独扫光，子调用行和实时输出独立渲染。
   const { animate, elapsed } = useSweepLifecycle(anyRunning)
   if (animate) {
     const head = `⏺ ${group.name} ×${total}${progress}`
@@ -223,8 +227,17 @@ function CollapsedGroup({ group, liveOutput }: { group: Group; liveOutput?: stri
       const summary = c.status === 'running' ? '…' : (c.resultLines?.[0] ?? '')
       return `    ⎿ ${c.argText} → ${summary}`
     })
-    const tail = liveOutput ? liveOutPlainLines(liveOutput) : []
-    return <SweepBlock lines={[head, ...childLines, ...tail]} elapsed={elapsed} />
+    return (
+      <Box flexDirection="column">
+        <SweepBlock lines={[head]} elapsed={elapsed} />
+        <Box flexDirection="column" marginLeft={4}>
+          {childLines.map((line, i) => (
+            <Text key={i} color="gray" dimColor wrap="truncate-end">{line}</Text>
+          ))}
+        </Box>
+        {liveOutput ? <LiveOut text={liveOutput} /> : null}
+      </Box>
+    )
   }
   // 克制上色：marker ⏺ 与工具名按聚合状态色上色，仅 "×N (n/m)" 计数留白。
   return (

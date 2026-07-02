@@ -56,9 +56,10 @@ test('体积闸门：>256KB 且无 limit → 报错且不含文件内容', async
 })
 
 test('token 闸门：切片估算超上限 → 报错且不含文件内容', async () => {
-  // 50 行 × 2400 字符 ≈ 120KB（过软上限）；token ≈ 30000 > 任何 provider 的 CEIL(25000)
+  // token 闸门的 CEIL = 80000，50 行 × 6000 字符 ≈ 300KB → token ≈ 75000 < 80000
+  // 但 50 行 × 8000 字符 ≈ 400KB → token ≈ 100000 > 80000，必能触发
   const marker = 'TOKEN_SENTINEL_QWE'
-  const line = marker + 'y'.repeat(2400)
+  const line = marker + 'y'.repeat(8000)
   const content = Array.from({ length: 50 }, () => line).join('\n')
   const p = await mkfile('dense.txt', content)
   const r = await read({ file_path: p, limit: 50 }) // 传 limit 绕过软体积闸门，命中 token 闸门

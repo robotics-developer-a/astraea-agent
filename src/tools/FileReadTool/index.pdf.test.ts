@@ -54,9 +54,26 @@ test('PDF：无文字层（扫描件）→ 友好报错，不吐乱码', async (
   expect(r.output.toLowerCase()).toContain('text layer')
 })
 
-test('§5-#5：非 PDF 二进制文件 → 友好报错而非乱码', async () => {
-  const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0x02, 0x00, 0xff]) // 含 NUL
+test('图片文件（含 .png 扩展名）→ 返回元信息而非报错', async () => {
+  // 真实 PNG 头（魔数 + IHDR chunk 的 4 字节 + 最小的 1×1 像素尺寸）
+  const bytes = new Uint8Array([
+    0x89, 0x50, 0x4e, 0x47, // PNG signature
+    0x0d, 0x0a, 0x1a, 0x0a,
+    0x00, 0x00, 0x00, 0x0d, // IHDR chunk length
+    0x49, 0x48, 0x44, 0x52, // "IHDR"
+    0x00, 0x00, 0x00, 0x01, // width  = 1
+    0x00, 0x00, 0x00, 0x01, // height = 1
+  ])
   const p = await mkbin('img.png', bytes)
+  const r = await read({ file_path: p })
+  expect(r.isError).toBeFalsy()
+  expect(r.output).toContain('PNG')
+  expect(r.output).toContain('1')
+})
+
+test('§5-#5：非 PDF 二进制文件（非图片扩展名）→ 友好报错而非乱码', async () => {
+  const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0x02, 0x00, 0xff]) // 含 NUL
+  const p = await mkbin('img.bin', bytes)
   const r = await read({ file_path: p })
   expect(r.isError).toBe(true)
   expect(r.output.toLowerCase()).toContain('binary')

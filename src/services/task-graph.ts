@@ -75,16 +75,16 @@ export function missingEvidence(
   return criteria.filter(criterion => !proven.has(criterion.id)).map(criterion => criterion.id)
 }
 
-// ── re-plan 停止钩子（改动②）────────────────────────────────────────────────
-// reconcile 只「搬状态」：把坏掉的计划点亮成 failed / invalidated，却不会主动把模型
-// 拽回来修——指望模型下一轮自己想起。本函数把这些坏节点收集成一段 directive：
-//   failed       → 复盘：重试 / 换方法 / 拆成更小的子任务（别静默放弃）
-//   invalidated  → 重验证：上游依赖变了，已完成的证据已失效，需要重跑验证
-// 返回 null 表示没有坏节点、无需打扰。文案为 high-level 指令，决策权仍在模型。
+// ── TaskGraph 停止钩子────────────────────────────────────────────────────────
+// 在模型准备结束时收集所有未解决节点：普通未完成节点继续推进，reconcile 标出的
+// failed / invalidated 节点则分别复盘或重验证。返回 null 表示任务图已全部完成。
 export function buildReplanDirective(records: TaskRecordState[]): string | null {
+  const unfinished = records.filter(t =>
+    t.status === 'pending' || t.status === 'blocked' || t.status === 'in_progress',
+  )
   const failed = records.filter(t => t.status === 'failed')
   const invalidated = records.filter(t => t.status === 'invalidated')
-  if (failed.length === 0 && invalidated.length === 0) return null
+  if (unfinished.length === 0 && failed.length === 0 && invalidated.length === 0) return null
 
   const map: TaskMap = {}
   for (const t of records) map[t.id] = t
@@ -93,9 +93,16 @@ export function buildReplanDirective(records: TaskRecordState[]): string | null 
   lines.push('<system-reminder>')
   lines.push(
     'You are ending your turn, but your task graph still has unresolved nodes. ' +
-      'Reconciliation flagged them — it does not fix them. Resolve each one before stopping; ' +
-      'never silently abandon a broken task.',
+      'Resolve each one before stopping; never silently abandon unfinished or broken work.',
   )
+
+  if (unfinished.length > 0) {
+    lines.push('')
+    lines.push(`UNFINISHED (${unfinished.length}) — continue the work or report the exact external blocker:`)
+    for (const t of unfinished) {
+      lines.push(`  - [${t.id}] [${t.status}] ${t.subject}`)
+    }
+  }
 
   if (failed.length > 0) {
     lines.push('')
