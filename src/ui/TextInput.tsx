@@ -12,6 +12,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Text, useInput, usePaste } from 'ink'
 import chalk from 'chalk'
 import { readClipboard } from '../utils/clipboard'
+import { runDetached } from '../utils/detachedTask'
 
 export interface TextInputProps {
   value: string
@@ -157,10 +158,10 @@ export default function TextInput({
       // 自己读剪贴板插入；其余场景（主输入框）交给上层 App 处理，这里只吞掉。
       if (key.ctrl && (input === 'v' || input === 'V')) {
         if (enablePaste) {
-          void (async () => {
+          runDetached((async () => {
             const text = await readClipboard()
             if (text) handlePaste(text)
-          })()
+          })())
         }
         return
       }

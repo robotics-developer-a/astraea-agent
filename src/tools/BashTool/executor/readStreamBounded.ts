@@ -37,7 +37,7 @@ export async function readStreamBounded(
     }, graceMs)
     // 别因为这个计时器把事件循环钉住
     ;(t as { unref?: () => void }).unref?.()
-  })
+  }).catch(() => {})
 
   try {
     while (!abandoned) {

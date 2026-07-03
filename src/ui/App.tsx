@@ -15,7 +15,7 @@ import type { UserMessage, AssistantMessage } from '../types/message'
 import { WelcomePanel } from './WelcomePanel'
 import { AstraeaIntro } from './AstraeaIntro'
 import { StreamStatus } from './ThinkingIndicator'
-import { hasLiveBody, shouldPublishLiveTextPreview } from './liveFrame'
+import { hasLiveBody, shouldPublishLiveTextPreview, shouldRenderAgentActivity } from './liveFrame'
 import { LoginWizard, formatLoginSuccess } from './LoginWizard'
 import type { LoginResult } from './LoginWizard'
 import { InternetWizard, formatInternetSuccess } from './InternetWizard'
@@ -27,7 +27,7 @@ import { setLocale, t, resolveLanguageCommand } from '../i18n'
 import type { Locale } from '../i18n'
 import { resetAllApiClients } from '../api/stream'
 import { getSystemPrompt } from '../context/systemPrompt/builder'
-import { onQuestion, answer } from '../tools/AskUserQuestionTool/bridge'
+import { onQuestion, answer, cancelAllQuestions } from '../tools/AskUserQuestionTool/bridge'
 import type { PendingQuestion, Question } from '../tools/AskUserQuestionTool/bridge'
 import { QuestionPanel } from './QuestionPanel'
 import { setSessionSystemPrompt } from '../services/session-context'
@@ -41,6 +41,7 @@ import { normalizeDraggedPath } from '../utils/dragPath'
 import { clampLineWidth, safeAnsiPreview } from '../utils/termWidth'
 import { displayPath } from '../utils/displayPath'
 import { isAbortError } from '../utils/abortError'
+import { runDetached } from '../utils/detachedTask'
 import {
   initTitle,
   titleStartTask,
@@ -104,7 +105,7 @@ import { ReasonSelector, REASON_OPTIONS } from './ReasonSelector'
 import { deepseekResolveModel, resolveAppliedEffort, currentEffortStatus } from '../api/reasoningEffort'
 import { executeReason, persistReason } from '../commands/reason'
 import { ConfirmSelector, getConfirmChoices } from './ConfirmSelector'
-import { onConfirmRequest, resolveConfirm, type ConfirmRequest } from '../tools/BashTool/permissions/confirmBridge'
+import { onConfirmRequest, resolveConfirm, cancelAllConfirms, type ConfirmRequest } from '../tools/BashTool/permissions/confirmBridge'
 import { VigilPanel, VIGIL_ACTIONS } from './VigilPanel'
 import { GoalPanel, GoalHint } from './GoalPanel'
 import { assessGoalVerifiability } from '../services/goal-evaluator'
@@ -632,7 +633,19 @@ export function App() {
 
   // Load real system prompt on mount and rebuild whenever session mode changes
   // Also start UDS server for cross-process IPC (only on mount)
-  useEffect(() => { startUDSServer() }, [])
+  useEffect(() => {
+    try {
+      startUDSServer()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setHistory(prev => [...prev, {
+        id: String(entryIdRef.current++),
+        role: 'status',
+        status: 'error',
+        text: `■ Local message bridge unavailable. ${message}`,
+      }])
+    }
+  }, [])
 
   // 终端窗口标题栏（grill 决议）：挂载铺一条空闲标题；退出/卸载清空，让终端回落默认标题。
   useEffect(() => {
@@ -645,9 +658,13 @@ export function App() {
   // MCP 启动期连接（实现文档 §1.7）：连上后工具进 getMcpTools()，下一轮 query 即可见。
   // 失败容忍（registry 记状态供 /mcp 面板展示）；不阻塞 UI。
   useEffect(() => {
-    void import('../commands/reason').then(m => m.hydrateReasoningEffort())  // 水合上次 /reason 落盘的等级
-    initPlugins()  // 先注册插件 skill/mcp 吸管，再连 MCP（含插件 server）
-    void initMcp().then(() => {
+    runDetached(import('../commands/reason').then(m => m.hydrateReasoningEffort()))  // 水合上次 /reason 落盘的等级
+    try {
+      initPlugins()  // 先注册插件 skill/mcp 吸管，再连 MCP（含插件 server）
+    } catch {
+      // A broken optional plugin must not take down the interactive session.
+    }
+    runDetached(initMcp().then(() => {
       const failed = getMcpStatus().filter(s => s.state === 'failed')
       const ok = getMcpStatus().filter(s => s.state === 'connected')
       if (ok.length || failed.length) {
@@ -657,7 +674,7 @@ export function App() {
           text: `◎ MCP: ${ok.length} connected${ok.length ? ` (${ok.reduce((n, s) => n + s.toolCount, 0)} tools)` : ''}${failed.length ? `, ${failed.length} failed` : ''}.`,
         }])
       }
-    })
+    }))
   }, [])
 
   // transcript：挂载时开新会话（或 --resume 恢复）+ 调度 housekeeping（设计文档 §10）。
@@ -920,9 +937,9 @@ export function App() {
 
       // 终端标题栏：任务起跑 → ✸ + 即时输入摘要；后台用主模型精炼成极短短语后静静回填。
       const titleTurn = titleStartTask(displayText ?? promptText)
-      void generateTitleSummary(promptText, controller.signal).then(s => {
+      runDetached(generateTitleSummary(promptText, controller.signal).then(s => {
         if (s) titleUpgradeSummary(titleTurn, s)
-      })
+      }))
 
       commandHistoryRef.current.push(displayText ?? promptText)
       cancelRestoreRef.current = displayText ?? promptText  // ESC 叫停时回填用
@@ -1250,6 +1267,9 @@ export function App() {
           setActiveTool(null)
           setLiveOutput('')
           commitLiveTools()
+          // ESC//stop 处理器通常已复位，但 abort 也可能来自其他路径（如会话切换）——
+          // 这里兜底复位，否则 UI 卡在 streaming 态（状态行常驻、输入框禁用）。幂等。
+          setIsStreaming(false)
           interruptedRef.current = true  // 本轮被 ESC 中断 → 残留 todo 待下一个任务起跑时清场
           titleTaskDone(titleTurn)  // 中止 = 本轮结束，标题转 ✓（非错误）
         } else {
@@ -1290,6 +1310,11 @@ export function App() {
       setLiveOutput('')
       commitLiveTools()  // 已跑完的工具批先落盘，排在 /stop 回执之前（顺序正确）
     }
+    // 中止后没人会再回答 bridge 里挂起的确认/提问；不排空的话发起方工具永远悬挂。
+    cancelAllConfirms()
+    cancelAllQuestions()
+    setPendingConfirm(null)
+    setPendingQuestion(null)
     const killed = killAllRunningAgents()
     const parts: string[] = []
     if (wasStreaming) parts.push('current turn cancelled')
@@ -1310,6 +1335,19 @@ export function App() {
       }])
     }
   }, [isStreaming, commitLiveTools])
+
+  const reportDetachedUiError = useCallback((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err)
+    setIsStreaming(false)
+    setActiveTool(null)
+    setLiveOutput('')
+    setHistory(prev => [...prev, {
+      id: String(entryIdRef.current++),
+      role: 'status',
+      status: 'error',
+      text: `■ Error. ${message}`,
+    }])
+  }, [])
 
   const handleSubmit = useCallback(
     async (text: string) => {
@@ -1380,7 +1418,7 @@ export function App() {
           // 与 /mode 同理（此前被「其它斜杠命令忽略」吞掉 → 输出时敲 /language 无反应）。
           setInputValue('')
           historyIndexRef.current = -1
-          if (langCmd.kind === 'switch') void handleLanguageDone(langCmd.locale)
+          if (langCmd.kind === 'switch') runDetached(handleLanguageDone(langCmd.locale), reportDetachedUiError)
           else setShowLanguage(true)
         } else if (!trimmed.startsWith('/')) {
           // ── interject ───────────────────────────────────────────────────────
@@ -1413,7 +1451,7 @@ export function App() {
           }
           if (cmd.name !== trimmed) {
             // 用户在前缀上回车（如 /cl）→ 用解析出的全名重入，命中下方精确路由
-            void handleSubmit(cmd.name)
+            runDetached(handleSubmit(cmd.name), reportDetachedUiError)
             return
           }
           // cmd.name === trimmed 的 execute/panel：继续走下方既有精确路由
@@ -1505,6 +1543,11 @@ export function App() {
         setActiveTool(null)
         setLiveOutput('')
         setPendingQuestion(null)
+        setPendingConfirm(null)
+        // bridge 队列同步排空：/clear 后没人会再回答，挂着会让发起方工具永远悬挂，
+        // 且残留队头会挡住新会话里后续确认/提问的展示。
+        cancelAllConfirms()
+        cancelAllQuestions()
 
         // ③ 全局单例 —— goal、todos、所有在跑/已结束的调度任务
         resetSessionStates()                             // 清除 goal/contextTokens/microcompactState                      // 清空 microcompact 时间戳单例（新会话重新计时）
@@ -1873,13 +1916,13 @@ export function App() {
         const arg = trimmed.slice('/reason'.length).trim()
         if (arg) {
           const r = executeReason(arg)
-          void persistReason(r).then(() => {
+          runDetached(persistReason(r).then(() => {
             setHistory(prev => [...prev, {
               id: String(entryIdRef.current++),
               role: 'assistant',
               text: r.message,
             }])
-          })
+          }), reportDetachedUiError)
         } else {
           setReasonSelectorIndex(0)
           setPendingReasonSelect(true)
@@ -2054,7 +2097,7 @@ export function App() {
       // 展开粘贴占位符 → 真实内容喂给模型；history 仍显示用户提交时看到的文本。
       await runConversation(trimmed, displayText)
     },
-    [isStreaming, systemPrompt, pendingQuestion, pendingModeSelect, pendingVigilPanel, pendingExportPath, qIndex, selections, freeTexts, submitQuestions, runConversation, stopActiveWork, runLocalExport],
+    [isStreaming, systemPrompt, pendingQuestion, pendingModeSelect, pendingVigilPanel, pendingExportPath, qIndex, selections, freeTexts, submitQuestions, runConversation, stopActiveWork, runLocalExport, reportDetachedUiError],
   )
 
   const handleLoginDone = useCallback(async (result: LoginResult | null) => {
@@ -2267,7 +2310,7 @@ export function App() {
         if (!action) return
         if (action.key === 'current') {
           setPendingExportPanel(false)
-          void runLocalExport(undefined)
+          runDetached(runLocalExport(undefined), reportDetachedUiError)
         } else if (action.key === 'path') {
           setPendingExportPath(true)
           setInputValue('')
@@ -2389,13 +2432,13 @@ export function App() {
           // 滑块选 = 显式确认，对 DeepSeek reasoner 档自动带 --confirm
           const autoConfirm = config.provider === 'deepseek' && ['medium', 'high', 'max'].includes(selected.value)
           const r = executeReason(autoConfirm ? `${selected.value} --confirm` : selected.value)
-          void persistReason(r).then(() => {
+          runDetached(persistReason(r).then(() => {
             setHistory(prev => [...prev, {
               id: String(entryIdRef.current++),
               role: 'assistant',
               text: r.message,
             }])
-          })
+          }), reportDetachedUiError)
         }
         return
       }
@@ -2752,7 +2795,10 @@ export function App() {
       {/* 启动动画 —— 仅 booting 期间在 live 区独占顶部，结束后由 handleBootDone 收起。 */}
       {booting && <AstraeaIntro onDone={handleBootDone} />}
 
-      {isStreaming && (() => {
+      {shouldRenderAgentActivity({
+        isStreaming,
+        hasPendingConfirm: pendingConfirm !== null,
+      }) && (() => {
         // live 区与 Static 同一套去重逻辑：若本 turn 已经在前面的 assistant/tools 条目打过
         // ✦ Astraea，续接的流式文本就不再重复刷头（eval Item 6）。
         const lastRole = history.length > 0 ? history[history.length - 1]?.role : undefined
@@ -2971,7 +3017,10 @@ export function App() {
       {/* 常驻状态行：流式期间一直显示（轮换短语 + 实时秒数 + token + esc 提示），
           解决"跑到一半停住、不知是否还在运行"的问题。钉在 Tasks 面板下方（eval Item 12：
           状态行应展示在 Tasks 列表下面，而非其上方）。 */}
-      {isStreaming && <StreamStatus startTime={streamStart} tokens={liveTokens} />}
+      {shouldRenderAgentActivity({
+        isStreaming,
+        hasPendingConfirm: pendingConfirm !== null,
+      }) && <StreamStatus startTime={streamStart} tokens={liveTokens} />}
 
       {!showLogin && !showInternet && !showLanguage && !pendingReasonSelect && !pendingModeSelect && !pendingVigilPanel && !pendingConfirm && !pendingResumePicker && !pendingRewindPicker && (!pendingExportPanel || pendingExportPath) && (
         <ModeInputFrame mode={sessionMode} running={isStreaming} value={inputValue}>
@@ -2996,13 +3045,13 @@ export function App() {
                 <Text bold color={inputFocused && !isStreaming ? INDIGO : pendingQuestion ? 'yellow' : 'gray'}>
                   {pendingQuestion ? '? ' : isStreaming ? '  ' : '✦ '}
                 </Text>
-                <TextInput
+              <TextInput
                   value={inputValue}
                   onChange={val => {
                     historyIndexRef.current = -1
                     setInputValue(val)
                   }}
-                  onSubmit={handleSubmit}
+                  onSubmit={value => runDetached(handleSubmit(value), reportDetachedUiError)}
                   focus={inputFocused}
                   placeholder={inputPlaceholder}
                   enablePaste

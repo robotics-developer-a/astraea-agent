@@ -77,7 +77,7 @@ export async function* executeStreamingBash(
         void reader.cancel().catch(() => {})
       }, 200)
       ;(t as { unref?: () => void }).unref?.()
-    })
+    }).catch(() => {})
 
     try {
       while (!abandoned) {
@@ -95,12 +95,16 @@ export async function* executeStreamingBash(
     await exited
     combinedSignal.removeEventListener('abort', abortHandler)
     clearTimeout(timer)
+    // 超时/中断走 proc.kill()，exited 正常 resolve、不进 catch——标志必须在这里从信号推导。
+    // 被信号杀死时 proc.exitCode 为 null，绝不能 ?? 0 伪装成功（模型会把超时命令当成功）。
+    if (timeoutController.signal.aborted && !signal?.aborted) timedOut = true
+    else if (signal?.aborted) interrupted = true
     await syncCwd()
 
     return {
       stdout: capturedStdout.slice(0, MAX_OUTPUT_BYTES),
-      stderr: stderr.slice(0, MAX_STDERR_BYTES),
-      exitCode: proc.exitCode ?? 0,
+      stderr: (timedOut ? `${stderr}\nCommand timed out after ${timeoutMs}ms` : stderr).slice(0, MAX_STDERR_BYTES),
+      exitCode: proc.exitCode ?? (timedOut || interrupted ? -1 : 0),
       interrupted,
       timedOut,
     }
@@ -161,14 +165,18 @@ export async function executeBash(
     await exited
     combinedSignal.removeEventListener('abort', abortHandler)
     clearTimeout(timer)
+    // 超时/中断走 proc.kill()，exited 正常 resolve、不进 catch——标志必须在这里从信号推导。
+    // 被信号杀死时 proc.exitCode 为 null，绝不能 ?? 0 伪装成功（模型会把超时命令当成功）。
+    if (timeoutController.signal.aborted && !signal?.aborted) timedOut = true
+    else if (signal?.aborted) interrupted = true
 
     // 命令完成后同步新 CWD
     await syncCwd()
 
     return {
       stdout: stdout.slice(0, MAX_OUTPUT_BYTES),
-      stderr: stderr.slice(0, MAX_STDERR_BYTES),
-      exitCode: proc.exitCode ?? 0,
+      stderr: (timedOut ? `${stderr}\nCommand timed out after ${timeoutMs}ms` : stderr).slice(0, MAX_STDERR_BYTES),
+      exitCode: proc.exitCode ?? (timedOut || interrupted ? -1 : 0),
       interrupted,
       timedOut,
     }

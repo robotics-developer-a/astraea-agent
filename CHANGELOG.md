@@ -8,6 +8,43 @@
 
 > **1.0.0 发布门槛**（达成后才从 0.x 升到 1.0 并打首个 `git tag v1.0.0`）：
 
+## [0.10.19] - 2026-07-03
+
+### 修复（终端闪退 / 卡死专项）
+- **后台 Promise 拒绝不再整进程闪退**：进程级护栏此前把 `unhandledRejection` 与
+  `uncaughtException` 同等对待——任何 fire-and-forget 的后台失败（MCP 连接、标题摘要、
+  剪贴板读取…）都会复位终端并 `exit 1`，表现为「任务跑着跑着整个终端闪退」。现在
+  `unhandledRejection` 只上报（stderr + `~/.astraea/crash.log` 持久化），REPL 保持存活；
+  `uncaughtException` 仍复位终端后退出。新增 `runDetached()` 统一给 fire-and-forget
+  任务装本地拒绝边界，UI 层挂接 `reportDetachedUiError` 落红色状态行。
+- **权限确认 / AskUserQuestion 桥改为 FIFO 队列**：两个 bridge 原是单槽位，主 agent 与
+  后台 sub-agent（或并发工具批）同时发起确认/提问时，后到的会覆盖先到的，先到的 Promise
+  永远悬挂 → 工具调用连同任务整体卡死。现在请求排队逐个展示，resolve 队头后自动推送
+  下一个；最后一个 UI 订阅者退订时 fail-closed 排空队列。新增 `cancelAllConfirms()` /
+  `cancelAllQuestions()`，`/stop` 与 `/clear` 会排空挂起请求，不再留下永远悬挂的工具。
+- **UDS server 信号处理**：此前 SIGINT/SIGTERM 直接 `process.exit(0)` 绕过 Ink 清理
+  （终端 raw mode / 光标状态残留）。现在：清理 socket → 复位终端 → 按约定码（130/143）退出。
+- **后台任务输出无界内存**：`spawnBackground` 用 `Response(stream).text()` 收集输出，
+  64MB 截断发生在完整读取之后——长跑后台命令（`yes`、冗长构建日志）会把 REPL 进程
+  OOM 打崩。改用 `readStreamBounded` 边读边截断，且以 `proc.exited` 为读取边界（脱离的
+  常驻孙进程占住管道时不再永久挂死）。
+- **Bash 超时/中断伪装成功**：超时与 ESC 中断走 `proc.kill()`，`exited` 正常 resolve 不进
+  catch——`timedOut`/`interrupted` 永远是 false，且被信号杀死时 `exitCode` 为 null 被
+  `?? 0` 报告成 exit 0，模型把超时命令当成功继续推进。现在标志在退出后从信号推导，
+  被杀进程按非 0 退出码上报，stderr 附超时说明（前台 + 流式 + 后台三条路径一致）。
+- **runConversation abort 分支兜底复位 `isStreaming`**：abort 来自 ESC//stop 之外的路径时
+  UI 会卡在 streaming 态（状态行常驻、输入框禁用）。
+- **权限确认面板期间暂停 live frame 重绘**（`shouldRenderAgentActivity`）：确认选择器是
+  模态交互，流式帧的计时器重绘会让 Ink 反复擦除/回流选择器。
+
+### 修复（其他）
+- **`bun run typecheck` 修复回绿**：v0.10.17 的 `FileReadTool/image.ts` 带入 24 个
+  strict-null 错误；越界字节参与位运算会得 NaN、尺寸静默算错。统一经 `byteAt()`（越界按
+  0）读取，`readU32BE/LE` 修正为无符号语义，JPEG marker 越界时终止扫描，移除重复的
+  WebP `'VP8 '` 判等与恒假的 `!== 0xC4` 死条件。
+- **welcome 版本条目**：`RECENT_UPDATES` 停在 0.10.12 导致「当前版本必须有专属欢迎条目」
+  测试常红；补 0.10.19 条目（六语言），测试改为语义断言（存在 + 排首位）而非硬编码文案。
+
 ## [0.10.18] - 2026-07-03
 
 ### 修复

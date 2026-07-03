@@ -43,7 +43,8 @@ const FORMATS: ImageFormat[] = [
       while (i < buf.length - 1) {
         if (buf[i] !== 0xFF) break
         const marker = buf[i + 1]
-        if (marker >= 0xC0 && marker <= 0xC3 && marker !== 0xC4) {
+        if (marker === undefined) break
+        if (marker >= 0xC0 && marker <= 0xC3) {
           // SOFn: length(2) + precision(1) + height(2) + width(2)
           if (i + 9 <= buf.length) {
             return [readU16BE(buf, i + 7), readU16BE(buf, i + 5)]
@@ -82,12 +83,12 @@ const FORMATS: ImageFormat[] = [
       // VP8ℓ: lossy → 20字节处: signature(1) + ... + 宽高(2+2, 14bits)
       // VP8X: extended → 20字节处: flags(1) + size(3字节各24bit)
       // VP8L: lossless → 21字节处: signature(1) + size(4字节各28bit)
-      const vp8Id = String.fromCharCode(buf[12], buf[13], buf[14], buf[15])
-      if (vp8Id === 'VP8 ' || vp8Id === 'VP8 ') {
+      const vp8Id = String.fromCharCode(byteAt(buf, 12), byteAt(buf, 13), byteAt(buf, 14), byteAt(buf, 15))
+      if (vp8Id === 'VP8 ') {
         // VP8 lossy
         if (buf.length < 30) return null
-        const w = (buf[26] & 0x3F) << 8 | buf[27]
-        const h = (buf[28] & 0x3F) << 8 | buf[29]
+        const w = (byteAt(buf, 26) & 0x3F) << 8 | byteAt(buf, 27)
+        const h = (byteAt(buf, 28) & 0x3F) << 8 | byteAt(buf, 29)
         if (w === 0 || h === 0) return null
         return [w + 1, h + 1]
       }
@@ -174,8 +175,8 @@ const FORMATS: ImageFormat[] = [
       const count = readU16LE(buf, 4)
       if (count === 0) return null
       // 首个目录条目：宽(1)、高(1)、颜色数(1)、保留(1)、平面(2)、bpp(2)、size(4)、offset(4)
-      const w = buf[6] === 0 ? 256 : buf[6]
-      const h = buf[7] === 0 ? 256 : buf[7]
+      const w = byteAt(buf, 6) === 0 ? 256 : byteAt(buf, 6)
+      const h = byteAt(buf, 7) === 0 ? 256 : byteAt(buf, 7)
       return [w, h]
     },
   },
@@ -188,7 +189,7 @@ const FORMATS: ImageFormat[] = [
     readSize(buf) {
       // AVIF 基于 ISOBMFF (ftyp box), 魔数: ftyp(4) + size(4) + "avif"/"avis"
       if (buf[4] !== 0x66 || buf[5] !== 0x74 || buf[6] !== 0x79 || buf[7] !== 0x70) return null
-      const majorBrand = String.fromCharCode(buf[8], buf[9], buf[10], buf[11])
+      const majorBrand = String.fromCharCode(byteAt(buf, 8), byteAt(buf, 9), byteAt(buf, 10), byteAt(buf, 11))
       if (majorBrand !== 'avif' && majorBrand !== 'avis') return null
       // 简单实现：找到 av1C box (通常包含 width/height 信息)，近似取前几个 box
       // 精确解析需要完整的 ISOBMFF 解析器，这里取巧：读 meta box -> hdlr -> pitm -> iloc -> iprp -> ipco -> av1C
@@ -209,20 +210,26 @@ const FORMATS: ImageFormat[] = [
 
 // ── 工具函数 ─────────────────────────────────────────────────────────────────
 
+// 越界读一律按 0 处理：header 只有前 48 字节，截断处不能让 undefined 溜进位运算
+// （undefined << 8 → NaN，尺寸会静默算错而不是解析失败）。
+function byteAt(buf: Uint8Array, off: number): number {
+  return buf[off] ?? 0
+}
+
 function readU16BE(buf: Uint8Array, off: number): number {
-  return (buf[off] << 8) | buf[off + 1]
+  return (byteAt(buf, off) << 8) | byteAt(buf, off + 1)
 }
 
 function readU16LE(buf: Uint8Array, off: number): number {
-  return buf[off] | (buf[off + 1] << 8)
+  return byteAt(buf, off) | (byteAt(buf, off + 1) << 8)
 }
 
 function readU32BE(buf: Uint8Array, off: number): number {
-  return (buf[off] << 24) | (buf[off + 1] << 16) | (buf[off + 2] << 8) | buf[off + 3]
+  return ((byteAt(buf, off) << 24) | (byteAt(buf, off + 1) << 16) | (byteAt(buf, off + 2) << 8) | byteAt(buf, off + 3)) >>> 0
 }
 
 function readU32LE(buf: Uint8Array, off: number): number {
-  return (buf[off] >>> 0) | (buf[off + 1] << 8) | (buf[off + 2] << 16) | (buf[off + 3] << 24)
+  return ((byteAt(buf, off)) | (byteAt(buf, off + 1) << 8) | (byteAt(buf, off + 2) << 16) | (byteAt(buf, off + 3) << 24)) >>> 0
 }
 
 function readI32LE(buf: Uint8Array, off: number): number {
@@ -231,7 +238,7 @@ function readI32LE(buf: Uint8Array, off: number): number {
 }
 
 function readU24LE(buf: Uint8Array, off: number): number {
-  return buf[off] | (buf[off + 1] << 8) | (buf[off + 2] << 16)
+  return byteAt(buf, off) | (byteAt(buf, off + 1) << 8) | (byteAt(buf, off + 2) << 16)
 }
 
 function parseTiffValue(

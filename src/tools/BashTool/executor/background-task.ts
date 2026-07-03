@@ -2,6 +2,11 @@
 // 支持：提交后台任务、查询状态、等待结束
 
 import { randomUUID } from 'crypto'
+import { runDetached } from '../../../utils/detachedTask'
+import { readStreamBounded } from './readStreamBounded'
+
+const MAX_STDOUT_BYTES = 64 * 1024 * 1024 // 与前台 executor 一致
+const MAX_STDERR_BYTES = 1024 * 1024
 
 export interface BackgroundTask {
   id: string
@@ -48,7 +53,10 @@ export function spawnBackground(
   tasks.set(id, task)
 
   // 异步收集输出
-  void collectOutput(task)
+  runDetached(collectOutput(task), err => {
+    task.stderr = `Background output collection failed: ${err instanceof Error ? err.message : String(err)}`
+    task.exitCode = -1
+  })
 
   return id
 }
@@ -56,14 +64,20 @@ export function spawnBackground(
 async function collectOutput(
   task: BackgroundTask & { proc: ReturnType<typeof Bun.spawn> },
 ): Promise<void> {
+  // readStreamBounded 而非 Response(stream).text()：
+  //   ① 边读边截断——`.text()` 把全部输出攒进内存后才截断，长跑后台命令（yes、
+  //      冗长构建日志）会把 REPL 进程 OOM 打崩；
+  //   ② 以 proc.exited 为读取边界——脱离的常驻孙进程占住管道时不会永久挂死。
+  const exited = task.proc.exited
   const [stdout, stderr] = await Promise.all([
-    new Response(task.proc.stdout as ReadableStream).text(),
-    new Response(task.proc.stderr as ReadableStream).text(),
+    readStreamBounded(task.proc.stdout as ReadableStream<Uint8Array>, exited, MAX_STDOUT_BYTES),
+    readStreamBounded(task.proc.stderr as ReadableStream<Uint8Array>, exited, MAX_STDERR_BYTES),
   ])
-  await task.proc.exited
-  task.stdout = stdout.slice(0, 64 * 1024 * 1024)
-  task.stderr = stderr.slice(0, 1024 * 1024)
-  task.exitCode = task.proc.exitCode ?? 0
+  await exited
+  task.stdout = stdout.slice(0, MAX_STDOUT_BYTES)
+  task.stderr = stderr.slice(0, MAX_STDERR_BYTES)
+  // 被信号杀死时 exitCode 为 null——按失败上报，别伪装成 exit 0 的成功
+  task.exitCode = task.proc.exitCode ?? -1
 }
 
 export function getTask(id: string): BackgroundTask | undefined {

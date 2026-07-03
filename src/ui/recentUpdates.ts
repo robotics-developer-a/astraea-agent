@@ -9,6 +9,19 @@ export interface RecentUpdate {
 
 export const RECENT_UPDATES: RecentUpdate[] = [
   {
+    version: '0.10.19',
+    priority: 150,
+    persistent: false,
+    messages: {
+      en: 'Stability: parallel permission prompts now queue up one by one instead of silently hanging a task, and background failures no longer take down your terminal.',
+      zh: '稳定性：并发权限确认改为排队逐个处理，不再悄悄卡死任务；后台错误也不会再把整个终端带崩。',
+      de: 'Stabilität: Parallele Berechtigungsabfragen werden jetzt nacheinander gestellt, statt eine Aufgabe stumm hängen zu lassen; Hintergrundfehler reißen das Terminal nicht mehr mit.',
+      fr: 'Stabilité : les demandes d’autorisation parallèles sont désormais traitées une par une au lieu de bloquer silencieusement une tâche ; les erreurs d’arrière-plan ne font plus tomber votre terminal.',
+      es: 'Estabilidad: las solicitudes de permiso paralelas ahora se atienden en cola una por una en lugar de colgar silenciosamente una tarea; los errores en segundo plano ya no tumban tu terminal.',
+      ko: '안정성: 동시 권한 확인이 이제 하나씩 순서대로 처리되어 작업이 조용히 멈추지 않으며, 백그라운드 오류가 더 이상 터미널을 종료시키지 않습니다.',
+    },
+  },
+  {
     version: '0.10.12',
     priority: 140,
     persistent: false,

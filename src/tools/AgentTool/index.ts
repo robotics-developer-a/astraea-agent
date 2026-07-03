@@ -7,6 +7,7 @@ import { generateAgentId, registerAgentTask } from '../../services/agent-state.j
 import { runSubAgent, resolveSubAgentModel } from '../../services/run-sub-agent.js'
 import { getSessionSystemPrompt } from '../../services/session-context.js'
 import { getWorkerTools } from '../registry.js'
+import { runDetached } from '../../utils/detachedTask.js'
 
 export const AgentTool = buildTool({
   name: 'Agent',
@@ -55,7 +56,7 @@ For cheap map/summarization sub-tasks, set model:"small" to save cost.`,
     const tools = getWorkerTools()
 
     // Fire-and-Observe: do NOT await, sub-agent runs concurrently
-    void runSubAgent(agentId, prompt, tools, system, task.abortController.signal, model)
+    runDetached(runSubAgent(agentId, prompt, tools, system, task.abortController.signal, model))
 
     return {
       output: JSON.stringify({

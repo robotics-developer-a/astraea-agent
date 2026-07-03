@@ -13,6 +13,17 @@ export function hasLiveBody(args: {
   return args.streamingText.length > 0 || args.liveToolCount > 0 || args.activeTool != null
 }
 
+// INTENT: Permission confirmation is a modal interaction. While it is visible, the
+// ordinary streaming frame must stop redrawing or Ink can erase and reflow the selector
+// on every timer tick. The underlying query remains active and resumes visually once the
+// confirmation bridge resolves.
+export function shouldRenderAgentActivity(args: {
+  isStreaming: boolean
+  hasPendingConfirm: boolean
+}): boolean {
+  return args.isStreaming && !args.hasPendingConfirm
+}
+
 // INTENT: Live text is only a preview; the complete assistant reply is still accumulated in
 // memory and committed to Static history at turn end. We coalesce token bursts into one redraw
 // per interval (instead of redrawing on every token), but the interval must stay small enough

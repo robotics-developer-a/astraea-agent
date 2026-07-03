@@ -7,6 +7,7 @@ import { homedir, platform } from 'os'
 import { join } from 'path'
 import { enqueueNotification } from './notification-queue'
 import { pushPendingMessage } from './agent-state'
+import { restoreTerminal } from '../utils/terminalGuard'
 
 const IS_WIN = platform() === 'win32'
 
@@ -93,8 +94,17 @@ export function startUDSServer(): void {
     try { _listener?.stop() } catch {}
   }
   process.on('exit', cleanup)
-  process.on('SIGINT', () => { cleanup(); process.exit(0) })
-  process.on('SIGTERM', () => { cleanup(); process.exit(0) })
+  // INTENT: This server is embedded in the Ink REPL. Registering a signal listener
+  // suppresses the runtime's default terminate-on-signal, so after cleaning up our
+  // socket we must restore the terminal (raw mode / cursor) and exit ourselves with
+  // the conventional 128+signo code — otherwise `kill` could no longer stop the REPL.
+  const onSignal = (code: number) => () => {
+    cleanup()
+    restoreTerminal()
+    process.exit(code)
+  }
+  process.on('SIGINT', onSignal(130))
+  process.on('SIGTERM', onSignal(143))
 }
 
 function handleIncoming(msg: { to?: string; message: string }): void {

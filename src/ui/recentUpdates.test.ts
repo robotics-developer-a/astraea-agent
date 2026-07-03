@@ -54,7 +54,10 @@ describe('recent updates', () => {
   })
 
   test('the current version ships a dedicated welcome notice as the first item', () => {
+    // 语义断言而非硬编码文案：每次发版必须为 pkg.version 增加专属条目，且它排在首位。
+    const dedicated = RECENT_UPDATES.find(u => u.version === pkg.version)
+    expect(dedicated).toBeDefined()
     const updates = getRecentUpdates(pkg.version, 'en')
-    expect(updates[0]).toContain('sweeping')
+    expect(updates[0]).toBe(dedicated!.messages.en)
   })
 })

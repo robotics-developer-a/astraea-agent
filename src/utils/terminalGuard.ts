@@ -11,7 +11,9 @@
 // 并干净退出，保证「就算崩，也别把终端一起带走」。复位序列全部幂等，与 Ink 自身的清理
 // 叠加无副作用。
 
-import { openSync, writeSync } from 'node:fs'
+import { appendFileSync, mkdirSync, openSync, writeSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 
 // 复位序列（按「关私有模式 → 显光标」顺序）：
 //   ESC[?2026l 关同步渲染、ESC[?2004l 关 bracketed-paste、ESC[?1000/1002/1003/1006l 关鼠标
@@ -31,6 +33,21 @@ function ttyWrite(seq: string): boolean {
 }
 
 let restored = false
+const CRASH_LOG_DIR = join(homedir(), '.astraea')
+const CRASH_LOG_PATH = join(CRASH_LOG_DIR, 'crash.log')
+
+function persistFailure(message: string): void {
+  try {
+    mkdirSync(CRASH_LOG_DIR, { recursive: true })
+    appendFileSync(
+      CRASH_LOG_PATH,
+      `[${new Date().toISOString()}] pid=${process.pid} ${message}\n`,
+      { encoding: 'utf8', mode: 0o600 },
+    )
+  } catch {
+    // Diagnostics are best-effort and must never become another crash source.
+  }
+}
 
 /**
  * 把终端从 Ink 接管的状态复位回正常 shell 可用状态。幂等：多次调用安全，且与 Ink 自身
@@ -49,17 +66,49 @@ export function restoreTerminal(): void {
   }
 }
 
+type ProcessFailureKind = 'uncaughtException' | 'unhandledRejection'
+
+interface ProcessFailureDeps {
+  restore: () => void
+  report: (message: string) => void
+  exit: (code: number) => void
+}
+
+// INTENT: A rejected fire-and-forget Promise is isolated background-work failure,
+// not proof that the interactive process is corrupted. Keep the REPL alive after
+// reporting it. An uncaught synchronous exception is different: continuing from an
+// unknown stack state is unsafe, so that path still restores the terminal and exits.
+export function handleProcessFailure(
+  kind: ProcessFailureKind,
+  err: unknown,
+  deps: ProcessFailureDeps,
+): void {
+  const label = kind === 'uncaughtException' ? 'Uncaught exception' : 'Unhandled rejection'
+  const detail = err instanceof Error ? (err.stack ?? err.message) : String(err)
+  deps.report(`${label}: ${detail}`)
+
+  if (kind === 'uncaughtException') {
+    deps.restore()
+    deps.exit(1)
+  }
+}
+
 /**
- * 装进程级崩溃护栏：未捕获异常 / 未处理拒绝时，先复位终端再打印错误并退出（exit 1）。
+ * 装进程级故障护栏：未捕获异常会复位终端并退出；后台 Promise 拒绝只报告，
+ * 让当前 REPL 保持可用。
  * 必须在 Ink 的 render() 之前调用。信号（SIGINT/SIGTERM）交给 Ink 自身处理，不重复接管。
  */
 export function installCrashGuard(): void {
-  const onFatal = (label: string) => (err: unknown) => {
-    restoreTerminal()
-    const msg = err instanceof Error ? (err.stack ?? err.message) : String(err)
-    try { process.stderr.write(`\n${label}: ${msg}\n`) } catch { /* ignore */ }
-    process.exit(1)
+  const handle = (kind: ProcessFailureKind) => (err: unknown) => {
+    handleProcessFailure(kind, err, {
+      restore: restoreTerminal,
+      report: message => {
+        persistFailure(message)
+        try { process.stderr.write(`\n${message}\n`) } catch { /* ignore */ }
+      },
+      exit: code => process.exit(code),
+    })
   }
-  process.on('uncaughtException', onFatal('Uncaught exception'))
-  process.on('unhandledRejection', onFatal('Unhandled rejection'))
+  process.on('uncaughtException', handle('uncaughtException'))
+  process.on('unhandledRejection', handle('unhandledRejection'))
 }

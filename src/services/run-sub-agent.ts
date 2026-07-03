@@ -31,22 +31,25 @@ export async function runSubAgent(
   model?: string,
 ): Promise<void> {
   const startedAt = Date.now()
-  await acquireAgentSlot() // §5-#8: 受全局并发上限约束，超额时在此排队
-
-  const toolSchemas: ToolSchema[] = tools.map(t => ({
-    name: t.name,
-    description: t.description,
-    input_schema: t.inputSchema,
-  }))
-
-  let messages: (UserMessage | AssistantMessage)[] = [
-    { role: 'user', content: prompt },
-  ]
-
-  let turnCount = 0
-  let lastText = ''
+  let acquiredSlot = false
 
   try {
+    await acquireAgentSlot() // §5-#8: 受全局并发上限约束，超额时在此排队
+    acquiredSlot = true
+
+    const toolSchemas: ToolSchema[] = tools.map(t => ({
+      name: t.name,
+      description: t.description,
+      input_schema: t.inputSchema,
+    }))
+
+    let messages: (UserMessage | AssistantMessage)[] = [
+      { role: 'user', content: prompt },
+    ]
+
+    let turnCount = 0
+    let lastText = ''
+
     while (turnCount < MAX_TURNS) {
       if (signal.aborted) break
 
@@ -160,6 +163,6 @@ export async function runSubAgent(
       }
     }
   } finally {
-    releaseAgentSlot() // §5-#8: 任何退出路径都归还槽位
+    if (acquiredSlot) releaseAgentSlot() // §5-#8: 任何退出路径都归还槽位
   }
 }
