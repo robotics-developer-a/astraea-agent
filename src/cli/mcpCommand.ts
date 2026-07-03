@@ -1,25 +1,78 @@
 // `astraea mcp …` 子命令 —— 实现文档 §1.7 / §1.9。
 //   astraea mcp add [--transport http|sse|stdio] [-e K=V]... [-H "H: V"]... [--scope local|project|user] <name> <cmd-or-url> [-- args...]
+//   astraea mcp install [--name n] [--scope local|project|user] [-e K=V]... <github-or-git-url> [-- <command> args...]
 //   astraea mcp list
 //   astraea mcp remove <name>
 // flag 语义对齐 CC：--transport 管本地/远程；-e 设 stdio 环境变量；-H 设远程 header。
 
 import { addMcpServer, removeMcpServer, loadMcpServers } from '../mcp/config'
+import { installMcpFromGit } from '../mcp/install'
 import type { McpServerConfig, McpTransport, McpScope } from '../mcp/types'
 
 export async function runMcpCommand(argv: string[]): Promise<void> {
   const sub = argv[0]
   switch (sub) {
     case 'add': return cmdAdd(argv.slice(1))
+    case 'install': return cmdInstall(argv.slice(1))
     case 'list': case 'ls': return cmdList()
     case 'remove': case 'rm': return cmdRemove(argv.slice(1))
     default:
-      console.error('Usage: astraea mcp <add|list|remove>')
+      console.error('Usage: astraea mcp <add|install|list|remove>')
       console.error('  astraea mcp add [--transport http|sse|stdio] [-e K=V] [-H "Header: val"] [--scope local|project|user] <name> <cmd-or-url> [-- args...]')
+      console.error('  astraea mcp install [--name n] [--scope local|project|user] [-e K=V] <github-or-git-url> [-- <command> args...]')
       console.error('  astraea mcp list')
       console.error('  astraea mcp remove <name>')
       process.exit(1)
   }
+}
+
+// astraea mcp install owner/repo[#ref] [--name n] [--scope ...] [-e K=V]... [-- <command> args...]
+// 从 git 拉取 MCP server 代码到 ~/.astraea/mcp/<name>/，跑仓库 install 钩子，注册 stdio 配置。
+function cmdInstall(argv: string[]): void {
+  let name: string | undefined
+  let scope: McpScope = 'local'
+  const env: Record<string, string> = {}
+  const positionals: string[] = []
+  const trailing: string[] = []
+  let seenDashDash = false
+
+  for (let i = 0; i < argv.length; i++) {
+    const tok = argv[i]!
+    if (seenDashDash) { trailing.push(tok); continue }
+    if (tok === '--') { seenDashDash = true; continue }
+    if (tok === '--name') { name = argv[++i]; continue }
+    if (tok === '--scope') { scope = argv[++i] as McpScope; continue }
+    if (tok === '-e' || tok === '--env') {
+      const kv = argv[++i] ?? ''
+      const eq = kv.indexOf('=')
+      if (eq > 0) env[kv.slice(0, eq)] = kv.slice(eq + 1)
+      continue
+    }
+    positionals.push(tok)
+  }
+
+  const source = positionals[0]
+  if (!source) {
+    console.error('Usage: astraea mcp install <github-or-git-url> [--name n] [--scope ...] [-e K=V] [-- <command> args...]')
+    process.exit(1)
+  }
+
+  const explicit = trailing.length > 0
+    ? { command: trailing[0]!, args: trailing.slice(1) }
+    : undefined
+
+  const res = installMcpFromGit({
+    source,
+    ...(name ? { name } : {}),
+    scope,
+    ...(Object.keys(env).length ? { env } : {}),
+    ...(explicit ? { explicit } : {}),
+  })
+
+  if ('error' in res) { console.error(`Error: ${res.error}`); process.exit(1) }
+  console.log(`✓ Installed from ${source} → ${res.dir}`)
+  console.log(`  Registered MCP server(s): ${res.installed.join(', ')} (scope=${scope}).`)
+  console.log('  Restart Astraea to connect.')
 }
 
 function looksLikeUrl(s: string): boolean {

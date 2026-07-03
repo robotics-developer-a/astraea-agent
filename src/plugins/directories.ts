@@ -31,6 +31,14 @@ export function pluginCacheDir(marketplace: string, plugin: string, version: str
   return join(cacheRoot(), marketplace, plugin, version)
 }
 
+/** `astraea mcp install` 从 git 拉取的 MCP server 代码根目录。 */
+export function mcpInstallRoot(): string {
+  const env = process.env.ASTRAEA_MCP_DIR?.trim()
+  if (env) return env
+  if (_rootOverride) return join(_rootOverride, 'mcp')
+  return join(homedir(), '.astraea', 'mcp')
+}
+
 /** 插件 / 市场清单所在的隐藏子目录名。 */
 export const PLUGIN_MANIFEST_DIR = '.astraea-plugin'
 export const PLUGIN_MANIFEST_FILE = 'plugin.json'
