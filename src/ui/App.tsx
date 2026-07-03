@@ -966,6 +966,22 @@ export function App() {
       const userMsg = createUserMessage(promptText)
       const messages = [...conversationRef.current, userMsg]
 
+      // 闪退兜底：turn 起跑即把用户消息落盘，不等 done（设计文档 §10）。
+      // 否则 appendMessages 只在本轮 done 触发——终端在流式途中崩溃，整轮 prompt 连同
+      // 半截回复一起丢失。这里先写 user 行并前移 loggedLen，done 的 delta 会自然跳过它，
+      // 不重复；若中途 compact，compact 快照在 loadSessionMessages 里整体替换累加器，亦无冲突。
+      const preTurnLoggedLen = loggedLenRef.current
+      let earlyAppended = false
+      let turnCommitted = false  // done 走完（conversationRef+loggedLen 已对齐）才置真
+      {
+        const w = transcriptRef.current
+        if (w?.enabled && loggedLenRef.current === conversationRef.current.length) {
+          w.appendMessages([userMsg])
+          loggedLenRef.current += 1
+          earlyAppended = true
+        }
+      }
+
       let accumulated = ''
       // 整次运行是否产生过任何可见输出（文本/工具/裁决）。否则在 done 时补一行占位，
       // 避免「模型返回极简或空回复 → 界面一片空白看起来像卡死」。
@@ -1198,6 +1214,7 @@ export function App() {
                   loggedLenRef.current = event.messages.length
                 }
               }
+              turnCommitted = true  // conversationRef + loggedLen 已对齐，finally 无需回退早写
               // ESC 中止：UI 已在 ESC 处理器里更新（显示了 [cancelled]），这里只清理流式状态。
               // 已跑完的工具调用落盘保留，避免中止时丢掉用户已看到的结果。
               if (controller.signal.aborted) {
@@ -1289,6 +1306,11 @@ export function App() {
       } finally {
         abortControllerRef.current = null
         setIsCompacting(false)  // 安全复位（覆盖压缩中途 abort 等边界）
+        // 早写对账：若本轮没走到 done（异常/中断途中退出），conversationRef 仍停在轮前状态，
+        // 而早写已把 loggedLen 前移了 1。回退 loggedLen 到轮前值，恢复「loggedLen==conversationRef.length」
+        // 不变量，让下一轮的早写守卫仍能生效。磁盘上那条 user 行留作孤儿（append-only 无法撤销），
+        // /resume 重放时正好把闪退前的这句 prompt 恢复出来——这正是我们要的兜底。
+        if (earlyAppended && !turnCommitted) loggedLenRef.current = preTurnLoggedLen
       }
     },
     [systemPrompt],

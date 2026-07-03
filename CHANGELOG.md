@@ -8,6 +8,21 @@
 
 > **1.0.0 发布门槛**（达成后才从 0.x 升到 1.0 并打首个 `git tag v1.0.0`）：
 
+## [0.10.20] - 2026-07-04
+
+### 改进（闪退恢复 / transcript）
+- **中途闪退不再丢当前这一轮的 prompt**：transcript 原先只在每轮 `done` 事件落盘，
+  终端在模型流式生成途中崩溃时，本轮用户 prompt 连同半截回复一起丢失。现在
+  `runConversation` 在 turn 起跑即把用户消息追加进 transcript（不等 `done`），
+  `/resume` 重放时能恢复到「闪退前问的那句话」。已完成轮次本就逐轮落盘、不受影响。
+- **早写与 done 增量不重复、异常路径对账**：`done` 的 delta 写盘会自然跳过已早写的
+  user 行（`turnCommitted` 标记）；若本轮异常/中断没走到 `done`，`finally` 把 `loggedLen`
+  回退到轮前值，恢复「loggedLen==conversationRef.length」不变量，保证后续轮次早写仍生效。
+  磁盘上那条 user 行留作孤儿（append-only 无法撤销），正是 `/resume` 要还原的兜底。
+  利用 transcript append-only + compact 快照整体替换的重放语义，早写与 compact/rewind
+  交错均不冲突。
+- 注：流式途中半截的**助手回复**仍不落盘（只保完整轮）；保住半截回复需流式增量落盘，改动更大，暂未纳入。
+
 ## [0.10.19] - 2026-07-03
 
 ### 修复（终端闪退 / 卡死专项）
