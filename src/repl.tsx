@@ -9,6 +9,7 @@ import { App } from './ui/App'
 import { listTools } from './tools/registry'
 import { initTitle } from './utils/terminalTitle'
 import { installCrashGuard, restoreTerminal } from './utils/terminalGuard'
+import { inkRenderOptions } from './ui/renderOptions'
 
 // 进程级崩溃护栏：必须在 render()（Ink 接管终端、进 raw mode / 隐光标）之前装好。
 // 这样即使流式管线之外的 fire-and-forget 回调抛出未捕获异常 / 未处理拒绝，进程退出前也会
@@ -44,7 +45,7 @@ if (argv[0] === 'selection') {
 initTitle()
 
 // render() 接管终端（raw mode），返回 waitUntilExit() Promise
-const { waitUntilExit } = render(<App />)
+const { waitUntilExit } = render(<App />, inkRenderOptions(process.platform))
 
 waitUntilExit()
   .then(() => process.exit(0))
