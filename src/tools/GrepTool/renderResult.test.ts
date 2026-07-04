@@ -33,3 +33,16 @@ test('截断 → 不计 (truncated...) 行,带 (truncated) 后缀', () => {
 test('出错 → null（让上层铺全错误）', () => {
   expect(render({}, 'ripgrep not found: boom', true)).toBeNull()
 })
+
+test('content 模式 + context_lines → 上下文行（path-lineno-text）与分组分隔符（--）不计入匹配数', () => {
+  const output = [
+    'src/a.ts-10-  function foo() {',
+    'src/a.ts:11:  const x = 1',
+    'src/a.ts-12-  return x',
+    '--',
+    'src/b.ts-4-  before',
+    'src/b.ts:5:  const x = 3',
+    'src/b.ts-6-  after',
+  ].join('\n')
+  expect(render({ output: 'content', context_lines: 1 }, output)).toEqual(['Found 2 matches'])
+})

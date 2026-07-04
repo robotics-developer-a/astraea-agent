@@ -67,7 +67,8 @@ export const GrepTool = buildTool({
 Examples:
   pattern="TODO"                          → all files containing TODO
   pattern="export.*Tool" type="ts"       → TypeScript files exporting Tool
-  pattern="isReadOnly" output="content"  → show matching lines`,
+  pattern="isReadOnly" output="content"  → show matching lines
+  pattern="handleLogin" output="content" context_lines=3 → matching lines with 3 lines of context on each side`,
   isReadOnly: () => true,
   isConcurrencySafe: () => true,
   inputSchema: {
@@ -98,6 +99,10 @@ Examples:
         type: 'number',
         description: `Max results to return (default: ${DEFAULT_HEAD_LIMIT})`,
       },
+      context_lines: {
+        type: 'number',
+        description: 'Lines of context to show before AND after each match (content mode only, ripgrep -C). Default: 0.',
+      },
     },
     required: ['pattern'],
   },
@@ -109,6 +114,7 @@ Examples:
     const caseSens     = (input['case_sensitive'] as boolean | undefined) ?? false
     const fileType     = input['type']           as string | undefined
     const headLimit    = input['head_limit']     as number | undefined
+    const contextLines = input['context_lines']  as number | undefined
 
     const cwd = process.cwd()
     const basePath = searchPath ? resolve(cwd, searchPath) : cwd
@@ -125,6 +131,7 @@ Examples:
       args.push('--count')
     } else {
       args.push('--line-number')
+      if (contextLines && contextLines > 0) args.push('--context', String(contextLines))
     }
 
     args.push('--', pattern, basePath)
@@ -169,8 +176,11 @@ Examples:
     if (output.startsWith('No matches found')) return ['No matches found']
     const lines = output.split('\n').filter(Boolean)
     const truncated = /^\(truncated at /.test(lines.at(-1) ?? '')
-    const n = truncated ? lines.length - 1 : lines.length
+    const body = truncated ? lines.slice(0, -1) : lines
     const mode = (input['output'] as string | undefined) ?? 'files_with_matches'
+    // content 模式下 --context 会插入非匹配的上下文行（"path-lineno-text"）和 "--" 分组分隔符；
+    // 只数真正的匹配行（ripgrep 用 "path:lineno:text" 标记），避免上下文行把计数灌水。
+    const n = mode === 'content' ? body.filter(l => /:\d+:/.test(l)).length : body.length
     const noun = mode === 'content' ? 'matches' : 'files'
     return [`Found ${n} ${noun}${truncated ? ' (truncated)' : ''}`]
   },
