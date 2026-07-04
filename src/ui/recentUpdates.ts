@@ -9,6 +9,19 @@ export interface RecentUpdate {
 
 export const RECENT_UPDATES: RecentUpdate[] = [
   {
+    version: '0.10.21',
+    priority: 160,
+    persistent: false,
+    messages: {
+      en: 'Grep can now show N lines of context around each match (context_lines), and no longer freezes the terminal while searching large repos.',
+      zh: 'Grep 现在可以带上匹配行前后各 N 行上下文（context_lines），大仓库慢搜索时也不会再卡住终端。',
+      de: 'Grep kann jetzt N Zeilen Kontext um jeden Treffer anzeigen (context_lines) und blockiert das Terminal nicht mehr bei der Suche in großen Repos.',
+      fr: 'Grep peut désormais afficher N lignes de contexte autour de chaque correspondance (context_lines) et ne fige plus le terminal lors de recherches dans de grands dépôts.',
+      es: 'Grep ahora puede mostrar N líneas de contexto alrededor de cada coincidencia (context_lines) y ya no bloquea la terminal al buscar en repositorios grandes.',
+      ko: 'Grep가 이제 각 일치 항목 주변에 N줄의 컨텍스트를 표시할 수 있으며(context_lines), 대형 저장소 검색 중에도 터미널이 멈추지 않습니다.',
+    },
+  },
+  {
     version: '0.10.19',
     priority: 150,
     persistent: false,

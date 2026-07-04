@@ -16,16 +16,22 @@ import { resolve, relative } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { statSync } from 'node:fs'
 import { buildTool } from '../Tool'
-import type { Tool, ToolCallResult } from '../Tool'
+import type { Tool, ToolCallResult, ToolContext } from '../Tool'
+import { readStreamBounded } from '../BashTool/executor/readStreamBounded.js'
 
 // INTENT: 默认 250 条限制来自上下文窗口预算分析
 // content 模式下 250 行约 2000-5000 token，是单次工具调用的合理上限
 const DEFAULT_HEAD_LIMIT = 250
 
+// INTENT: 与 BashTool 的 shell.ts 同量级——防止极端匹配量把内存/上下文吃爆
+const MAX_STDOUT_BYTES = 10 * 1024 * 1024
+const MAX_STDERR_BYTES = 1 * 1024 * 1024
+
 // INTENT: VCS 目录统一排除，避免 .git/ 内容污染搜索结果
 const VCS_DIRS = ['.git', '.svn', '.hg', '.bzr', '_darcs']
 
-// INTENT: ripgrep 路径，优先系统 PATH，macOS Homebrew 后备
+// INTENT: ripgrep 路径，优先系统 PATH，macOS Homebrew 后备。这里仍用 spawnSync——
+// 只在模块加载时跑一次 `--version`（毫秒级），不是每次搜索都执行，不会阻塞 REPL。
 function getRipgrepPath(): string {
   for (const p of [
     'rg',
@@ -107,7 +113,7 @@ Examples:
     required: ['pattern'],
   },
 
-  async call(input, _ctx: import("../Tool.js").ToolContext): Promise<ToolCallResult> {
+  async call(input, ctx: ToolContext): Promise<ToolCallResult> {
     const pattern      = input['pattern']        as string
     const searchPath   = input['path']           as string | undefined
     const outputMode   = (input['output']        as string | undefined) ?? 'files_with_matches'
@@ -136,18 +142,36 @@ Examples:
 
     args.push('--', pattern, basePath)
 
-    // ── 执行 ripgrep ───────────────────────────────────────────────
-    const result = spawnSync(RG_PATH, args, {
-      encoding: 'utf8',
-      maxBuffer: 10 * 1024 * 1024,
-    })
-
-    if (result.error) {
-      return { output: `ripgrep not found: ${result.error.message}`, isError: true }
+    // ── 执行 ripgrep（异步 spawn，不阻塞事件循环；大仓库慢搜索时 REPL 仍可响应按键/ESC）──
+    let proc: Bun.Subprocess<'ignore', 'pipe', 'pipe'>
+    try {
+      proc = Bun.spawn([RG_PATH, ...args], { stdout: 'pipe', stderr: 'pipe' })
+    } catch (err: unknown) {
+      return { output: `ripgrep not found: ${String(err)}`, isError: true }
     }
 
-    const stdout = result.stdout ?? ''
-    const lines  = stdout.split('\n').filter(Boolean)
+    // ESC / 轮次中止 → 直接杀掉还在跑的 ripgrep 进程，不用等它自己跑完
+    const abortHandler = () => proc.kill()
+    ctx.abortSignal?.addEventListener('abort', abortHandler, { once: true })
+
+    const exited = proc.exited
+    const [stdout, stderr] = await Promise.all([
+      readStreamBounded(proc.stdout, exited, MAX_STDOUT_BYTES),
+      readStreamBounded(proc.stderr, exited, MAX_STDERR_BYTES),
+    ])
+    const exitCode = await exited
+    ctx.abortSignal?.removeEventListener('abort', abortHandler)
+
+    if (ctx.abortSignal?.aborted) {
+      return { output: 'Grep search cancelled.', isError: true }
+    }
+
+    // ripgrep 退出码：0=有匹配，1=无匹配（非错误），其余=真错误（如正则语法错、路径不存在）
+    if (exitCode !== 0 && exitCode !== 1) {
+      return { output: `ripgrep error: ${stderr.trim() || `exit code ${exitCode}`}`, isError: true }
+    }
+
+    const lines = stdout.split('\n').filter(Boolean)
 
     if (lines.length === 0) {
       return { output: `No matches found for: ${pattern}` }
