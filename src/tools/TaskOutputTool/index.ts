@@ -43,8 +43,13 @@ Use to:
 
   async call(input, _ctx: import("../Tool.js").ToolContext): Promise<ToolCallResult> {
     const taskId = input['taskId'] as string
-    const offset = input['offset'] as number
-    const limit = (input['limit'] as number | undefined) ?? 100
+    // offset/limit 防御性归一：缺失/负数/NaN → 0 起读、默认 100 条,避免 NaN 游标进输出
+    const offsetRaw = input['offset']
+    const offset = typeof offsetRaw === 'number' && Number.isFinite(offsetRaw) && offsetRaw > 0
+      ? Math.floor(offsetRaw) : 0
+    const limitRaw = input['limit']
+    const limit = typeof limitRaw === 'number' && Number.isFinite(limitRaw) && limitRaw > 0
+      ? Math.floor(limitRaw) : 100
 
     const task = getState().tasks[taskId]
     if (!task) return { output: `Task "${taskId}" not found.`, isError: true }

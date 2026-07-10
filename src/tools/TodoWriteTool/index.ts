@@ -95,6 +95,17 @@ Status values: "pending", "in_progress", "completed"`,
       return { output: 'todos must be an array', isError: true }
     }
 
+    // 元素级守卫：null / 非对象元素会让下面的 .status / .acceptanceCriteria 访问直接抛
+    // TypeError,这里先以结构化错误拦下(query.ts 入口校验之外的第二道防线)。
+    const badIndex = rawTodos.findIndex(t => t === null || typeof t !== 'object' || Array.isArray(t))
+    if (badIndex !== -1) {
+      const bad = rawTodos[badIndex]
+      return {
+        output: `todos[${badIndex}] must be an object, got ${bad === null ? 'null' : Array.isArray(bad) ? 'array' : typeof bad}. Each todo needs: id, content, status, acceptanceCriteria, verificationCommand.`,
+        isError: true,
+      }
+    }
+
     const prev = getTodos(namespace)
     const prevById = new Map(prev.map(t => [t.id, t]))
 

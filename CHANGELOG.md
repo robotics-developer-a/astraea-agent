@@ -8,6 +8,27 @@
 
 > **1.0.0 发布门槛**（达成后才从 0.x 升到 1.0 并打首个 `git tag v1.0.0`）：
 
+## [0.10.23] - 2026-07-10
+
+### 新增（工具入口统一参数校验 —— 可靠性审计 PR-1）
+- **`src/tools/validateInput.ts`**：基于工具自带 JSON Schema 的零依赖运行时校验器,覆盖
+  required 缺失 / type 不符（含 union type、integer、NaN 拒绝）/ enum 非法 / 数组 items
+  元素类型与嵌套对象 required。错误消息固定格式指出「哪个参数、期望什么」并附 schema 片段,
+  模型可直接自我修正,不再收到 `Tool execution error: TypeError: Cannot read properties
+  of undefined` 这类不可行动的原始异常。
+- **query.ts 两条执行路径接线**：普通与流式工具在 orbit/counsel 拦截之后、`call()` 之前
+  统一过闸,校验失败返回结构化 isError,不进入工具执行层。此前 10 个工具（Agent/Edit/
+  Write/LSP/SendMessage/ReviewArtifact/TaskCreate/VigilOnce/VigilSchedule/
+  VerifyOrbitExecution）缺必填参数会穿透抛原始 TypeError,现全部在入口拦截。
+- **容错设计**：MCP server 自报的非标 schema 解析不了一律放行、未知字段不拒绝,绝不因
+  校验器自身局限误杀合法调用。
+
+### 修复
+- **TodoWrite**：todos 数组含 `null` / 非对象元素时,此前在 `.status` 访问处直接抛
+  TypeError;现返回带下标定位的结构化错误（入口校验之外的第二道防线）。
+- **TaskOutput**：`offset` 缺失/负数/NaN 时输出里出现 `nextOffset: NaN`;现防御性归一为
+  0 起读,`limit` 同样归一（默认 100）。
+
 ## [0.10.22] - 2026-07-04
 
 ### 修复（GrepTool 阻塞事件循环）

@@ -9,6 +9,19 @@ export interface RecentUpdate {
 
 export const RECENT_UPDATES: RecentUpdate[] = [
   {
+    version: '0.10.23',
+    priority: 170,
+    persistent: false,
+    messages: {
+      en: 'Tool calls are now validated before they run: missing or mistyped parameters are caught at the gate with a clear, fixable message instead of a raw TypeError.',
+      zh: '工具调用现在会在执行前统一校验参数：缺失或类型错误会在入口被拦下,并返回清晰可修正的提示,而不是一段原始 TypeError。',
+      de: 'Tool-Aufrufe werden jetzt vor der Ausführung validiert: fehlende oder falsch typisierte Parameter werden am Eingang mit einer klaren, korrigierbaren Meldung abgefangen statt mit einem rohen TypeError.',
+      fr: 'Les appels d’outils sont désormais validés avant exécution : les paramètres manquants ou mal typés sont interceptés à l’entrée avec un message clair et corrigible au lieu d’un TypeError brut.',
+      es: 'Las llamadas a herramientas ahora se validan antes de ejecutarse: los parámetros faltantes o mal tipados se interceptan en la entrada con un mensaje claro y corregible en lugar de un TypeError sin procesar.',
+      ko: '도구 호출이 이제 실행 전에 검증됩니다: 누락되거나 잘못된 타입의 매개변수는 원시 TypeError 대신 명확하고 수정 가능한 메시지와 함께 입구에서 차단됩니다.',
+    },
+  },
+  {
     version: '0.10.21',
     priority: 160,
     persistent: false,

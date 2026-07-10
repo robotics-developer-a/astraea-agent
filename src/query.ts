@@ -16,6 +16,7 @@ import {
 } from './types/message'
 import type { Tool, ToolSchema, ToolContext } from './tools/Tool'
 import { findTool } from './tools/registry'
+import { validateToolInput } from './tools/validateInput'
 import {
   initPhoenix,
   createTrace,
@@ -829,6 +830,12 @@ async function* runQuery(
             isError: true,
           }
         }
+        // 入口统一参数校验（PR-1）：required/type/enum/items 基于工具自带 JSON Schema 拦截,
+        // 失败返回可自我修正的结构化错误,不进入 call() —— 杜绝裸断言穿透成原始 TypeError。
+        const invalidInput = validateToolInput(tool.name, tool.inputSchema, toolUse.input)
+        if (invalidInput) {
+          return { toolUse, output: invalidInput, isError: true }
+        }
         const __phxStart = new Date()
         try {
           const result = await tool.call(toolUse.input, ctx)
@@ -900,6 +907,12 @@ async function* runQuery(
           output: `[counsel mode] ${tool.name} blocked — counsel mode is read-only. Confirm the direction via AskUserQuestion, then call ExitCounselMode to request switching to cruise before executing.`,
           isError: true,
         })
+        continue
+      }
+      // 入口统一参数校验（PR-1）：与普通工具路径同一闸,流式工具同样不放过坏参数。
+      const invalidStreamInput = validateToolInput(tool.name, tool.inputSchema, toolUse.input)
+      if (invalidStreamInput) {
+        streamingResults.push({ toolUse, output: invalidStreamInput, isError: true })
         continue
       }
       const __phxStreamStart = new Date()
