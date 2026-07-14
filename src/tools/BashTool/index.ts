@@ -126,6 +126,8 @@ async function resolveShellPermission(
 
 const TOOL_DESCRIPTION = `Executes a given bash command and returns its output.
 
+This is the shell tool for macOS/Linux. On Windows it is unavailable — the PowerShell tool is exposed instead.
+
 The working directory persists between commands, but shell state does not. The shell environment is initialized from the user's profile (bash or zsh).
 
 IMPORTANT: Avoid using this tool to run \`cat\`, \`head\`, \`tail\`, \`sed\`, \`awk\`, or \`echo\` commands, unless explicitly instructed. Instead, use the appropriate dedicated tool as this will provide a much better experience for the user.
@@ -157,7 +159,7 @@ export const BashTool = buildTool({
     properties: {
       command: {
         type: 'string',
-        description: 'The shell command to execute. Omit when querying a background task.',
+        description: 'The shell command to execute. Required unless querying a background task via background_task_id — that is the only case where it may be omitted.',
       },
       description: {
         type: 'string',
@@ -165,7 +167,7 @@ export const BashTool = buildTool({
       },
       timeout: {
         type: 'number',
-        description: 'Timeout in milliseconds (max 600000). Default: 120000.',
+        description: 'Timeout in milliseconds — a positive integer up to 600000 (10 minutes). Default: 120000.',
       },
       run_in_background: {
         type: 'boolean',

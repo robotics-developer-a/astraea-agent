@@ -126,6 +126,7 @@ export const WebFetchTool = buildTool({
 Use after WebSearch to read the full content of specific articles or documentation pages.
 When prompt is provided: returns a focused AI-processed summary of the page.
 When prompt is omitted: returns raw Markdown for you to read directly.
+Limits: 30-second fetch timeout, page content truncated at 50,000 characters, at most 5 redirects followed.
 IMPORTANT: Will fail for pages that require login or authentication.`,
   isReadOnly: () => true,
   isConcurrencySafe: () => true,

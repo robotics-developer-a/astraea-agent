@@ -1,6 +1,6 @@
 {
   "name": "astraea",
-  "version": "0.10.23",
+  "version": "0.10.24",
   "module": "index.ts",
   "type": "module",
   "private": true,

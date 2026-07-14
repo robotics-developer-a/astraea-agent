@@ -13,6 +13,7 @@ export const SendMessageTool = buildTool({
 Supported targets:
   - taskId (e.g. "a3x9m7kp")     → inject message into a running sub-agent's context
   - "uds:/tmp/astraea-<pid>.sock" → send to another Astraea process on this machine
+("bridge:" targets are reserved and not yet implemented — do not use.)
 
 The sub-agent receives the message at its next turn boundary (between tool calls).
 Use ListPeers to discover sockets of other Astraea processes.`,

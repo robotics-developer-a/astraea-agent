@@ -26,14 +26,18 @@ async function ensureConfigLoaded(): Promise<void> {
 }
 const TOOL_DESCRIPTION = `Executes a PowerShell (pwsh) command and returns its output.
 
-Requires PowerShell 7+ (pwsh) to be installed. On macOS/Linux install via: brew install --cask powershell
+This is the shell tool for Windows. On macOS/Linux the Bash tool is exposed instead; this tool only appears there if explicitly configured (requires PowerShell 7+, install via: brew install --cask powershell).
 
 ## Instructions
 - Use PowerShell cmdlets and syntax (Get-ChildItem, Set-Content, etc.)
 - Prefer pipeline idioms over loops where possible
 - Quote paths with spaces using single quotes inside the command
 - You may specify an optional timeout in milliseconds (up to 600000ms). Default: 120000ms
-- Working directory starts from the current session directory`
+- Working directory starts from the current session directory
+
+## Differences from Bash
+- No background tasks (run_in_background / background_task_id are not supported)
+- Long output is returned as-is without Bash's truncation summary`
 
 interface PowerShellPermissionOutcome {
   proceed: boolean

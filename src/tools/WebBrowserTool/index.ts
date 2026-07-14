@@ -81,7 +81,9 @@ export const WebBrowserTool = buildTool({
   description: `Interact with web pages using an embedded browser: navigate, screenshot, click, type, scroll.
 
 Use for JavaScript-heavy SPAs, authenticated pages, or UI interaction testing.
-NOTE: Requires browser runtime. If unavailable, use WebFetch for static content instead.`,
+NOTE: Requires browser runtime. If unavailable, use WebFetch for static content instead.
+NOTE: click and type are write actions — they require user confirmation (and fail
+without an interactive user present); navigate/screenshot/scroll run without confirmation.`,
   isReadOnly: input => !['click', 'type'].includes(String(input['action'] ?? 'navigate')),
   isConcurrencySafe: input => !['click', 'type'].includes(String(input['action'] ?? 'navigate')),
   inputSchema: {

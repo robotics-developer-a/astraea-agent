@@ -16,6 +16,7 @@ export const FileWriteTool = buildTool({
   description: `Write content to a file, creating it if it does not exist and overwriting it if it does.
 Use this instead of echo redirection or cat heredoc in Bash.
 Always use absolute paths.
+For small, targeted changes to an existing file, prefer the Edit tool (string replacement) — use Write only for new files or full rewrites where most of the content changes.
 IMPORTANT: If this is an existing file, you MUST use the Read tool first to read the file's contents. This tool will fail if you did not read the file first.`,
   isReadOnly: () => false,
   inputSchema: {

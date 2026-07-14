@@ -34,7 +34,10 @@ Rules:
 - Mark a task completed IMMEDIATELY after finishing it, not in batches
 - Pass the complete list each time (this replaces the current list entirely)
 
-Status values: "pending", "in_progress", "completed"`,
+Status values: "pending", "in_progress", "completed"
+
+This is the lightweight session checklist. For task records with dependencies,
+evidence-gated completion, or lifecycle hooks, use TaskCreate/TaskUpdate instead.`,
   isReadOnly: () => false,
   inputSchema: {
     type: 'object',

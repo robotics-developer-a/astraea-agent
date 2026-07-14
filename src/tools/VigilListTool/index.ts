@@ -27,8 +27,9 @@ export const VigilListTool = buildTool({
       const lastFire = t.lastFiredAt ? new Date(t.lastFiredAt).toLocaleString() : 'never'
       lines.push(`• ${t.description}`)
       lines.push(`  ID:         ${t.id}`)
-      lines.push(`  Cron:       ${t.cron}`)
-      lines.push(`  Recurring:  ${t.recurring}`)
+      lines.push(`  Type:       ${t.recurring ? 'recurring' : 'one-time'}`)
+      // VigilOnce 任务没有 cron 字段，不打印 "Cron: undefined"
+      if (t.cron) lines.push(`  Cron:       ${t.cron}`)
       lines.push(`  Next fire:  ${nextFire}`)
       lines.push(`  Last fired: ${lastFire}`)
       lines.push('')

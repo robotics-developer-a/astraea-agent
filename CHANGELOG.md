@@ -8,6 +8,33 @@
 
 > **1.0.0 发布门槛**（达成后才从 0.x 升到 1.0 并打首个 `git tag v1.0.0`）：
 
+## [0.10.24] - 2026-07-14
+
+### 改进（工具 description/schema 精确化 —— 可靠性审计 PR-2,防「选错工具/传错参数」）
+- **VigilOnce 单位冲突修复（审计 T6）**：description 原文写 "delay (in minutes)" 而参数
+  `delaySeconds` 按秒执行——模型按分钟传 30 会提前 60 倍触发。现 desc 与参数说明统一为秒,
+  并给出换算示例（5 minutes = 300）。
+- **Write ↔ Edit 双向互指**：Write 补充「小改动优先用 Edit,Write 仅用于新文件或整体重写」,
+  此前只有 Edit 单向指回 Write。
+- **Bash ↔ PowerShell 平台归属**：两者 desc 各自声明平台（macOS/Linux → Bash,Windows →
+  PowerShell）;PowerShell 补充与 Bash 的行为差异（无后台任务、无输出截断）。
+- **Agent ↔ TaskCreate 反向边界**：Agent desc 补充「要的只是可追踪工作记录 → 用 TaskCreate」,
+  此前区分只写在 TaskCreate 一侧。
+- **TodoWrite ↔ TaskCreate 分工声明**：两套并行任务系统首次互相提及——TodoWrite=会话内轻量
+  清单,TaskCreate/TaskUpdate=带依赖、证据门槛与生命周期钩子的任务记录。
+- **TaskUpdate 转移表与实现对齐**：补上实现里本就允许但 desc 漏写的
+  `blocked → in_progress` 与 `failed → in_progress (retry)`;evidence.items 五个字段
+  逐一补 description。
+- **WebFetch 限值入 desc**：30s 超时 / 50k 字符截断 / 最多 5 跳重定向此前只是代码常量。
+- **WebBrowser 确认行为入 desc**：声明 click/type 是需用户确认的写操作（无人值守直接失败）,
+  navigate/screenshot/scroll 免确认。
+- **Bash schema**：command 参数注明「仅查询后台任务时可省略」;timeout 注明须为正整数。
+
+### 修复
+- **VigilList**：一次性任务（无 cron 字段）不再打印 `Cron: undefined`,改为显示
+  `Type: one-time / recurring`。
+- **SendMessage desc**：注明 `bridge:` 目标保留未实现,避免模型误用。
+
 ## [0.10.23] - 2026-07-10
 
 ### 新增（工具入口统一参数校验 —— 可靠性审计 PR-1）

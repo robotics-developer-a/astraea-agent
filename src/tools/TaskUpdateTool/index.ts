@@ -19,8 +19,9 @@ export const TaskUpdateTool = buildTool({
   description: `Update the status of a task record created by TaskCreateTool.
 
 Valid transitions:
-  pending → in_progress → completed | failed
-  completed → invalidated → in_progress (repair)
+  pending | blocked → in_progress → completed | failed
+  completed → invalidated
+  failed | invalidated → in_progress (retry / repair)
 
 Call this to:
 - Mark a task as started before beginning work
@@ -62,11 +63,11 @@ Agent task status is updated automatically via their execution lifecycle.`,
         items: {
           type: 'object',
           properties: {
-            criterionId: { type: 'string' },
-            claim: { type: 'string' },
-            source: { type: 'string' },
-            confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
-            assumptions: { type: 'array', items: { type: 'string' } },
+            criterionId: { type: 'string', description: 'Which acceptance criterion this evidence proves (its id from the task record).' },
+            claim: { type: 'string', description: 'What this evidence demonstrates, in one sentence.' },
+            source: { type: 'string', description: 'Where the proof comes from: a tool result id, command output, or file path.' },
+            confidence: { type: 'string', enum: ['low', 'medium', 'high'], description: 'How directly the source proves the claim.' },
+            assumptions: { type: 'array', items: { type: 'string' }, description: 'Unverified assumptions this evidence relies on; empty array if none.' },
           },
           required: ['criterionId', 'claim', 'source', 'confidence', 'assumptions'],
         },

@@ -8,12 +8,12 @@ import { promptNeedsWechat, checkWechatSetup } from '../../utils/wechatSetupGuar
 
 export const VigilOnceTool = buildTool({
   name: 'VigilOnce',
-  description: `Schedule a ONE-TIME task to run after a delay (in minutes). The task fires exactly once, then is automatically removed.
+  description: `Schedule a ONE-TIME task to run after a delay. The task fires exactly once, then is automatically removed.
 
-Use this when the user says things like:
-  "in 5 minutes, do X"
-  "remind me in an hour to Y"
-  "after 30 minutes, run Z"
+The delay is given in SECONDS via delaySeconds — always convert what the user says:
+  "in 5 minutes, do X"        → delaySeconds: 300
+  "remind me in an hour to Y" → delaySeconds: 3600
+  "after 30 minutes, run Z"   → delaySeconds: 1800
 
 Do NOT use for recurring tasks ("every day", "each morning", "weekly") — use VigilSchedule instead.
 
@@ -28,7 +28,7 @@ CRITICAL — output NOTHING before calling this tool. No "I will schedule", no "
       },
       delaySeconds: {
         type: 'number',
-        description: 'How many seconds from now to wait before executing (minimum: 10)',
+        description: 'How many SECONDS from now to wait before executing (minimum: 10). Convert minutes/hours to seconds: 5 minutes = 300, 1 hour = 3600.',
       },
       prompt: {
         type: 'string',

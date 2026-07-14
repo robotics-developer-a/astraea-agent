@@ -23,7 +23,10 @@ When the sub-agent completes, a <task_notification> is injected into your next t
 Use TaskList / TaskGet to monitor running agents (collect the final result via TaskGet's \`result\`).
 
 Concurrency is capped globally; spawn freely — excess agents queue automatically.
-For cheap map/summarization sub-tasks, set model:"small" to save cost.`,
+For cheap map/summarization sub-tasks, set model:"small" to save cost.
+
+This launches an actual AI sub-agent that does work. To merely record a trackable
+work item (a progress record with no AI behind it), use TaskCreate instead.`,
   isReadOnly: () => false,
   inputSchema: {
     type: 'object',

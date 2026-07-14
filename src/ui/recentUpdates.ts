@@ -9,6 +9,19 @@ export interface RecentUpdate {
 
 export const RECENT_UPDATES: RecentUpdate[] = [
   {
+    version: '0.10.24',
+    priority: 180,
+    persistent: false,
+    messages: {
+      en: 'Tool descriptions got sharper: timer delays are unambiguous now, Write points to Edit for small changes, and each shell tool states its platform — fewer wrong-tool and wrong-parameter calls.',
+      zh: '工具说明更精确了：定时延迟单位不再歧义,Write 会提示小改动改用 Edit,shell 工具各自声明平台——选错工具、传错参数的情况会更少。',
+      de: 'Tool-Beschreibungen sind präziser geworden: Timer-Verzögerungen sind jetzt eindeutig, Write verweist für kleine Änderungen auf Edit, und jedes Shell-Tool nennt seine Plattform — weniger falsche Tool- und Parameterwahl.',
+      fr: 'Les descriptions d’outils sont plus précises : les délais de minuterie sont désormais sans ambiguïté, Write renvoie vers Edit pour les petites modifications, et chaque outil shell indique sa plateforme — moins d’erreurs d’outil ou de paramètre.',
+      es: 'Las descripciones de herramientas son más precisas: los retrasos del temporizador ya no son ambiguos, Write remite a Edit para cambios pequeños y cada herramienta de shell declara su plataforma — menos llamadas con herramienta o parámetros equivocados.',
+      ko: '도구 설명이 더 정확해졌습니다: 타이머 지연 단위가 명확해졌고, Write는 작은 수정에 Edit를 안내하며, 각 셸 도구가 자신의 플랫폼을 명시합니다 — 잘못된 도구·매개변수 호출이 줄어듭니다.',
+    },
+  },
+  {
     version: '0.10.23',
     priority: 170,
     persistent: false,

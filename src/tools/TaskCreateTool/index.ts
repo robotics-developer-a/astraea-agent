@@ -18,7 +18,9 @@ Use to:
 - Enable external systems (hooks) to respond to task lifecycle events
 
 Returns a taskId. Use TaskUpdate to advance its status, TaskGet to query it.
-This is different from Agent — TaskCreate is a progress-tracking record, not an AI sub-agent.`,
+This is different from Agent — TaskCreate is a progress-tracking record, not an AI sub-agent.
+This is also different from TodoWrite — TodoWrite manages a lightweight session checklist;
+use TaskCreate when tasks need dependencies, acceptance-criteria evidence, or lifecycle hooks.`,
   isReadOnly: () => false,
   inputSchema: {
     type: 'object',
