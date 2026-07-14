@@ -213,13 +213,31 @@ async function writeSimpleXlsx(filePath: string, workbook: WorkbookData): Promis
   }
 }
 
+// unzip/zip 子进程墙钟上限:损坏的 xlsx 或阻塞的进程不至于挂死整个 turn
+const ZIP_TIMEOUT_MS = 30_000
+
+async function boundedProc(proc: ReturnType<typeof Bun.spawn>, label: string): Promise<{ stdout: string; stderr: string; code: number }> {
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    try { proc.kill() } catch { /* already dead */ }
+  }, ZIP_TIMEOUT_MS)
+  try {
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(proc.stdout as ReadableStream).text(),
+      new Response(proc.stderr as ReadableStream).text(),
+      proc.exited,
+    ])
+    if (timedOut) throw new Error(`${label} timed out after ${ZIP_TIMEOUT_MS / 1000}s`)
+    return { stdout, stderr, code }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 async function unzipText(zipPath: string, entry: string): Promise<string> {
   const proc = Bun.spawn(['unzip', '-p', zipPath, entry], { stdout: 'pipe', stderr: 'pipe' })
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ])
+  const { stdout, stderr, code } = await boundedProc(proc, 'unzip')
   if (code !== 0) throw new Error(stderr.trim() || `Missing zip entry ${entry}`)
   return stdout
 }
@@ -234,7 +252,7 @@ async function unzipOptionalText(zipPath: string, entry: string): Promise<string
 
 async function runZip(cwd: string, outputPath: string): Promise<void> {
   const proc = Bun.spawn(['zip', '-qr', outputPath, '.'], { cwd, stdout: 'pipe', stderr: 'pipe' })
-  const [stderr, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited])
+  const { stderr, code } = await boundedProc(proc, 'zip')
   if (code !== 0) throw new Error(stderr.trim() || 'zip failed')
 }
 

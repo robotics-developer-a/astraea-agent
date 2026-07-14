@@ -25,9 +25,12 @@ export async function createPlaywrightDriver(): Promise<BrowserDriver> {
   let page: import('playwright').Page | null = null
   let available = false
 
+  // launch 自带超时:二进制损坏/系统资源耗尽时 launch 可能长挂,30s 内起不来就报错
+  const LAUNCH_TIMEOUT_MS = 30_000
+
   async function ensurePage(): Promise<import('playwright').Page> {
-    if (!browser) {
-      browser = await chromium.launch({ headless: true })
+    if (!browser || !browser.isConnected()) {
+      browser = await chromium.launch({ headless: true, timeout: LAUNCH_TIMEOUT_MS })
     }
     if (!page || page.isClosed()) {
       page = await browser.newPage()
@@ -37,7 +40,7 @@ export async function createPlaywrightDriver(): Promise<BrowserDriver> {
 
   try {
     // Smoke-test: launch browser to confirm binaries exist
-    browser = await chromium.launch({ headless: true })
+    browser = await chromium.launch({ headless: true, timeout: LAUNCH_TIMEOUT_MS })
     page = await browser.newPage()
     available = true
   } catch {
@@ -84,6 +87,16 @@ export async function createPlaywrightDriver(): Promise<BrowserDriver> {
       const title = await p.title()
       const content = (await extractText(p)).slice(0, MAX_CONTENT_CHARS)
       return { title, url: p.url(), content }
+    },
+
+    // 工具层动作超时后调用:关掉当前 page,在途操作立即 reject;
+    // browser 实例保留,下一次 ensurePage 会重开新页,不用付重新 launch 的成本。
+    async dispose() {
+      const p = page
+      page = null
+      if (p && !p.isClosed()) {
+        try { await p.close() } catch { /* already closing */ }
+      }
     },
   }
 }

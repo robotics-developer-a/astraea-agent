@@ -17,6 +17,7 @@ export interface PsOutput {
   stderr: string
   exitCode: number
   timedOut: boolean
+  interrupted: boolean
 }
 
 let cachedPwsh: string | null | undefined
@@ -32,7 +33,10 @@ async function findPwsh(): Promise<string | null> {
         stdout: 'ignore',
         stderr: 'ignore',
       })
+      // 探测也要有界:损坏的 pwsh 安装可能挂起,5s 内不退出就放弃该候选
+      const probeTimer = setTimeout(() => { try { proc.kill() } catch { /* dead */ } }, 5_000)
       await proc.exited
+      clearTimeout(probeTimer)
       if (proc.exitCode === 0) {
         cachedPwsh = bin
         return bin
@@ -45,7 +49,7 @@ async function findPwsh(): Promise<string | null> {
   return null
 }
 
-export async function executePowerShell(input: PsInput): Promise<PsOutput> {
+export async function executePowerShell(input: PsInput, signal?: AbortSignal): Promise<PsOutput> {
   const pwsh = await findPwsh()
   if (!pwsh) {
     return {
@@ -53,6 +57,7 @@ export async function executePowerShell(input: PsInput): Promise<PsOutput> {
       stderr: 'PowerShell (pwsh) is not installed. Install it from https://github.com/PowerShell/PowerShell',
       exitCode: 127,
       timedOut: false,
+      interrupted: false,
     }
   }
 
@@ -61,8 +66,13 @@ export async function executePowerShell(input: PsInput): Promise<PsOutput> {
 
   const timeoutController = new AbortController()
   const timer = setTimeout(() => timeoutController.abort(), timeoutMs)
+  // 与 Bash executor 同款:调用方信号(ESC)与超时信号合并,任一触发都 kill 子进程
+  const combinedSignal = signal
+    ? AbortSignal.any([signal, timeoutController.signal])
+    : timeoutController.signal
 
   let timedOut = false
+  let interrupted = false
 
   try {
     const proc = Bun.spawn(
@@ -76,7 +86,7 @@ export async function executePowerShell(input: PsInput): Promise<PsOutput> {
     )
 
     const abortHandler = () => proc.kill()
-    timeoutController.signal.addEventListener('abort', abortHandler, { once: true })
+    combinedSignal.addEventListener('abort', abortHandler, { once: true })
 
     // 以 proc.exited 为边界读取：PowerShell 的 Start-Process 会启动脱离的常驻进程并继承
     // 管道句柄，若死等 EOF 整个工具调用会永久卡死。进程退出后只再排干残留输出即返回。
@@ -87,23 +97,30 @@ export async function executePowerShell(input: PsInput): Promise<PsOutput> {
     ])
 
     await exited
-    timeoutController.signal.removeEventListener('abort', abortHandler)
+    combinedSignal.removeEventListener('abort', abortHandler)
     clearTimeout(timer)
+    // 超时/中断走 proc.kill()，exited 正常 resolve、不进 catch——标志必须在这里从信号推导。
+    // 被杀死时 proc.exitCode 为 null，绝不能 ?? 0 伪装成功（对齐 Bash executor 同款修复）。
+    if (timeoutController.signal.aborted && !signal?.aborted) timedOut = true
+    else if (signal?.aborted) interrupted = true
 
     return {
       stdout: stdout.slice(0, MAX_OUTPUT_BYTES),
-      stderr: stderr.slice(0, MAX_STDERR_BYTES),
-      exitCode: proc.exitCode ?? 0,
-      timedOut: false,
+      stderr: (timedOut ? `${stderr}\nCommand timed out after ${timeoutMs}ms` : stderr).slice(0, MAX_STDERR_BYTES),
+      exitCode: proc.exitCode ?? (timedOut || interrupted ? -1 : 0),
+      timedOut,
+      interrupted,
     }
   } catch (err) {
     clearTimeout(timer)
-    if (timeoutController.signal.aborted) timedOut = true
+    if (timeoutController.signal.aborted && !signal?.aborted) timedOut = true
+    else if (signal?.aborted) interrupted = true
     return {
       stdout: '',
       stderr: timedOut ? `Command timed out after ${timeoutMs}ms` : String(err),
       exitCode: -1,
       timedOut,
+      interrupted,
     }
   }
 }

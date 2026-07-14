@@ -15,8 +15,32 @@ afterEach(() => {
 })
 
 describe('PowerShellTool permission modes', () => {
-  test('PowerShell is treated as an execution tool for orbit and counsel scheduler gates', () => {
-    expect(PowerShellTool.isReadOnly({ command: 'Get-ChildItem' })).toBe(false)
+  test('write commands remain execution-gated for orbit and counsel scheduler gates', () => {
+    expect(PowerShellTool.isReadOnly({ command: 'Set-Content a.txt "x"' })).toBe(false)
+    expect(PowerShellTool.isReadOnly({ command: 'Get-ChildItem; Remove-Item a' })).toBe(false)
+  })
+
+  test('read-only commands are recognized dynamically (aligned with Bash) — audit T8', () => {
+    expect(PowerShellTool.isReadOnly({ command: 'Get-ChildItem' })).toBe(true)
+    expect(PowerShellTool.isReadOnly({ command: 'Get-Content package.json' })).toBe(true)
+  })
+
+  test('read-only command executes without confirmation even when non-interactive (T8: unblocks Windows sub-agents)', async () => {
+    const confirmSpy = spyOn(confirm, 'confirmWithUser').mockResolvedValue({ proceed: false, remember: null })
+    const executeSpy = spyOn(executor, 'executePowerShell').mockResolvedValue({
+      stdout: 'file list',
+      stderr: '',
+      exitCode: 0,
+      timedOut: false,
+      interrupted: false,
+    })
+
+    const result = await PowerShellTool.call({ command: 'Get-ChildItem src' }, ctx('default', false))
+
+    expect(result.isError).toBeFalsy()
+    expect(result.output).toBe('file list')
+    expect(confirmSpy).not.toHaveBeenCalled()
+    expect(executeSpy).toHaveBeenCalledTimes(1)
   })
 
   test('forge mode runs ask-tier API commands without prompting', async () => {
@@ -26,6 +50,7 @@ describe('PowerShellTool permission modes', () => {
       stderr: '',
       exitCode: 0,
       timedOut: false,
+      interrupted: false,
     })
 
     const result = await PowerShellTool.call({
@@ -45,6 +70,7 @@ describe('PowerShellTool permission modes', () => {
       stderr: '',
       exitCode: 0,
       timedOut: false,
+      interrupted: false,
     })
 
     const result = await PowerShellTool.call({
@@ -64,6 +90,7 @@ describe('PowerShellTool permission modes', () => {
       stderr: '',
       exitCode: 0,
       timedOut: false,
+      interrupted: false,
     })
 
     const result = await PowerShellTool.call({
@@ -83,6 +110,7 @@ describe('PowerShellTool permission modes', () => {
       stderr: '',
       exitCode: 0,
       timedOut: false,
+      interrupted: false,
     })
 
     const result = await PowerShellTool.call({
@@ -102,6 +130,7 @@ describe('PowerShellTool permission modes', () => {
       stderr: '',
       exitCode: 0,
       timedOut: false,
+      interrupted: false,
     })
 
     const result = await PowerShellTool.call({

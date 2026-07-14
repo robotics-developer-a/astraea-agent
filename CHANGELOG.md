@@ -8,6 +8,40 @@
 
 > **1.0.0 发布门槛**（达成后才从 0.x 升到 1.0 并打首个 `git tag v1.0.0`）：
 
+## [0.10.25] - 2026-07-14
+
+### 修复（超时补齐 + AbortSignal 贯通 —— 可靠性审计 PR-3,消灭「永久挂起」路径）
+- **SendMessage 永久挂起（T1）**：UDS/TCP 发送以对端 close 为唯一 resolve 点,对端不关闭
+  连接即卡死整个 turn。现 10s 墙钟超时 + ctx.abortSignal,超时/ESC 主动断连并报错。
+- **MCP 挂起（T2）**：`callTool` 显式 60s 超时 + AbortSignal(ESC 可中止在途请求);
+  `connect` 握手 10s 超时,server 起不来不再拖死启动期 initMcp。
+- **WebSearch 无超时（T3）**：adapter 的 fetch 本就接受 signal 但从没人传;现统一
+  15s 墙钟 + ESC 取消,断网/黑洞不再挂到 OS 层超时。
+- **WechatWrite 挂起 + 不可逆（T4）**：python 键盘模拟卡住时此前无限 await;现 30s 超时
+  SIGKILL + ctx.abortSignal,超时消息明确提示「可能未发出,重试前先检查」;标记
+  `isDestructive`。WechatRead 的 OCR 子进程同样补 5 分钟墙钟。
+- **Bash ESC 取消失效（T5）**：executor 早已支持 AbortSignal(`AbortSignal.any` 组合超时),
+  但三个调用点从不传——ESC 后命令继续跑满 600s。现 ctx.abortSignal 全线贯通(前台/只读/流式)。
+- **子 Agent 失控（T7）**：runSubAgent 新增 10 分钟墙钟 + 200k 输出 token 预算双闸,
+  且 abortSignal 首次传入 streamMessage——provider 流 stalled(无事件)也能从请求层掐断;
+  撞闸记 failed 并回报明确原因与部分结果。
+- **PowerShell 三连**：
+  - **Windows 子代理全瘫（T8）**：`isReadOnly` 恒 false → fail-closed 下连 Get-ChildItem
+    都被拒。新增保守只读命令识别（白名单动词 + 拒绝一切复合结构/scriptblock/重定向）,
+    只读命令免确认直接执行,对齐 Bash 流程。
+  - **超时伪装成功**：超时 kill 后成功路径返回 `timedOut:false` + `exitCode ?? 0`,模型会把
+    超时命令当成功。现从信号推导 timedOut/interrupted,exitCode 为 null 时归一为 -1
+    （对齐 Bash executor 同款修复）。
+  - executor 接受 AbortSignal(ESC 可取消)+ findPwsh 探测 5s 超时。
+- **WebBrowser**：动作超时后关闭当前 page,让在途 Playwright 操作立即 reject（此前竞速超时
+  只是工具先返回,底层操作仍在后台继续跑）;`chromium.launch` 加 30s 超时;browser 断连后
+  ensurePage 自动重启。
+- **Spreadsheet**：unzip/zip 子进程加 30s 墙钟,损坏的 xlsx 不再挂死。
+
+### 新增
+- `src/utils/withTimeout.ts`：`withTimeout`（墙钟包装 + 超时清理回调）与 `combineSignals`
+  （调用方信号 × 超时信号合并）两个统一原语,上述各点全部复用,不再各写各的定时器。
+
 ## [0.10.24] - 2026-07-14
 
 ### 改进（工具 description/schema 精确化 —— 可靠性审计 PR-2,防「选错工具/传错参数」）

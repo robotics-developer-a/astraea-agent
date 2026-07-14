@@ -5,6 +5,7 @@ import { matchRule, DEFAULT_RULES, type PermissionRule } from '../BashTool/permi
 import { confirmWithUser } from '../BashTool/permissions/confirm.js'
 import { loadPermissionRules, appendPermissionRule } from '../../config/permissions.js'
 import { checkCommandSecurity } from './security/injection-check.js'
+import { isReadOnlyPowerShellCommand } from './security/readonly-check.js'
 import { shellAskBehavior, type PermissionBehavior } from '../../state/sessionMode.js'
 import { commandTouchesSensitivePath } from '../../config/redlines.js'
 const runtimeRules: PermissionRule[] = []
@@ -107,7 +108,10 @@ async function resolvePowerShellPermission(
 export const PowerShellTool = buildTool({
   name: 'PowerShell',
   description: TOOL_DESCRIPTION,
-  isReadOnly: () => false,
+  // 只读命令识别(审计 T8):恒 false 时 Windows 子代理(fail-closed)连 Get-ChildItem
+  // 都被拒。与 Bash 同款按命令内容动态判定;识别不出仍保守判写。
+  isReadOnly: (input) => isReadOnlyPowerShellCommand(String(input['command'] ?? '')),
+  isConcurrencySafe: (input) => isReadOnlyPowerShellCommand(String(input['command'] ?? '')),
   inputSchema: {
     type: 'object',
     properties: {
@@ -146,6 +150,12 @@ export const PowerShellTool = buildTool({
       }
     }
 
+    // 只读命令直接放行(对齐 Bash 流程):安全检查已过、无副作用,无需权限确认。
+    // 关键场景:Windows 子代理 isInteractive=false,没有这条通路则一切命令 fail-closed 全拒。
+    if (security.behavior === 'pass' && isReadOnlyPowerShellCommand(command)) {
+      return formatPsResult(await executePowerShell({ command, timeout, description }, ctx.abortSignal))
+    }
+
     const permission = await resolvePowerShellPermission(command, description, ctx, security.behavior)
     if (!permission.proceed) {
       if (security.behavior === 'ask') {
@@ -156,15 +166,19 @@ export const PowerShellTool = buildTool({
       return { output: permission.rejection ?? 'Command cancelled by user.', isError: true }
     }
 
-    const result = await executePowerShell({ command, timeout, description })
-    const parts: string[] = []
-    if (result.stdout) parts.push(result.stdout)
-    if (result.stderr) parts.push(`[stderr]\n${result.stderr}`)
-    if (result.timedOut) parts.push('[timed out]')
-
-    return {
-      output: parts.join('\n').trim() || '(no output)',
-      isError: result.exitCode !== 0,
-    }
+    return formatPsResult(await executePowerShell({ command, timeout, description }, ctx.abortSignal))
   },
 })
+
+function formatPsResult(result: Awaited<ReturnType<typeof executePowerShell>>): ToolCallResult {
+  const parts: string[] = []
+  if (result.stdout) parts.push(result.stdout)
+  if (result.stderr) parts.push(`[stderr]\n${result.stderr}`)
+  if (result.timedOut) parts.push('[timed out]')
+  if (result.interrupted) parts.push('[interrupted by user]')
+
+  return {
+    output: parts.join('\n').trim() || '(no output)',
+    isError: result.exitCode !== 0,
+  }
+}

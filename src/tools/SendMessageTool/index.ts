@@ -33,7 +33,7 @@ Use ListPeers to discover sockets of other Astraea processes.`,
     required: ['to', 'message'],
   },
 
-  async call(input, _ctx: import("../Tool.js").ToolContext): Promise<ToolCallResult> {
+  async call(input, ctx: import("../Tool.js").ToolContext): Promise<ToolCallResult> {
     const to = input['to'] as string
     const message = input['message'] as string
 
@@ -57,7 +57,7 @@ Use ListPeers to discover sockets of other Astraea processes.`,
     if (to.startsWith('uds:')) {
       const socketPath = to.slice(4)
       try {
-        await sendToSocket(socketPath, undefined, message)
+        await sendToSocket(socketPath, undefined, message, ctx.abortSignal)
         return { output: `Message sent to ${socketPath}.` }
       } catch (err) {
         return { output: `Failed to send to ${socketPath}: ${String(err)}`, isError: true }

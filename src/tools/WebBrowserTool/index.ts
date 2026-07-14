@@ -22,6 +22,8 @@ export interface BrowserDriver {
   click(selector: string): Promise<{ title: string; url: string; content: string }>
   type(selector: string, text: string): Promise<{ title: string; url: string; content: string }>
   scroll(): Promise<{ title: string; url: string; content: string }>
+  /** 超时后真正取消底层操作:关掉当前 page,让在途的 Playwright promise 立即 reject。可选。 */
+  dispose?(): Promise<void>
 }
 let _driver: BrowserDriver | null = null
 let _initAttempted = false
@@ -46,7 +48,12 @@ async function withActionTimeout<T>(action: BrowserAction, timeoutMs: number, ta
     return await Promise.race([
       task,
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`WebBrowser ${action} timed out after ${timeoutMs}ms`)), timeoutMs)
+        timer = setTimeout(() => {
+          // 竞速超时只让工具先返回;底层 Playwright 操作还在跑。dispose 关掉当前 page,
+          // 让孤儿 promise 立即 reject,避免后台残留操作占住浏览器/继续加载页面。
+          void _driver?.dispose?.().catch(() => {})
+          reject(new Error(`WebBrowser ${action} timed out after ${timeoutMs}ms`))
+        }, timeoutMs)
       }),
     ])
   } finally {

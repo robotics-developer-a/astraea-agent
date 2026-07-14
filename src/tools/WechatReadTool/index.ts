@@ -43,6 +43,10 @@ process.on('exit', _killChildren)
 process.on('SIGINT', _killChildren)
 process.on('SIGTERM', _killChildren)
 
+// 单次 OCR 会话(截图+滚动+识别一个联系人)的墙钟上限。python 卡住(权限弹窗、
+// Vision 框架挂起)时此前会无限 await;现在超时 SIGKILL,错误回传模型。
+const OCR_TIMEOUT_MS = 5 * 60_000
+
 async function runOcr(args: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> {
   if (signal?.aborted) return { error: 'aborted' }
   const proc = Bun.spawn(['python3', SCRIPT], {
@@ -51,6 +55,11 @@ async function runOcr(args: Record<string, unknown>, signal?: AbortSignal): Prom
     stderr: 'pipe',
   })
   running.add(proc)
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    try { proc.kill('SIGKILL') } catch { /* already dead */ }
+  }, OCR_TIMEOUT_MS)
   const onAbort = () => { try { proc.kill('SIGKILL') } catch { /* already dead */ } }
   signal?.addEventListener('abort', onAbort, { once: true })
   try {
@@ -61,12 +70,14 @@ async function runOcr(args: Record<string, unknown>, signal?: AbortSignal): Prom
       new Response(proc.stderr).text(),
       proc.exited,
     ])
+    if (timedOut) return { error: `WeChat OCR timed out after ${OCR_TIMEOUT_MS / 1000}s — is WeChat visible and responsive?` }
     try {
       return JSON.parse(stdout.trim())
     } catch {
       return { error: `python3 exited ${exit}: ${stdout.slice(0, 200)}` }
     }
   } finally {
+    clearTimeout(timer)
     running.delete(proc)
     signal?.removeEventListener('abort', onAbort)
   }

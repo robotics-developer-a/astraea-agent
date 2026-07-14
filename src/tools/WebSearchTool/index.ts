@@ -19,6 +19,10 @@ import { TavilyAdapter } from './adapters/TavilyAdapter.js'
 import { ExaAdapter } from './adapters/ExaAdapter.js'
 import { BochaAdapter } from './adapters/BochaAdapter.js'
 import { ZhipuAdapter } from './adapters/ZhipuAdapter.js'
+import { combineSignals } from '../../utils/withTimeout.js'
+
+// 单次搜索请求的墙钟上限。adapter 的 fetch 接受 signal 但此前没人传,断网时会挂到 OS 层超时。
+const SEARCH_TIMEOUT_MS = 15_000
 
 // ─── 自动探测链配置 ──────────────────────────────────────────────────────────
 // 国内 provider 排在最前：国内用户配了博查/智谱即开箱可用，无需代理。
@@ -168,7 +172,7 @@ IMPORTANT: Do NOT pass search engines (google.com, bing.com, duckduckgo.com) as 
     required: ['query'],
   },
 
-  async call(input: Record<string, unknown>, _ctx: ToolContext): Promise<ToolCallResult> {
+  async call(input: Record<string, unknown>, ctx: ToolContext): Promise<ToolCallResult> {
     const query = input['query'] as string
     const allowedDomains = input['allowed_domains'] as string[] | undefined
     const blockedDomains = input['blocked_domains'] as string[] | undefined
@@ -182,7 +186,9 @@ IMPORTANT: Do NOT pass search engines (google.com, bing.com, duckduckgo.com) as 
 
     try {
       const adapter = _testAdapter ?? createAdapter()
-      const results = await adapter.search(query.trim(), { allowedDomains, blockedDomains })
+      // 15s 墙钟 + ESC 取消:adapter 的 fetch 此前无 signal,断网/黑洞时会挂到 OS 层超时
+      const signal = combineSignals(ctx.abortSignal, SEARCH_TIMEOUT_MS)
+      const results = await adapter.search(query.trim(), { allowedDomains, blockedDomains, signal })
       return { output: formatResults(query, results) }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)

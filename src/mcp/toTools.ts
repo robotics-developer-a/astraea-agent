@@ -3,8 +3,13 @@
 // query() 循环不感知 MCP；findTool() 能解析这些工具就够了。
 
 import { buildTool } from '../tools/Tool'
-import type { Tool, ToolCallResult } from '../tools/Tool'
+import type { Tool, ToolCallResult, ToolContext } from '../tools/Tool'
 import type { ConnectedMcpClient } from './transport'
+import { combineSignals } from '../utils/withTimeout'
+
+// 单次 MCP 工具调用的墙钟上限。第三方 server 收到 tools/call 后不回包时,
+// 此前会无限 await 挂死整个 turn;现在超时/ESC 都会中止请求并回结构化错误。
+const MCP_CALL_TIMEOUT_MS = 60_000
 
 /** 命名空间前缀，避免与内置工具撞名。 */
 export function mcpToolName(server: string, tool: string): string {
@@ -26,9 +31,14 @@ export function mcpToolsToNativeTools(clients: ConnectedMcpClient[]): Tool[] {
           // 无 readOnlyHint 时保守判写（orbit/counsel 下会被框架层拦截）。
           isReadOnly: () => readOnly,
           isConcurrencySafe: () => readOnly,
-          async call(input: Record<string, unknown>): Promise<ToolCallResult> {
+          async call(input: Record<string, unknown>, ctx: ToolContext): Promise<ToolCallResult> {
             try {
-              const res = await conn.client.callTool({ name: def.name, arguments: input })
+              // SDK 的 RequestOptions:signal 中止在途请求,timeout 双保险(默认 60s 之外显式声明)
+              const res = await conn.client.callTool(
+                { name: def.name, arguments: input },
+                undefined,
+                { signal: combineSignals(ctx.abortSignal, MCP_CALL_TIMEOUT_MS), timeout: MCP_CALL_TIMEOUT_MS },
+              )
               return { output: formatMcpResult(res), isError: res.isError === true }
             } catch (err) {
               return { output: `MCP tool error (${conn.name}/${def.name}): ${String(err)}`, isError: true }

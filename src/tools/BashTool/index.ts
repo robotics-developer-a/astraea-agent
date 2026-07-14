@@ -228,7 +228,7 @@ export const BashTool = buildTool({
     // ── 3. 只读命令直接放行 ──────────────────────────────────────────
     const readOnly = isReadOnlyCommand(command)
     if (readOnly) {
-      return formatResult(await executeBash({ command, timeout }))
+      return formatResult(await executeBash({ command, timeout }, ctx.abortSignal))
     }
 
     // ── 4. 加载配置文件规则（首次调用时） ───────────────────────────
@@ -255,7 +255,8 @@ export const BashTool = buildTool({
     }
 
     // ── 10. 前台执行 ─────────────────────────────────────────────────
-    return formatResult(await executeBash({ command, timeout, description }))
+    // ctx.abortSignal 贯通:ESC/轮次中止直接 kill 子进程,不再干等到超时
+    return formatResult(await executeBash({ command, timeout, description }, ctx.abortSignal))
   },
 
   renderResult(_input, output, isError) {
@@ -291,7 +292,7 @@ export const BashTool = buildTool({
       if (!perm.proceed) return { output: perm.rejection!, isError: true }
     }
 
-    const gen = executeStreamingBash({ command, timeout: input['timeout'] as number | undefined })
+    const gen = executeStreamingBash({ command, timeout: input['timeout'] as number | undefined }, ctx.abortSignal)
     let result: IteratorResult<string, Awaited<ReturnType<typeof executeBash>>>
     do {
       result = await gen.next()

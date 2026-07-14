@@ -195,46 +195,75 @@ async function pingTcp(addr: string): Promise<boolean> {
 
 // ─── Send to remote socket ──────────────────────────────────────────────
 
+// 发送超时：对端 accept 后不关闭连接时,Promise 此前会永不 resolve,把整个 turn 卡死。
+// close 事件是唯一的 resolve 点,所以必须有墙钟兜底 + 调用方 AbortSignal(ESC 可取消)。
+const SEND_TIMEOUT_MS = 10_000
+
 export async function sendToSocket(
   socketPath: string,
   to: string | undefined,
   message: string,
+  signal?: AbortSignal,
 ): Promise<void> {
   const frame = JSON.stringify({ to, message }) + '\n'
 
   if (IS_WIN || socketPath.includes(':')) {
     const { host, port } = splitHostPort(socketPath)
-    await tcpSend(host, port, frame)
+    await tcpSend(host, port, frame, signal)
   } else {
-    await udsSend(socketPath, frame)
+    await udsSend(socketPath, frame, signal)
   }
 }
 
-function udsSend(socketPath: string, frame: string): Promise<void> {
+interface SendConnectOptions {
+  unix?: string
+  hostname?: string
+  port?: number
+}
+
+// udsSend/tcpSend 共用的带超时发送:open 即写完就 end,等对端 close 才算送达;
+// 超时/中止时主动断开连接并 reject,绝不无限等待。
+function sendFrame(connectOpts: SendConnectOptions, frame: string, signal?: AbortSignal): Promise<void> {
   return new Promise<void>((resolve, reject) => {
+    let settled = false
+    let sock: { end(): void } | null = null
+    const cleanup = () => {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+    }
+    const finish = (fn: () => void) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      fn()
+    }
+    const dropConnection = () => { try { sock?.end() } catch { /* already closed */ } }
+    const timer = setTimeout(() => {
+      dropConnection()
+      finish(() => reject(new Error(`send timed out after ${SEND_TIMEOUT_MS}ms — peer did not close the connection`)))
+    }, SEND_TIMEOUT_MS)
+    const onAbort = () => {
+      dropConnection()
+      finish(() => reject(new Error('send aborted')))
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+
     Bun.connect<{ sent: boolean }>({
-      unix: socketPath,
+      ...(connectOpts as { unix: string }),
       socket: {
-        open(s) { s.data = { sent: false }; s.write(frame); s.end(); s.data.sent = true },
+        open(s) { sock = s; s.data = { sent: false }; s.write(frame); s.end(); s.data.sent = true },
         data() {},
-        close() { resolve() },
-        error(_, err) { reject(err) },
+        close() { finish(resolve) },
+        error(_, err) { finish(() => reject(err)) },
       },
-    }).catch(reject)
+    }).then(s => { sock = s }).catch(err => finish(() => reject(err)))
   })
 }
 
-function tcpSend(host: string, port: number, frame: string): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    Bun.connect<{ sent: boolean }>({
-      hostname: host,
-      port,
-      socket: {
-        open(s) { s.data = { sent: false }; s.write(frame); s.end(); s.data.sent = true },
-        data() {},
-        close() { resolve() },
-        error(_, err) { reject(err) },
-      },
-    }).catch(reject)
-  })
+function udsSend(socketPath: string, frame: string, signal?: AbortSignal): Promise<void> {
+  return sendFrame({ unix: socketPath }, frame, signal)
+}
+
+function tcpSend(host: string, port: number, frame: string, signal?: AbortSignal): Promise<void> {
+  return sendFrame({ hostname: host, port }, frame, signal)
 }

@@ -9,6 +9,19 @@ export interface RecentUpdate {
 
 export const RECENT_UPDATES: RecentUpdate[] = [
   {
+    version: '0.10.25',
+    priority: 190,
+    persistent: false,
+    messages: {
+      en: 'No more silent hangs: every network, IPC and subprocess call now has a timeout, and Esc truly cancels running shell commands, searches, MCP calls and sub-agents.',
+      zh: '不再悄悄卡死：所有网络、进程间通信与子进程调用都有了超时,Esc 现在能真正取消正在跑的 shell 命令、搜索、MCP 调用和子代理。',
+      de: 'Keine stillen Hänger mehr: Jeder Netzwerk-, IPC- und Subprozess-Aufruf hat jetzt ein Timeout, und Esc bricht laufende Shell-Befehle, Suchen, MCP-Aufrufe und Sub-Agenten wirklich ab.',
+      fr: 'Fini les blocages silencieux : chaque appel réseau, IPC et sous-processus a désormais un délai d’expiration, et Échap annule réellement les commandes shell, recherches, appels MCP et sous-agents en cours.',
+      es: 'Se acabaron los cuelgues silenciosos: cada llamada de red, IPC y subproceso ahora tiene tiempo límite, y Esc cancela de verdad los comandos de shell, búsquedas, llamadas MCP y subagentes en ejecución.',
+      ko: '조용한 멈춤은 이제 없습니다: 모든 네트워크·IPC·하위 프로세스 호출에 시간 제한이 적용되고, Esc가 실행 중인 셸 명령·검색·MCP 호출·하위 에이전트를 실제로 취소합니다.',
+    },
+  },
+  {
     version: '0.10.24',
     priority: 180,
     persistent: false,

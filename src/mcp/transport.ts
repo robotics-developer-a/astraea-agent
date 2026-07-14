@@ -8,6 +8,10 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 import type { McpServerConfig } from './types'
+import { withTimeout } from '../utils/withTimeout'
+
+// 连接握手超时:server 起不来/远端不响应时,启动期的 initMcp 不至于无限挂起。
+const CONNECT_TIMEOUT_MS = 10_000
 
 export interface McpToolDef {
   name: string
@@ -45,7 +49,12 @@ export async function connectMcpServer(config: McpServerConfig): Promise<Connect
     { capabilities: {} },
   )
   const transport = buildTransport(config)
-  await client.connect(transport)
+  await withTimeout(
+    client.connect(transport),
+    CONNECT_TIMEOUT_MS,
+    `MCP connect (${config.name})`,
+    () => { void transport.close?.().catch(() => {}) },
+  )
 
   const instructions = client.getInstructions()
   let tools: McpToolDef[] = []
