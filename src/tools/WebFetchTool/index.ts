@@ -10,6 +10,8 @@ import TurndownService from 'turndown'
 import { querySmallModel } from '../../api/query-model.js'
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
+import { withRetry } from '../../utils/retry.js'
+import { combineSignals } from '../../utils/withTimeout.js'
 
 const FETCH_TIMEOUT_MS = 30_000
 const MAX_CONTENT_CHARS = 50_000
@@ -145,7 +147,7 @@ IMPORTANT: Will fail for pages that require login or authentication.`,
     required: ['url'],
   },
 
-  async call(input, _ctx: import("../Tool.js").ToolContext): Promise<ToolCallResult> {
+  async call(input, ctx: import("../Tool.js").ToolContext): Promise<ToolCallResult> {
     const raw = input['url'] as string
     const validation = validateUrl(raw)
     if (!validation.ok) {
@@ -156,11 +158,19 @@ IMPORTANT: Will fail for pages that require login or authentication.`,
     const target = new URL(validation.url)
     if (target.protocol === 'http:') target.protocol = 'https:'
 
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
-
     try {
-      const fetched = await fetchPublicUrl(target, controller.signal)
+      // 指数退避重试(PR-4):5xx/超时/网络层错误重试,4xx 直接失败,ESC 立即停止。
+      // 每次尝试独立计 30s 超时;ctx.abortSignal 同时贯通到 fetch。
+      const fetched = await withRetry(
+        async () => {
+          const f = await fetchPublicUrl(target, combineSignals(ctx.abortSignal, FETCH_TIMEOUT_MS))
+          if (f.response.status >= 500) {
+            throw new Error(`HTTP ${f.response.status} ${f.response.statusText} — ${f.url.toString()}`)
+          }
+          return f
+        },
+        { signal: ctx.abortSignal, label: 'WebFetch' },
+      )
       const response = fetched.response
       const targetUrl = fetched.url.toString()
 
@@ -201,8 +211,6 @@ IMPORTANT: Will fail for pages that require login or authentication.`,
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
       return { output: `Error fetching ${target.toString()}: ${msg}`, isError: true }
-    } finally {
-      clearTimeout(timer)
     }
   },
 })

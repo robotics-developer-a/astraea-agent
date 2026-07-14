@@ -190,7 +190,13 @@ without an interactive user present); navigate/screenshot/scroll run without con
           return { output: `Error: 未知 action "${action}"`, isError: true }
       }
     } catch (err: unknown) {
-      return { output: `Browser error: ${err instanceof Error ? err.message : String(err)}`, isError: true }
+      const msg = err instanceof Error ? err.message : String(err)
+      // 指引式降级(不静默切换,避免模型误以为拿到了 JS 渲染结果):
+      // navigate 超时/崩溃时提示对静态页可改用 WebFetch。
+      const fallbackHint = action === 'navigate'
+        ? ' If this is a mostly-static page, fall back to WebFetch instead of retrying WebBrowser.'
+        : ''
+      return { output: `Browser error: ${msg}.${fallbackHint}`, isError: true }
     }
   },
 })

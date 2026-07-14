@@ -9,6 +9,19 @@ export interface RecentUpdate {
 
 export const RECENT_UPDATES: RecentUpdate[] = [
   {
+    version: '0.10.26',
+    priority: 200,
+    persistent: false,
+    messages: {
+      en: 'Network calls now retry transient failures with backoff, misbehaving MCP servers get circuit-broken instead of stalling every call, and unattended runs never answer questions on your behalf.',
+      zh: '网络调用遇到瞬态故障会自动退避重试,异常的 MCP server 会被熔断而不是拖慢每次调用,无人值守时 Astraea 也绝不会替你回答确认问题。',
+      de: 'Netzwerkaufrufe wiederholen vorübergehende Fehler jetzt mit Backoff, fehlerhafte MCP-Server werden per Circuit-Breaker abgetrennt statt jeden Aufruf zu blockieren, und unbeaufsichtigte Läufe beantworten niemals Fragen in Ihrem Namen.',
+      fr: 'Les appels réseau réessaient désormais les échecs transitoires avec backoff, les serveurs MCP défaillants sont coupés par disjoncteur au lieu de ralentir chaque appel, et les exécutions sans surveillance ne répondent jamais aux questions à votre place.',
+      es: 'Las llamadas de red ahora reintentan fallos transitorios con backoff, los servidores MCP defectuosos se desconectan con un cortacircuitos en lugar de frenar cada llamada, y las ejecuciones desatendidas nunca responden preguntas en tu nombre.',
+      ko: '네트워크 호출이 일시적 오류 시 백오프로 자동 재시도하고, 오작동하는 MCP 서버는 매 호출을 지연시키는 대신 차단되며, 무인 실행에서는 절대 사용자를 대신해 질문에 답하지 않습니다.',
+    },
+  },
+  {
     version: '0.10.25',
     priority: 190,
     persistent: false,

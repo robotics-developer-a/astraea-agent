@@ -69,7 +69,11 @@ ONLY use this proactively when ALL are true:
 
 Do NOT use for: missing files (just create them), choosing between low-stakes
 approaches (pick one), or anything you could learn by reading the codebase.
-Bias toward action. (Counsel mode overrides these restrictions — see its instructions.)`,
+Bias toward action. (Counsel mode overrides these restrictions — see its instructions.)
+
+If no interactive user is present (sub-agent / headless run), this tool FAILS CLOSED
+with an error instead of answering on the user's behalf — take the safest conservative
+path that needs no user input, or stop and report the pending decision.`,
   isReadOnly: () => true,
   isConcurrencySafe: () => true,
   inputSchema: {
@@ -113,18 +117,32 @@ Bias toward action. (Counsel mode overrides these restrictions — see its instr
     },
   },
 
-  async call(input, _ctx: import('../Tool.js').ToolContext): Promise<ToolCallResult> {
+  async call(input, ctx: import('../Tool.js').ToolContext): Promise<ToolCallResult> {
     const questions = normalizeQuestions(input as Record<string, unknown>)
 
     if (questions.length === 0) {
       return { output: '[AskUserQuestion] No valid question provided.' }
     }
 
+    // fail-closed(PR-4,对齐 fileWriteGate/BashTool 的 §3.0 约定):无人值守时不得
+    // 替用户拍板——此前 fail-open 返回「自行判断」,headless 下模型会替用户做方向性决策。
+    if (ctx.isInteractive !== true) {
+      return {
+        output:
+          '[AskUserQuestion] Cannot ask: no interactive user is available (fail-closed). ' +
+          'Do NOT invent an answer on the user\'s behalf. Take the safest conservative path ' +
+          'that requires no user input, or stop and report which decision is pending.',
+        isError: true,
+      }
+    }
+
     const userAnswer = await ask(questions)
 
     if (!userAnswer) {
+      // 交互会话里拿到空答:UI 监听者退订/问题被 /stop 清空 —— 同样不得自行拍板
       return {
-        output: '[AskUserQuestion] No interactive terminal available (or user skipped). Proceed with best judgment.',
+        output: '[AskUserQuestion] The question was dismissed without an answer. Do not assume a choice — ask again later or take the conservative path.',
+        isError: true,
       }
     }
 

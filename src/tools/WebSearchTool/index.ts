@@ -20,6 +20,7 @@ import { ExaAdapter } from './adapters/ExaAdapter.js'
 import { BochaAdapter } from './adapters/BochaAdapter.js'
 import { ZhipuAdapter } from './adapters/ZhipuAdapter.js'
 import { combineSignals } from '../../utils/withTimeout.js'
+import { withRetry } from '../../utils/retry.js'
 
 // 单次搜索请求的墙钟上限。adapter 的 fetch 接受 signal 但此前没人传,断网时会挂到 OS 层超时。
 const SEARCH_TIMEOUT_MS = 15_000
@@ -186,9 +187,16 @@ IMPORTANT: Do NOT pass search engines (google.com, bing.com, duckduckgo.com) as 
 
     try {
       const adapter = _testAdapter ?? createAdapter()
-      // 15s 墙钟 + ESC 取消:adapter 的 fetch 此前无 signal,断网/黑洞时会挂到 OS 层超时
-      const signal = combineSignals(ctx.abortSignal, SEARCH_TIMEOUT_MS)
-      const results = await adapter.search(query.trim(), { allowedDomains, blockedDomains, signal })
+      // 15s 墙钟 + ESC 取消 + 指数退避重试(5xx/超时重试,4xx 不重试)。
+      // 每次尝试独立计时,combineSignals 在 fn 内新建,避免旧超时信号污染下一次尝试。
+      const results = await withRetry(
+        () => adapter.search(query.trim(), {
+          allowedDomains,
+          blockedDomains,
+          signal: combineSignals(ctx.abortSignal, SEARCH_TIMEOUT_MS),
+        }),
+        { signal: ctx.abortSignal, label: `WebSearch(${adapter.name})` },
+      )
       return { output: formatResults(query, results) }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)

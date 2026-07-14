@@ -8,6 +8,27 @@
 
 > **1.0.0 发布门槛**（达成后才从 0.x 升到 1.0 并打首个 `git tag v1.0.0`）：
 
+## [0.10.26] - 2026-07-14
+
+### 新增（Retry / 熔断 / Fallback + fail-closed 收口 —— 可靠性审计 PR-4,审计四批次完结）
+- **`src/utils/retry.ts`**：指数退避重试原语（默认 2 次,500ms 起倍增）。瞬态错误分类:
+  HTTP 4xx 不重试（鉴权/参数/配额,重试只会更糟）,5xx / 超时 / DNS / 连接层错误重试;
+  用户 ESC 取消立即停止,绝不把取消变成「再试两次」。
+- **WebFetch / WebSearch 接入重试**：每次尝试独立计超时（WebFetch 30s、WebSearch 15s）,
+  5xx 抛出进重试,4xx 原样快速失败;WebFetch 的 ctx.abortSignal 顺带贯通（PR-3 漏网点）。
+- **MCP 熔断器（T2 补完）**：按 server 计的进程内熔断——连续 3 次传输层失败（不含工具自身
+  isError 语义错误）→ 熔断,60s 冷却期内快速失败并提示检查 /mcp,不再让每次调用干等 60s
+  超时;期满放行一次探测（half-open）,成功即复位。带 readOnlyHint 的 MCP 工具幂等,
+  瞬态失败自动重试一次;写工具可能有副作用,绝不自动重试。
+
+### 修复
+- **AskUserQuestion fail-open（T10）**：无人值守时此前返回「no user available… use your
+  best judgment」,headless/子代理里模型会替用户拍板方向性决策。现与 fileWriteGate/BashTool
+  的 §3.0 fail-closed 约定对齐:非交互一律 isError 并指示「走保守路径或停下报告待决事项」;
+  交互会话中问题被清空/退订同样不默认任何选项。desc 同步声明该行为。
+- **WebBrowser 降级指引**：navigate 超时/崩溃的错误消息现在明确建议「静态页改用 WebFetch」
+  （保持指引式降级,不做静默自动切换——避免模型误以为拿到了 JS 渲染结果）。
+
 ## [0.10.25] - 2026-07-14
 
 ### 修复（超时补齐 + AbortSignal 贯通 —— 可靠性审计 PR-3,消灭「永久挂起」路径）
