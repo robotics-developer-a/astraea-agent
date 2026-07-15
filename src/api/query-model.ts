@@ -36,6 +36,8 @@ export function smallModelName(provider = config.provider): string {
     case 'deepseek': return deepseekSmallModelName()
     case 'kimi': return config.kimi.model
     case 'codex': return CODEX_SMALL_MODEL
+    // Custom gateways usually expose one model id — reuse it for recall/map helpers.
+    case 'custom': return process.env.CUSTOM_SMALL_MODEL?.trim() || config.custom.model
     default: return config.ollama.model
   }
 }
@@ -123,7 +125,34 @@ export async function querySmallModel(
     return run()
   }
 
-  // OpenAI-compatible providers (openai, deepseek, kimi, ollama)
+  // Custom Anthropic-style gateway — use Anthropic SDK with custom baseURL.
+  if (provider === 'custom' && config.custom.apiStyle === 'anthropic') {
+    const Anthropic = (await import('@anthropic-ai/sdk')).default
+    const client = new Anthropic({
+      apiKey: config.custom.apiKey || 'no-key',
+      baseURL: config.custom.baseUrl,
+      defaultHeaders: { 'X-Agent': 'Astraea/1.0' },
+    })
+    const model = smallModelName('custom')
+    const runAnthropic = () => client.messages.create(
+      {
+        model,
+        max_tokens: 4096,
+        ...(effectiveSystemPrompt ? { system: effectiveSystemPrompt } : {}),
+        messages: [{ role: 'user', content: userPrompt }],
+      },
+      signal ? { signal } : undefined,
+    )
+    const first = await runAnthropic()
+    const firstBlock = first.content[0]
+    const firstText = firstBlock && 'text' in firstBlock ? firstBlock.text : ''
+    if (!shouldRetryStructuredJson(firstText, options)) return firstText
+    const retry = await runAnthropic()
+    const retryBlock = retry.content[0]
+    return retryBlock && 'text' in retryBlock ? retryBlock.text : firstText
+  }
+
+  // OpenAI-compatible providers (openai, deepseek, kimi, ollama, custom-openai)
   const clientCfg =
     provider === 'openai'
       ? { baseURL: config.openai.baseUrl, apiKey: config.openai.apiKey, model: OPENAI_SMALL_MODEL }
@@ -131,6 +160,8 @@ export async function querySmallModel(
       ? { baseURL: config.deepseek.baseUrl, apiKey: config.deepseek.apiKey, model: deepseekSmallModelName() }
       : provider === 'kimi'
       ? { baseURL: config.kimi.baseUrl, apiKey: config.kimi.apiKey, model: config.kimi.model }
+      : provider === 'custom'
+      ? { baseURL: config.custom.baseUrl, apiKey: config.custom.apiKey || 'no-key', model: smallModelName('custom') }
       : { baseURL: config.ollama.baseUrl, apiKey: 'ollama', model: config.ollama.model }
 
   const openaiClient = new OpenAI({ baseURL: clientCfg.baseURL, apiKey: clientCfg.apiKey, maxRetries: 5 })

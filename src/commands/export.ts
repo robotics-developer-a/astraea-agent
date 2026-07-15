@@ -13,6 +13,7 @@ function activeModel(): string {
     case 'ollama':   return config.ollama.model
     case 'openai':   return config.openai.model
     case 'codex':    return config.codex.model
+    case 'custom':   return config.custom.model
     default:         return config.anthropic.model
   }
 }

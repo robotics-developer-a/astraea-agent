@@ -24,7 +24,7 @@ import { getRiskRailsSection }        from './sections/riskRails'
 import { getToolRulesSection }        from './sections/toolRules'
 import { getVoiceToneSection }        from './sections/voiceTone'
 import { getCounselModeSection }      from './sections/counselMode'
-import { systemPromptSection, uncachedSection, resolveSections } from './sections'
+import { systemPromptSection, uncachedSection, resolveSections, invalidateSection } from './sections'
 import { computeEnvInfo }             from './envInfo'
 import { loadMemoryInstructions }     from '../../memory/inject'
 import { getMcpInstructions }         from '../../mcp/instructions'
@@ -46,6 +46,10 @@ export interface SystemPromptOptions {
 export async function getSystemPrompt(options: SystemPromptOptions): Promise<string> {
   const { modelId, enabledTools, mode = 'default' } = options
   const cwd = options.cwd ?? process.cwd()
+
+  // env_info is keyed only by section name; after /login the modelId/provider change but the
+  // old "Model: claude-sonnet-…" line would stick forever without this invalidate.
+  invalidateSection('env_info')
 
   const dynamicSections = [
     systemPromptSection('env_info', () => computeEnvInfo(modelId)),

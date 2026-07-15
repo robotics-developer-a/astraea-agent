@@ -38,11 +38,50 @@ export function resetOpenAIClient(): void {
   _openaiClient = null
 }
 
+/** Explicit OpenAI-compatible endpoint (used by PROVIDER=custom and tests). */
+export type OpenAIEndpoint = {
+  apiKey: string
+  baseUrl: string
+  model: string
+  maxTokens: number
+  /** When set, skip OPENAI_REASONING_EFFORT fallback (custom gateways often reject it). */
+  skipEnvReasoningFallback?: boolean
+  /** Extra top-level request fields (e.g. DeepSeek V4 `thinking` / `reasoning_effort`). */
+  extraParams?: Record<string, unknown>
+}
+
 export function streamMessageOpenAI(
   messages: Message[],
   options: StreamOptions = {},
 ): AsyncGenerator<StreamEvent> {
-  const client = getOpenAIClient()
+  return streamMessageOpenAIWithEndpoint(messages, options, {
+    apiKey: config.openai.apiKey,
+    baseUrl: config.openai.baseUrl,
+    model: config.openai.model,
+    maxTokens: config.openai.maxTokens,
+  })
+}
+
+/**
+ * Stream against any OpenAI Chat Completions–compatible base URL.
+ * When `endpoint` differs from the singleton OpenAI config, a fresh client is used
+ * (custom gateways must not share the cached official client).
+ */
+export function streamMessageOpenAIWithEndpoint(
+  messages: Message[],
+  options: StreamOptions = {},
+  endpoint: OpenAIEndpoint,
+): AsyncGenerator<StreamEvent> {
+  const useSingleton =
+    endpoint.apiKey === config.openai.apiKey &&
+    endpoint.baseUrl === config.openai.baseUrl
+  const client = useSingleton
+    ? getOpenAIClient()
+    : new OpenAI({
+        apiKey: endpoint.apiKey || 'no-key',
+        baseURL: endpoint.baseUrl,
+        maxRetries: 5,
+      })
 
   const chatMessages: OpenAI.Chat.ChatCompletionMessageParam[] = []
 
@@ -100,19 +139,19 @@ export function streamMessageOpenAI(
     }))
 
   // 推理模型用 max_completion_tokens，其余用 max_tokens（见 isReasoningModel 注释）
-  const effectiveModel = options.model ?? config.openai.model
+  const effectiveModel = options.model ?? endpoint.model
   const reasoning = isReasoningModel(effectiveModel)
   const tokenLimit = reasoning
-    ? { max_completion_tokens: options.maxTokens ?? config.openai.maxTokens }
-    : { max_tokens: options.maxTokens ?? config.openai.maxTokens }
+    ? { max_completion_tokens: options.maxTokens ?? endpoint.maxTokens }
+    : { max_tokens: options.maxTokens ?? endpoint.maxTokens }
 
   // reasoning_effort：仅 gpt-5.x / o 系列接受。优先级 /reason 会话设置 > env > 旧静态配置兜底。
   // resolveAppliedEffort 已含 env(ASTRAEA_REASONING_EFFORT) > 会话 链；为兼容旧 OPENAI_REASONING_EFFORT
-  // 配置，二者皆空时回落到 config.openai.reasoningEffort。
+  // 配置，二者皆空时回落到 config.openai.reasoningEffort（custom 端点默认跳过 env 兜底）。
   const applied = resolveAppliedEffort()
   const reasoningParam = applied
     ? openaiReasoningParam(effectiveModel, applied)
-    : reasoning && config.openai.reasoningEffort
+    : !endpoint.skipEnvReasoningFallback && reasoning && config.openai.reasoningEffort
       ? { reasoning_effort: config.openai.reasoningEffort as 'low' | 'medium' | 'high' }
       : {}
 
@@ -123,6 +162,7 @@ export function streamMessageOpenAI(
     ...reasoningParam,
     messages: chatMessages,
     ...(openaiTools?.length ? { tools: openaiTools, tool_choice: 'auto' as const } : {}),
+    ...(endpoint.extraParams ?? {}),
   }
 
   const linked = linkAbort(options.abortSignal)

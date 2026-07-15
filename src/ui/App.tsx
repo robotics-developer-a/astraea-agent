@@ -21,12 +21,13 @@ import type { LoginResult } from './LoginWizard'
 import { InternetWizard, formatInternetSuccess } from './InternetWizard'
 import type { InternetResult } from './InternetWizard'
 import { LanguageWizard, formatLanguageSuccess } from './LanguageWizard'
-import { config, updateProviderConfig, saveLoginConfigToEnvFiles, saveSearchProviderKey, hasValidConfig } from '../config'
+import { config, updateProviderConfig, saveLoginConfigToEnvFiles, saveSearchProviderKey, hasValidConfig, activeModel, activeBaseUrl, activeMaxTokens } from '../config'
 import { resetAdapter as resetSearchAdapter } from '../tools/WebSearchTool/index'
 import { setLocale, t, resolveLanguageCommand } from '../i18n'
 import type { Locale } from '../i18n'
 import { resetAllApiClients } from '../api/stream'
 import { getSystemPrompt } from '../context/systemPrompt/builder'
+import { clearSectionCache } from '../context/systemPrompt/sections'
 import { onQuestion, answer, cancelAllQuestions } from '../tools/AskUserQuestionTool/bridge'
 import type { PendingQuestion, Question } from '../tools/AskUserQuestionTool/bridge'
 import { QuestionPanel } from './QuestionPanel'
@@ -614,18 +615,7 @@ export function App() {
   const [escClearHint, setEscClearHint] = useState(false)
 
   const modelId = useMemo(() => {
-    const p = config.provider
-    return p === 'ollama'
-      ? config.ollama.model
-      : p === 'openai'
-        ? config.openai.model
-        : p === 'codex'
-          ? config.codex.model
-          : p === 'deepseek'
-            ? config.deepseek?.model ?? ''
-            : p === 'kimi'
-              ? config.kimi?.model ?? ''
-              : config.anthropic.model
+    return activeModel()
     // configVersion 在 /login 后变化，触发 modelId 重算（config 是模块级可变对象，
     // 非 React state，必须靠版本号手动让 memo 失效）
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1518,33 +1508,22 @@ export function App() {
         setInputValue('')
         historyIndexRef.current = -1
         const p = config.provider
-        const baseUrl =
-          p === 'ollama' ? config.ollama.baseUrl
-          : p === 'openai' ? config.openai.baseUrl
-          : p === 'codex' ? `${config.codex.baseUrl}/codex/responses`
-          : p === 'deepseek' ? config.deepseek.baseUrl
-          : p === 'kimi' ? config.kimi.baseUrl
-          : 'https://api.anthropic.com'
-        const maxTokens =
-          p === 'ollama' ? config.ollama.maxTokens
-          : p === 'openai' ? config.openai.maxTokens
-          : p === 'codex' ? config.codex.maxTokens
-          : p === 'deepseek' ? config.deepseek.maxTokens
-          : p === 'kimi' ? config.kimi.maxTokens
-          : config.anthropic.maxTokens
+        const lines = [
+          '**Current model**',
+          '',
+          `  Provider     ${p}`,
+          `  Model        ${p === 'deepseek' ? deepseekResolveModel(resolveAppliedEffort(), config.deepseek.model) : modelId}`,
+          `  Endpoint     ${activeBaseUrl()}`,
+          `  Max tokens   ${activeMaxTokens()}`,
+        ]
+        if (p === 'custom') {
+          lines.push(`  API style    ${config.custom.apiStyle}`)
+        }
+        lines.push('', '_Switch with /login._')
         setHistory(prev => [...prev, {
           id: String(entryIdRef.current++),
           role: 'assistant',
-          text: [
-            '**Current model**',
-            '',
-            `  Provider     ${p}`,
-            `  Model        ${config.provider === 'deepseek' ? deepseekResolveModel(resolveAppliedEffort(), config.deepseek.model) : modelId}`,
-            `  Endpoint     ${baseUrl}`,
-            `  Max tokens   ${maxTokens}`,
-            '',
-            '_Switch with /login._',
-          ].join('\n'),
+          text: lines.join('\n'),
         }])
         return
       }
@@ -1559,6 +1538,7 @@ export function App() {
 
         // ① 模型侧对话历史 —— 下一次 query 不再携带任何上文
         conversationRef.current = []
+        clearSectionCache()  // env_info 等会话级 section 与对话一并作废
 
         // ② 实时流式缓冲 —— 清掉可能残留的半截流式文本 / 工具指示 / 待答问题
         resetStreamingPreview()
@@ -2125,8 +2105,12 @@ export function App() {
   const handleLoginDone = useCallback(async (result: LoginResult | null) => {
     setShowLogin(false)
     if (!result) return
-    const modelSelectionChanged = updateProviderConfig(result.provider, result.model, result.apiKey)
+    const modelSelectionChanged = updateProviderConfig(result.provider, result.model, result.apiKey, {
+      baseUrl: result.baseUrl,
+      apiStyle: result.apiStyle,
+    })
     resetAllApiClients()
+    clearSectionCache()  // drop cached env_info so system prompt shows the new Model/Provider
     markSessionStale()  // 换模型 → 旧分词器的 token 数作废，等新 usage 刷新（设计文档 §6）
     resetEclipse()       // 换模型 → 折叠的 spawn token 计数按旧分词器，作废重来
     setConfigVersion(v => v + 1)  // 让 modelId 重算 → 触发 system prompt 按新模型重建
@@ -2686,17 +2670,9 @@ export function App() {
   const toolNames = getInteractiveTools().map(t => t.name)
 
   const modelName =
-    config.provider === 'ollama'
-      ? config.ollama.model
-      : config.provider === 'openai'
-        ? config.openai.model
-        : config.provider === 'codex'
-          ? config.codex.model
-          : config.provider === 'deepseek'
-            ? deepseekResolveModel(resolveAppliedEffort(), config.deepseek?.model ?? '')
-            : config.provider === 'kimi'
-              ? config.kimi?.model ?? ''
-              : config.anthropic.model
+    config.provider === 'deepseek'
+      ? deepseekResolveModel(resolveAppliedEffort(), config.deepseek?.model ?? '')
+      : activeModel()
 
   // 执行中输入框保持可用（不锁定）：用户可随时 /mode 切换。仅在模式/面板覆盖层时让出焦点。
   const inputFocused = !pendingReasonSelect && !pendingModeSelect && !pendingVigilPanel && !pendingConfirm && !pendingResumePicker && !pendingRewindPicker && (!pendingExportPanel || pendingExportPath)
