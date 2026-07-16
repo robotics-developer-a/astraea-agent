@@ -21,7 +21,7 @@ Built from the ground up on [**Bun**](https://bun.com), with a React Ink TUI, mu
   <img alt="Runtime" src="https://img.shields.io/badge/runtime-Bun-000000?logo=bun&logoColor=white">
   <img alt="Language" src="https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white">
   <img alt="UI" src="https://img.shields.io/badge/TUI-React%20Ink-61DAFB?logo=react&logoColor=black">
-  <img alt="Providers" src="https://img.shields.io/badge/providers-Anthropic%20·%20DeepSeek%20·%20OpenAI%20·%20Ollama-7C3AED">
+  <img alt="Providers" src="https://img.shields.io/badge/providers-Anthropic%20·%20DeepSeek%20·%20OpenAI%20·%20Kimi%20·%20Ollama%20·%20Custom-7C3AED">
   <img alt="License" src="https://img.shields.io/badge/license-Private-lightgrey">
 </p>
 
@@ -59,7 +59,11 @@ Astraea works with a growing set of model providers. Pick the one that fits your
 </tr>
 </table>
 
-In addition to the above, Astraea supports **Ollama** for fully local models and any **OpenAI-compatible** endpoint — configure your own base URL, model name, and API key via the `.env` file.
+In addition to the above, Astraea supports:
+
+- **Ollama** — fully local models (no API key)
+- **OpenAI Codex** — ChatGPT subscription via OAuth (`PROVIDER=codex`, `/login`)
+- **Custom gateway** — any **OpenAI-compatible** or **Anthropic-compatible** endpoint (e.g. right.codes, LiteLLM, Azure proxies): set base URL, API key, model id, and connection style via `/login` → *Custom gateway* or `CUSTOM_*` env vars
 
 ---
 
@@ -75,14 +79,15 @@ It runs in your terminal as either a **persistent REPL** (multi-turn, React Ink 
 
 | | |
 |---|---|
-| **Multi-provider** | First-class support for **Anthropic**, **DeepSeek**, **OpenAI**, and local **Ollama** — switch with a single env var. |
+| **Multi-provider** | **Anthropic**, **DeepSeek**, **OpenAI**, **Kimi**, **Ollama**, **Codex** (OAuth), and **custom** gateways (OpenAI- or Anthropic-style base URL + key + model). |
 | **Five session modes** | `default` · `orbit` (read-only planning) · `cruise` (auto-accept edits) · `forge` (bypass prompts) · `counsel` (confirm direction first). |
 | **Permission system** | A mode × behavior matrix with hard **red-lines** that can never be bypassed — auto-approve the safe, always gate the dangerous. |
 | **Rich tool suite** | Files, shell (Bash + PowerShell), web (fetch / search / headless browser), LSP, MCP resources, and skills. |
 | **Extensible** | Drop-in **skills** (`SKILL.md`), **MCP** servers (stdio / http / sse), and installable **plugins** that bundle both — see [§4](#4--skills-mcp--plugins). |
 | **Sub-agents** | Spawn worker agents, message peers, and fan out complex work — coordination tools included. |
 | **Vigil scheduling** | Schedule one-off or recurring agent tasks that run headless via a background daemon. |
-| **Memory & compaction** | Persistent file-based memory injection, prompt-cache-aware system prompts, and automatic context compaction. |
+| **Memory & compaction** | Project-scoped file memory (`~/.astraea/projects/…/memory/`), prompt-cache-aware injection, and automatic context compaction. |
+| **Agent harness** | `AGENTS.md` + `feature_list.json` + `./init.sh` so coding agents start, verify, and hand off cleanly. |
 | **WeChat integration** | Read and write WeChat conversations through driven automation. |
 | **Web search** | Pluggable providers — configure interactively with `/internet`. China-direct **Bocha** & **Zhipu** (no proxy), plus **Tavily**, **Brave**, and **Exa** semantic search. |
 | **Multilingual UI** | Switch the interface *and* reply language with `/language` — English, German, French, Spanish, Chinese, Korean. Auto-detects your system locale on first run; hot-applies with no restart. |
@@ -167,38 +172,63 @@ You get one for free (or with a free trial balance) by signing up at a provider'
 
 | Provider | Powers | Where to get a key |
 |----------|--------|--------------------|
-| **Anthropic (Claude)** | The default — best coding & reasoning quality | [console.anthropic.com](https://console.anthropic.com) → API Keys → Create key |
-| **DeepSeek** | Strong, very low cost | [platform.deepseek.com](https://platform.deepseek.com) → API Keys |
-| **OpenAI (GPT)** | A solid alternative | [platform.openai.com](https://platform.openai.com) → API Keys |
-| **Ollama** | Fully **local**, runs on your own machine | **No key needed** — just install [ollama.com](https://ollama.com) and pull a model |
+| **Anthropic (Claude)** | Official Claude API (default if `PROVIDER` unset) | [console.anthropic.com](https://console.anthropic.com) → API Keys → Create key |
+| **DeepSeek** | Strong, very low cost (V4 flash/pro) | [platform.deepseek.com](https://platform.deepseek.com) → API Keys |
+| **OpenAI (GPT)** | GPT / o-series via API | [platform.openai.com](https://platform.openai.com) → API Keys |
+| **Kimi (Moonshot)** | Long-context Moonshot models | [platform.moonshot.cn](https://platform.moonshot.cn) → API Keys |
+| **OpenAI Codex** | ChatGPT **subscription** (OAuth, no API key file) | `/login` → OpenAI Codex (browser or device code) |
+| **Ollama** | Fully **local**, runs on your own machine | **No key needed** — install [ollama.com](https://ollama.com) and pull a model |
+| **Custom gateway** | Any OpenAI- or Anthropic-compatible proxy (right.codes, LiteLLM, …) | Your gateway’s key + base URL + model id |
 
-> **Security:** Never commit API keys to git. The `.env` file is already in `.gitignore`, but we recommend storing keys in `~/.astraea/.env` (global config) so all Astraea projects reuse them without risk. Run `mkdir -p ~/.astraea` to create that directory.
+> **Security:** Never commit API keys to git. The `.env` file is already in `.gitignore`. Prefer `~/.astraea/.env` (global) so all Astraea projects reuse keys without risk: `mkdir -p ~/.astraea`.
 
 #### Step 1 — Pick an AI model provider
 
-Edit `.env` and fill in **exactly one** provider. Remove the `#` comment marker in front of the lines for your chosen provider:
+**Easiest:** launch Astraea and run **`/login`** — pick provider, model, paste key (or OAuth for Codex). For a custom gateway, choose **Custom gateway** → connection style → base URL → model → key. Saved live to `~/.astraea/.env`.
+
+**Manual:** edit `.env` (or `~/.astraea/.env`) and set **exactly one** active `PROVIDER`. Remove the `#` in front of the lines you need:
 
 ```bash
-# ── Anthropic (Claude) — recommended, highest quality ──
-# Sign up at https://console.anthropic.com → API Keys
-ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxx
-# (PROVIDER can be omitted — anthropic is the default)
+# ── Anthropic (Claude) — default if PROVIDER is omitted ──
+# ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxx
+# ANTHROPIC_MODEL=claude-sonnet-4-6
 
-# ── DeepSeek — strong, low-cost ──
-# Sign up at https://platform.deepseek.com → API Keys
+# ── DeepSeek ──
 # PROVIDER=deepseek
 # DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxx
+# DEEPSEEK_MODEL=deepseek-v4-flash
 
 # ── OpenAI (GPT) ──
-# Sign up at https://platform.openai.com → API Keys
 # PROVIDER=openai
 # OPENAI_API_KEY=sk-xxxxxxxxxxxxx
+# OPENAI_MODEL=gpt-4o
+# OPENAI_BASE_URL=https://api.openai.com/v1   # optional proxy
 
-# ── Ollama — fully local, runs on your machine, no API key needed ──
-# Install from https://ollama.com, then pull a model (e.g. ollama pull qwen2.5:7b)
+# ── Kimi (Moonshot) ──
+# PROVIDER=kimi
+# KIMI_API_KEY=sk-xxxxxxxxxxxxx
+# KIMI_MODEL=kimi-k2-0905-preview
+
+# ── Ollama — local, no API key ──
 # PROVIDER=ollama
 # OLLAMA_MODEL=qwen2.5:7b
+# OLLAMA_BASE_URL=http://localhost:11434/v1
+
+# ── Codex — ChatGPT subscription (token in ~/.astraea/auth.json via /login) ──
+# PROVIDER=codex
+# CODEX_MODEL=gpt-5.4
+
+# ── Custom gateway (OpenAI- or Anthropic-compatible) ──
+# PROVIDER=custom
+# CUSTOM_BASE_URL=https://api.example.com/v1   # OpenAI style usually ends with /v1
+# CUSTOM_API_KEY=sk-xxxxxxxxxxxxx
+# CUSTOM_MODEL=deepseek-v4-flash               # exact id your gateway expects
+# CUSTOM_API_STYLE=openai                      # openai | anthropic
+# CUSTOM_MAX_TOKENS=16384
+# CUSTOM_CONTEXT_WINDOW=128000
 ```
+
+Check the active channel anytime with **`/model`** (provider, model, endpoint, max tokens; for custom, also API style). The system prompt Environment section must match this — Astraea should not claim to be Claude (or any other brand) unless that is the configured model.
 
 #### Step 2 (optional) — Enable web search
 
@@ -283,10 +313,11 @@ You can configure everything interactively — no need to hand-edit `.env`. On *
 
 | Command | What it does |
 |---------|--------------|
-| `/login` | Choose provider + model and paste the API key. Saved and applied live. |
+| `/login` | Choose provider + model (including **Custom gateway**: style, base URL, model, key) or Codex OAuth. Saved and applied live. |
+| `/model` | Show active provider, model, endpoint, max tokens (and custom API style). Zero tokens — local config only. |
 | `/internet` | Choose a web-search provider (Bocha · Zhipu · Tavily · Brave · Exa) and paste the key. Saved to `~/.astraea/.env`. |
 | `/language` | Switch UI + reply language (English · Deutsch · Français · Español · 中文 · 한국어). Applies instantly, no restart. Also accepts a direct arg, e.g. `/language en`. |
-| `/reason` | Set reasoning effort: `low` · `medium` · `high` · `max` · `auto`. Controls how deeply the model "thinks" before answering — higher effort means deeper reasoning but slower responses and more tokens. Maps to Anthropic's thinking budget and OpenAI's `reasoning_effort` knob. `auto` clears the override and follows the provider default. The `max` level applies to this session only (not persisted). |
+| `/reason` | Set reasoning effort: `low` · `medium` · `high` · `max` · `auto`. Maps to Anthropic thinking / OpenAI `reasoning_effort` / DeepSeek V4 thinking knobs. `auto` clears the override. `max` is session-only. |
 | `/selection` | Floating selection UI — `/selection start` (launch bridge), `/selection open` (capture + open panel now), `/selection stop`, `/selection status`, `/selection setup` (keyboard-shortcut instructions). Auto-starts the bridge in the background on first use. |
 | `/init [focus]` | Scan the current repo and create/update AGENTS.md and AGENTS.local.md project instructions. Walks you through setting up project skills. Accepts an optional focus hint. |
 | `/usage` | Show session token usage and estimated cost in USD. Breaks down input, output, and prompt-cache tokens per model/provider, with a total and cost. Helps you monitor spending across a session. |
@@ -482,20 +513,36 @@ src/
 ├── cli.ts / repl.tsx      # entry points — single-shot CLI & Ink REPL
 ├── cli/                   # `astraea mcp …` / `astraea plugin …` subcommands
 ├── query.ts               # the agent loop (streaming, tool dispatch, framework rails)
-├── api/                   # provider clients & streaming
+├── api/                   # provider clients & streaming (incl. custom gateway)
+├── config.ts              # PROVIDER + per-provider / CUSTOM_* env, activeModel()
 ├── context/               # system prompt builder, session preamble, memory injection
 │   └── systemPrompt/      #   layered, prompt-cache-aware sections
 ├── commands/              # unified command table (built-ins + skills) + skill menu
 ├── skills/                # SKILL.md loader, frontmatter, progressive disclosure
 ├── tools/                 # the full tool suite (Bash, File*, Web*, Task*, Vigil*, Wechat*, …)
 ├── services/              # compaction, transcript, eclipse, cron-daemon
-├── permissions/           # mode × behavior matrix + red-lines
-├── state/                 # session mode, micro-compact state
+├── state/                 # session mode, micro-compact state, goal state
 ├── memory/                # persistent file-based memory
 ├── mcp/                   # Model Context Protocol — transports, config, dynamic tool registry
 ├── plugins/               # local plugins — manifest, marketplace, materialize, lifecycle
-└── ui/                    # React Ink components
+└── ui/                    # React Ink components (LoginWizard, panels, …)
 ```
+
+### Agent harness (for coding agents working on this repo)
+
+| File | Purpose |
+|------|---------|
+| [`AGENTS.md`](./AGENTS.md) | Startup path, working rules, definition of done |
+| [`feature_list.json`](./feature_list.json) | Feature status (source of truth) |
+| [`progress.md`](./progress.md) | Session continuity log |
+| [`session-handoff.md`](./session-handoff.md) | Multi-session handoff |
+| [`init.sh`](./init.sh) | Baseline verification: `bun run typecheck` + `bun test` |
+
+```bash
+./init.sh   # run before claiming work done
+```
+
+User-facing product docs stay in this **README**; agent workflow lives in **AGENTS.md**. When behavior changes (providers, CLI, env vars), **update both** if users or agents would otherwise be misled.
 
 ---
 

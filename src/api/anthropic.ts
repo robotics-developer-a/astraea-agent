@@ -1,6 +1,7 @@
 // Anthropic 流式适配器
 // 参考源码: claude-code-main/src/services/api/claude.ts
 
+import type Anthropic from '@anthropic-ai/sdk'
 import type { Message as SDKMessage, RawMessageStreamEvent, MessageCreateParamsNonStreaming } from '@anthropic-ai/sdk/resources/messages'
 import { config } from '../config'
 import type { Message, StreamEvent } from '../types/message'
@@ -26,7 +27,22 @@ export function streamMessageAnthropic(
   messages: Message[],
   options: StreamOptions = {},
 ): AsyncGenerator<StreamEvent> {
-  const client = getClient()
+  return streamMessageAnthropicWithClient(getClient(), messages, options, {
+    model: config.anthropic.model,
+    maxTokens: config.anthropic.maxTokens,
+  })
+}
+
+/**
+ * Stream against any Anthropic Messages–compatible client (official or custom baseURL).
+ * Used by PROVIDER=custom with apiStyle=anthropic.
+ */
+export function streamMessageAnthropicWithClient(
+  client: Anthropic,
+  messages: Message[],
+  options: StreamOptions = {},
+  defaults: { model: string; maxTokens: number },
+): AsyncGenerator<StreamEvent> {
   // normalizeMessagesForAPI 负责合并连续 user 消息、过滤空白 assistant 等
   // toAPIMessage 做最终类型转换（TextBlock → ContentBlockParam）
   const apiMessages = normalizeMessagesForAPI(messages).map(toAPIMessage)
@@ -39,8 +55,8 @@ export function streamMessageAnthropic(
     : undefined
 
   // /reason → extended thinking。预算自动夹在 max_tokens 之下，不支持 thinking 的模型自动略过。
-  const effModel = options.model ?? config.anthropic.model
-  const effMaxTokens = options.maxTokens ?? config.anthropic.maxTokens
+  const effModel = options.model ?? defaults.model
+  const effMaxTokens = options.maxTokens ?? defaults.maxTokens
   const thinkingParam = anthropicThinkingParam(effModel, resolveAppliedEffort(), effMaxTokens)
 
   // 流式与非流式 fallback 共用同一份请求参数（fallback 仅追加 stream:false / 去掉无关项）。
@@ -52,7 +68,7 @@ export function streamMessageAnthropic(
     ...thinkingParam,
     ...(options.tools?.length
       ? {
-          tools: options.tools as Parameters<typeof client.messages.stream>[0]['tools'],
+          tools: options.tools as Parameters<Anthropic['messages']['stream']>[0]['tools'],
           tool_choice: { type: 'auto' as const },
         }
       : {}),
@@ -77,8 +93,8 @@ export function streamMessageAnthropic(
 
 // 内层真实流式：用 linkAbort 的 signal 建 SDK 流并 yield 精简事件（原 streamMessageAnthropic 主体）。
 async function* streamRawAnthropic(
-  client: ReturnType<typeof getClient>,
-  params: Parameters<typeof client.messages.stream>[0],
+  client: Anthropic,
+  params: Parameters<Anthropic['messages']['stream']>[0],
   signal: AbortSignal,
 ): AsyncGenerator<StreamEvent> {
   const stream = client.messages.stream(params, { signal })

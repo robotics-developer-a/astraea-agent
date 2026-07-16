@@ -53,7 +53,23 @@ applySettingsEnv()         // 先吃 settings.json 的 env，让它占位（shel
 loadEnvFile(envPath)       // 再加载项目级，只填它没设的 key
 loadEnvFile(globalEnvPath) // 最后全局，只填仍缺的 key
 
-export type Provider = 'anthropic' | 'deepseek' | 'kimi' | 'ollama' | 'openai' | 'codex'
+export type Provider = 'anthropic' | 'deepseek' | 'kimi' | 'ollama' | 'openai' | 'codex' | 'custom'
+
+/** Wire protocol for PROVIDER=custom (and /login Custom). */
+export type CustomApiStyle = 'openai' | 'anthropic'
+
+function detectCustomApiStyle(): CustomApiStyle {
+  const raw = (process.env.CUSTOM_API_STYLE ?? process.env.CUSTOM_CONNECTION_STYLE ?? 'openai')
+    .trim()
+    .toLowerCase()
+  if (raw === 'anthropic' || raw === 'claude' || raw === 'messages') return 'anthropic'
+  return 'openai'
+}
+
+/** Strip trailing slashes so SDK path joins stay stable. */
+export function normalizeBaseUrl(url: string): string {
+  return url.trim().replace(/\/+$/, '')
+}
 
 function detectProvider(): Provider {
   const raw = process.env.PROVIDER?.toLowerCase()
@@ -62,6 +78,7 @@ function detectProvider(): Provider {
   if (raw === 'openai') return 'openai'
   if (raw === 'deepseek') return 'deepseek'
   if (raw === 'kimi' || raw === 'moonshot') return 'kimi'
+  if (raw === 'custom') return 'custom'
   return 'anthropic'
 }
 
@@ -183,6 +200,17 @@ export const config = {
     maxTokens: maxTokensFrom('CODEX_MAX_TOKENS', 32000),
     contextWindow: contextWindowFrom('CODEX_CONTEXT_WINDOW', 256_000),
   },
+
+  // Custom OpenAI- or Anthropic-compatible gateway (right.codes, Azure proxies, self-hosted, …).
+  // Set PROVIDER=custom plus CUSTOM_BASE_URL / CUSTOM_API_KEY / CUSTOM_MODEL / CUSTOM_API_STYLE.
+  custom: {
+    apiKey: process.env.CUSTOM_API_KEY ?? '',
+    model: process.env.CUSTOM_MODEL ?? '',
+    baseUrl: normalizeBaseUrl(process.env.CUSTOM_BASE_URL ?? ''),
+    apiStyle: detectCustomApiStyle(),
+    maxTokens: maxTokensFrom('CUSTOM_MAX_TOKENS', 16384),
+    contextWindow: contextWindowFrom('CUSTOM_CONTEXT_WINDOW', 128_000),
+  },
 }
 
 // 当前激活 provider 的窗口与输出上限 —— 阈值每次现算时调用（设计文档 §6：阈值现算随 provider）。
@@ -193,6 +221,7 @@ export function activeContextWindow(): number {
     case 'ollama':   return config.ollama.contextWindow
     case 'openai':   return config.openai.contextWindow
     case 'codex':    return config.codex.contextWindow
+    case 'custom':   return config.custom.contextWindow
     default:         return config.anthropic.contextWindow
   }
 }
@@ -204,7 +233,34 @@ export function activeMaxTokens(): number {
     case 'ollama':   return config.ollama.maxTokens
     case 'openai':   return config.openai.maxTokens
     case 'codex':    return config.codex.maxTokens
+    case 'custom':   return config.custom.maxTokens
     default:         return config.anthropic.maxTokens
+  }
+}
+
+/** Active provider's model id (for CLI / UI / traces). */
+export function activeModel(): string {
+  switch (config.provider) {
+    case 'deepseek': return config.deepseek.model
+    case 'kimi':     return config.kimi.model
+    case 'ollama':   return config.ollama.model
+    case 'openai':   return config.openai.model
+    case 'codex':    return config.codex.model
+    case 'custom':   return config.custom.model
+    default:         return config.anthropic.model
+  }
+}
+
+/** Active provider's HTTP base URL when one exists (for /model display). */
+export function activeBaseUrl(): string {
+  switch (config.provider) {
+    case 'ollama':   return config.ollama.baseUrl
+    case 'openai':   return config.openai.baseUrl
+    case 'codex':    return `${config.codex.baseUrl}/codex/responses`
+    case 'deepseek': return config.deepseek.baseUrl
+    case 'kimi':     return config.kimi.baseUrl
+    case 'custom':   return config.custom.baseUrl || '(not set)'
+    default:         return 'https://api.anthropic.com'
   }
 }
 
@@ -218,6 +274,8 @@ export function hasValidConfig(): boolean {
     case 'openai':    return !!config.openai.apiKey
     case 'ollama':    return true
     case 'codex':     return loadCodexCredentials() !== null
+    case 'custom':
+      return !!config.custom.apiKey && !!config.custom.baseUrl && !!config.custom.model
     default:          return false
   }
 }
@@ -243,9 +301,35 @@ export function assertConfig(): void {
     console.error('Error: not logged in to Codex — run /login and choose OpenAI Codex')
     process.exit(1)
   }
+  if (config.provider === 'custom') {
+    if (!config.custom.baseUrl) {
+      console.error('Error: CUSTOM_BASE_URL is not set (or run /login → Custom)')
+      process.exit(1)
+    }
+    if (!config.custom.apiKey) {
+      console.error('Error: CUSTOM_API_KEY is not set (or run /login → Custom)')
+      process.exit(1)
+    }
+    if (!config.custom.model) {
+      console.error('Error: CUSTOM_MODEL is not set (or run /login → Custom)')
+      process.exit(1)
+    }
+  }
 }
 
-export function updateProviderConfig(provider: Provider, model: string, apiKey: string): boolean {
+export type ProviderUpdateOptions = {
+  /** Required for provider=custom; ignored otherwise. */
+  baseUrl?: string
+  /** Required for provider=custom; defaults to openai. */
+  apiStyle?: CustomApiStyle
+}
+
+export function updateProviderConfig(
+  provider: Provider,
+  model: string,
+  apiKey: string,
+  options: ProviderUpdateOptions = {},
+): boolean {
   const previousProvider = config.provider
   const previousModel = (config as unknown as Record<string, { model?: string }>)[provider]?.model
   const modelSelectionChanged = previousProvider !== provider || previousModel !== model
@@ -272,6 +356,13 @@ export function updateProviderConfig(provider: Provider, model: string, apiKey: 
       // Credentials live in auth.json; the apiKey arg is meaningless for codex, so we only record the chosen model.
       config.codex.model = model
       break
+    case 'custom': {
+      config.custom.apiKey = apiKey
+      config.custom.model = model
+      if (options.baseUrl !== undefined) config.custom.baseUrl = normalizeBaseUrl(options.baseUrl)
+      if (options.apiStyle !== undefined) config.custom.apiStyle = options.apiStyle
+      break
+    }
   }
   if (modelSelectionChanged) {
     unsetSessionEffort()
@@ -386,6 +477,14 @@ export async function saveConfigToEnv(destination: string = globalEnvPath): Prom
     `# PROVIDER=codex`,
     `CODEX_MODEL=${config.codex.model}`,
     '',
+    '# ─── Custom gateway (OpenAI- or Anthropic-compatible) ───',
+    `CUSTOM_API_KEY=${config.custom.apiKey}`,
+    `CUSTOM_BASE_URL=${config.custom.baseUrl}`,
+    `CUSTOM_MODEL=${config.custom.model}`,
+    `CUSTOM_API_STYLE=${config.custom.apiStyle}`,
+    `# CUSTOM_MAX_TOKENS=${config.custom.maxTokens}`,
+    `# CUSTOM_CONTEXT_WINDOW=${config.custom.contextWindow}`,
+    '',
   ].join('\n')
   mkdirSync(dirname(destination), { recursive: true })
   await Bun.write(destination, content)
@@ -420,6 +519,12 @@ function loginEnvUpdates(): Record<string, string> {
     case 'codex':
       // No secret written to .env — the token lives in ~/.astraea/auth.json; we only record provider + model.
       updates.CODEX_MODEL = config.codex.model
+      break
+    case 'custom':
+      updates.CUSTOM_API_KEY = config.custom.apiKey
+      updates.CUSTOM_BASE_URL = config.custom.baseUrl
+      updates.CUSTOM_MODEL = config.custom.model
+      updates.CUSTOM_API_STYLE = config.custom.apiStyle
       break
   }
   return updates

@@ -54,7 +54,12 @@ export async function resolveSections(
   )
 }
 
-/** 清空缓存（在 /clear 或会话重置时调用） */
+/** 清空缓存（在 /clear、/login 换模型、或会话重置时调用） */
 export function clearSectionCache(): void {
   _cache.clear()
+}
+
+/** 删掉单个 section 缓存（env_info 随 modelId 变，必须在重算前 invalidate）。 */
+export function invalidateSection(name: string): void {
+  _cache.delete(name)
 }

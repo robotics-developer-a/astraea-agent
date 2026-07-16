@@ -5,7 +5,7 @@
 //   bun run src/cli.ts --daemon        — 启动 vigil daemon（调度进程，不调 LLM）
 //   bun run src/cli.ts --headless --task <id>  — 执行单个 vigil 任务（headless agent，调 LLM）
 
-import { assertConfig, config } from './config'
+import { assertConfig, config, activeModel } from './config'
 import { query } from './query'
 import { listTools } from './tools/registry'
 import { createUserMessage } from './types/message'
@@ -106,17 +106,7 @@ async function main() {
 
   const tools = listTools()
   const enabledTools = new Set(tools.map(t => t.name))
-  const modelId = provider === 'anthropic'
-    ? config.anthropic.model
-    : provider === 'openai'
-      ? config.openai.model
-      : provider === 'codex'
-        ? config.codex.model
-        : provider === 'deepseek'
-          ? config.deepseek.model
-          : provider === 'kimi'
-            ? config.kimi.model
-            : config.ollama.model
+  const modelId = activeModel()
 
   console.error(`[provider] ${provider} / ${modelId}`)
 
@@ -167,17 +157,11 @@ async function main() {
 
 // ── headless 任务执行（vigil daemon 触发，调用 LLM）────────────────────────
 async function runHeadlessTask(taskId: string, prompt: string, resultFile?: string): Promise<void> {
-  const provider = config.provider
   const { initMcp } = await import('./mcp/registry.js')
   await initMcp()
   const tools = listTools()
   const enabledTools = new Set(tools.map(t => t.name))
-  const modelId = provider === 'anthropic' ? config.anthropic.model
-    : provider === 'openai' ? config.openai.model
-    : provider === 'codex' ? config.codex.model
-    : provider === 'deepseek' ? config.deepseek.model
-    : provider === 'kimi' ? config.kimi.model
-    : config.ollama.model
+  const modelId = activeModel()
 
   console.error(`[vigil:headless] task=${taskId}`)
 

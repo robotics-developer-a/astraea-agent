@@ -7,6 +7,7 @@ import { streamMessageKimi } from './kimi'
 import { streamMessageOllama } from './ollama'
 import { streamMessageOpenAI, resetOpenAIClient } from './openai'
 import { streamMessageCodex, resetCodexClient } from './codex'
+import { streamMessageCustom } from './custom'
 import { resetAnthropicClient } from './client'
 import { recordUsage } from '../state/usageStats'
 
@@ -20,6 +21,7 @@ function dispatch(messages: Message[], options: StreamOpts): AsyncGenerator<Stre
   if (config.provider === 'ollama') return streamMessageOllama(messages, options)
   if (config.provider === 'openai') return streamMessageOpenAI(messages, options)
   if (config.provider === 'codex') return streamMessageCodex(messages, options)
+  if (config.provider === 'custom') return streamMessageCustom(messages, options)
   return streamMessageAnthropic(messages, options)
 }
 
@@ -31,7 +33,17 @@ export async function* streamMessage(
   // 在此拦截 message_stop 的 usage 累加进 session 级用量（/usage 读它），零遗漏。
   // 解析出本次实际生效的 provider + 模型，给用量打准确标签 → 喂价目表算钱。
   const provider = config.provider
-  const model = options.model ?? (config as unknown as Record<string, { model?: string }>)[provider]?.model ?? 'unknown'
+  // Prefer explicit options.model; otherwise the active provider block's model (incl. custom).
+  const model =
+    options.model
+    ?? (provider === 'custom' ? config.custom.model
+      : provider === 'deepseek' ? config.deepseek.model
+      : provider === 'kimi' ? config.kimi.model
+      : provider === 'ollama' ? config.ollama.model
+      : provider === 'openai' ? config.openai.model
+      : provider === 'codex' ? config.codex.model
+      : config.anthropic.model)
+    ?? 'unknown'
   for await (const event of dispatch(messages, options)) {
     if (event.type === 'message_stop') recordUsage(model, provider, event.usage)
     yield event

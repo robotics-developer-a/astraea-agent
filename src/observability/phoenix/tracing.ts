@@ -38,6 +38,8 @@ const PROVIDER_SPAN_NAMES: Record<string, string> = {
   deepseek: 'ChatDeepSeek',
   kimi: 'ChatKimi',
   ollama: 'ChatOllama',
+  custom: 'ChatCustom',
+  codex: 'ChatCodex',
 }
 
 function activeModel(): string {
@@ -52,6 +54,8 @@ function activeModel(): string {
       return config.openai.model
     case 'codex':
       return config.codex.model
+    case 'custom':
+      return config.custom.model
     default:
       return config.anthropic.model
   }
